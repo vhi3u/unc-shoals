@@ -69,12 +69,12 @@ v_S = 0.10 # [m s^-1] northward (positive v)
 
 u_bcs = FieldBoundaryConditions(;
     # west = OpenBoundaryCondition(0.0)
-    east = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection)
+    east = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection())
 )
 
 v_bcs = FieldBoundaryConditions(;
-    south = OpenBoundaryCondition(v_S, scheme=PerturbationAdvection),      # inflow at south
-    north = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection)
+    south = OpenBoundaryCondition(v_S, scheme=PerturbationAdvection()),      # inflow at south
+    north = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection())
 )
 
 
@@ -83,6 +83,7 @@ model = NonhydrostaticModel(
     grid        = ib_grid,
     timestepper = :RungeKutta3,
     closure     = ScalarDiffusivity(ν=1e-3, κ=1e-3),
+    pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
     tracers     = (:b,),
     buoyancy    = BuoyancyTracer(),
     coriolis    = FPlane(latitude = 35.2480),

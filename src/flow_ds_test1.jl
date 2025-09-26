@@ -1,15 +1,16 @@
 using Oceananigans
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: GradientBoundaryCondition, ValueBoundaryCondition, FieldBoundaryConditions, OpenBoundaryCondition
+using Oceananigans.BoundaryConditions
 using Oceananigans.TurbulenceClosures
+using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using Oceananigans.OutputWriters
 using Oceananigans.Diagnostics: CFL
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity
 using NCDatasets
 
 
-# include("dshoal_vn.jl")  # defines: dshoal(Lx, Ly, σ, Hs, N)
-include("dshoal_flat1.jl")  # defines: dshoal(Lx, Ly, σ, Hs, N)
+include("dshoal_vn.jl")  # defines: dshoal(Lx, Ly, σ, Hs, N)
+# include("src/dshoal_flat1.jl")  # defines: dshoal(Lx, Ly, σ, Hs, N)
 
 
 # domain
@@ -26,7 +27,7 @@ Hs = 15.0       # [m] shoal height
 
 
 # no shoal bathymetry
-x_km, y_km, h = dshoalf1(Lx/1e3, Ly/1e3, σ, Hs, Nx)
+x_km, y_km, h = dshoal(Lx/1e3, Ly/1e3, σ, Hs, Nx)
 
 
 # create surface plot to check
@@ -81,13 +82,14 @@ v_S = 0.10 # [m s^-1] northward (positive v)
 # one directional flow case
 
 u_bcs = FieldBoundaryConditions(;
-    # west = OpenBoundaryCondition(0.0)
-    east = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection)
+    # west = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection()),
+    east = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection()),
+    # bottom = ValueBoundaryCondition(0.0)
 )
 
 v_bcs = FieldBoundaryConditions(;
-    south = OpenBoundaryCondition(v_S, scheme=PerturbationAdvection),      # inflow at south
-    north = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection)
+    south = OpenBoundaryCondition(v_S, scheme=PerturbationAdvection()),      # inflow at south
+    north = OpenBoundaryCondition(0.0, scheme=PerturbationAdvection())
 )
 
 
@@ -107,7 +109,6 @@ v_bcs = FieldBoundaryConditions(;
 #     west = ValueBoundaryCondition(0.0)
 # )
 
-# v_bcs = FieldBoundaryConditions()
 
 # sponge setup similar to tomas submesoscale-headland repo [WIP]
 
@@ -139,13 +140,32 @@ v_bcs = FieldBoundaryConditions(;
 # )
 
 # @inline Fᵥ(x,y,z,t,v,p) = 
-#     -(p.σs) * 
+
+# function sponge(x,y,z,t,v)
+#     relaxation_time = 2hours
+#     sponge_width = 10e3
+#     if y < sponge_width
+#         target = v_S
+#         strength = exp(-((sponge_width - y) / (sponge_width/3))^2)
+#     elseif y > (Ly - sponge_width)
+#         target = 0.0
+#         strength = exp(-((y - (Ly - sponge_width)) / (sponge_width/3))^2)
+#     else
+#         return 0.0
+#     end
+
+#     return strength * (target - v) / relaxation_time
+# end
+
+# v_forcing = Forcing(sponge, field_dependencies=:v)
+
 
 # model setup
 model = NonhydrostaticModel(
     grid        = ib_grid,
     timestepper = :RungeKutta3,
-    closure     = ScalarDiffusivity(ν=1e-3, κ=1e-3),
+    closure     = ScalarDiffusivity(ν=1e-2, κ=1e-3),
+    pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
     tracers     = (:b,),
     buoyancy    = BuoyancyTracer(),
     coriolis    = FPlane(latitude = 35.2480),
@@ -164,8 +184,8 @@ cfl_values = Float64[]       # Stores CFL at each step
 cfl_times  = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=1minutes, stop_time=50days)
-conjure_time_step_wizard!(simulation, cfl=0.7,
-                          diffusive_cfl = 0.8,
+conjure_time_step_wizard!(simulation, cfl=0.5,
+                          diffusive_cfl = 0.6,
                           max_change = 1.8,
                           min_Δt = 2seconds,
                           max_Δt = 90minutes)
@@ -197,6 +217,12 @@ simulation.callbacks[:progress_logger] = Callback(TimeInterval(1days)) do sim
     @info "⏱️ Simulation time = $(prettytime(sim.model.clock.time))"
 end
 
+simulation.callbacks[:bathymetry_check] = Callback(TimeInterval(1days)) do sim
+    h_max = maximum(h)
+    h_min = minimum(h)
+    @info "Bathymetry - min: $(h_min)m, max: $(h_max)m, range: $(h_max - h_min)m"
+end
+
 # cfl value every day callback
 simulation.callbacks[:cfl_logger] = Callback(TimeInterval(1days)) do sim
     cfl_val = cfl(sim.model)
@@ -213,7 +239,7 @@ simulation.callbacks[:surface_v_logger] = Callback(TimeInterval(1days)) do sim
     k = size(v, 3)  # surface is at the top of the domain
 
     v_val = v[i, j, k]
-    @info "🌊 Surface v-velocity at center (x=$(i), y=$(j)) = $(v_val) m/s"
+    @info "🌊 Surface v-velocity at center (Nx=$(i), Ny=$(j)) = $(v_val) m/s"
 end
 
 # simulation.callbacks[:buoyancy_logger] = Callback(TimeInterval(1days)) do sim
@@ -247,11 +273,11 @@ uB = Field((@at (Center, Center, Center) u*b))
 vB = Field((@at (Center, Center, Center) v*b))
 wB = Field((@at (Center, Center, Center) w*b))
 
-avg_interval = 12hours
-simulation.output_writers[:averages] = NetCDFWriter(model, (;u, v, w, b, uv, uw, vw, uB, vB, wB),
-                                                          schedule = AveragedTimeInterval(avg_interval, window = avg_interval),
-                                                          filename = "timeaveragedfields.nc",
-                                                          overwrite_existing = overwrite_existing)
+# avg_interval = 12hours
+# simulation.output_writers[:averages] = NetCDFWriter(model, (;u, v, w, b, uv, uw, vw, uB, vB, wB),
+#                                                           schedule = AveragedTimeInterval(avg_interval, window = avg_interval),
+#                                                           filename = "timeaveragedfields.nc",
+#                                                           overwrite_existing = overwrite_existing)
 
 # u_zavg = Average(u, dims=(3))
 # v_zavg = Average(v, dims=(3))
