@@ -1,7 +1,8 @@
 using Oceananigans
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: GradientBoundaryCondition, ValueBoundaryCondition, FieldBoundaryConditions, OpenBoundaryCondition
+using Oceananigans.BoundaryConditions
 using Oceananigans.TurbulenceClosures
+using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using Oceananigans.OutputWriters
 using Oceananigans.Diagnostics: CFL
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity

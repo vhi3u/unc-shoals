@@ -19,7 +19,7 @@ Ly = 200e3      # [m] across-shoal domain width
 Lz = 50.0       # [m] depth
 
 Nx, Ny, Nz = 100, 100, 20
-grid = RectilinearGrid(size=(Nx, Ny, Nz), extent=(Lx, Ly, Lz), topology=(Bounded, Bounded, Bounded))
+grid = RectilinearGrid(size=(Nx, Ny, Nz), extent=(Lx, Ly, Lz), topology=(Bounded, Bounded, Bounded), halo = (4, 4, 4))
 
 # bathymetry parameters
 σ = 8.0         # [km] Gaussian width for shoal cross-section
@@ -66,6 +66,8 @@ println("North (y=Ly): ", initial_b(0, Ly, 0))
 
 v_N = 0.10 # [m s^-1] northward (positive v) ; redundant at the moment. 
 v_S = 0.10 # [m s^-1] northward (positive v)
+
+# @inline V(x, y, z, t, p) = p.v_S
 
 # convergent case
 # v_N = -0.05
@@ -160,11 +162,14 @@ v_bcs = FieldBoundaryConditions(;
 # v_forcing = Forcing(sponge, field_dependencies=:v)
 
 
+
+
 # model setup
 model = NonhydrostaticModel(
     grid        = ib_grid,
     timestepper = :RungeKutta3,
-    closure     = ScalarDiffusivity(ν=1e-2, κ=1e-3),
+    # closure     = ScalarDiffusivity(ν=1e-3, κ=1e-3),
+    advection = WENO(order=5),
     pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
     tracers     = (:b,),
     buoyancy    = BuoyancyTracer(),
@@ -184,8 +189,8 @@ cfl_values = Float64[]       # Stores CFL at each step
 cfl_times  = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=1minutes, stop_time=50days)
-conjure_time_step_wizard!(simulation, cfl=0.5,
-                          diffusive_cfl = 0.6,
+conjure_time_step_wizard!(simulation, cfl=0.7,
+                          diffusive_cfl = 0.8,
                           max_change = 1.8,
                           min_Δt = 2seconds,
                           max_Δt = 90minutes)
@@ -215,12 +220,6 @@ checkpointer_prefix = "checkpoint_" * saved_output_prefix
 
 simulation.callbacks[:progress_logger] = Callback(TimeInterval(1days)) do sim
     @info "⏱️ Simulation time = $(prettytime(sim.model.clock.time))"
-end
-
-simulation.callbacks[:bathymetry_check] = Callback(TimeInterval(1days)) do sim
-    h_max = maximum(h)
-    h_min = minimum(h)
-    @info "Bathymetry - min: $(h_min)m, max: $(h_max)m, range: $(h_max - h_min)m"
 end
 
 # cfl value every day callback
