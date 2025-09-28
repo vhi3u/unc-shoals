@@ -18,7 +18,7 @@ Ly = 200e3      # [m] across-shoal domain width
 Lz = 50.0       # [m] depth
 
 Nx, Ny, Nz = 100, 100, 20
-grid = RectilinearGrid(size=(Nx, Ny, Nz), extent=(Lx, Ly, Lz), topology=(Bounded, Bounded, Bounded))
+grid = RectilinearGrid(size=(Nx, Ny, Nz), extent=(Lx, Ly, Lz), topology=(Bounded, Bounded, Bounded), halo = (4,4,4))
 
 # bathymetry parameters
 σ = 8.0         # [km] Gaussian width for shoal cross-section
@@ -83,7 +83,8 @@ v_bcs = FieldBoundaryConditions(;
 model = NonhydrostaticModel(
     grid        = ib_grid,
     timestepper = :RungeKutta3,
-    closure     = ScalarDiffusivity(ν=1e-3, κ=1e-3),
+    closure = nothing,
+    advection = WENO(order=5),
     pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
     tracers     = (:b,),
     buoyancy    = BuoyancyTracer(),
