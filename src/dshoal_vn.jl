@@ -87,5 +87,5 @@ function dshoal(Lx, Ly, sigma, Hs, N)
     # Combine background and shoal bathymetry
     h = max.(hw, hs)
 
-    return x, y, h
+    return x, y, h'
 end
