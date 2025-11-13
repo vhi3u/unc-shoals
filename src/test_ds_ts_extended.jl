@@ -20,16 +20,15 @@ include("dshoal_vn.jl")
 
 # setup domain
 Lx = 100e3
-Ly = 200e3
+Ly = 400e3
 Lz = 50.0
 x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
-# Nx, Ny, Nz = 100, 100, 12 # do this one if you have the time.
+# Nx, Ny, Nz = 100, 100, 24 # do this one if you have the time.
 # Nx, Ny, Nz = 60, 60, 20
-# Nx, Ny, Nz = 60, 60, 10
 Nx, Ny, Nz = 30, 30, 10
 
-# plan: closed boundary conditions on east and west, periodic flow from south to north.
+# Plan: closed boundary conditions on east and west, periodic flow from south to north.
 
 grid = RectilinearGrid(CPU(); size=(Nx, Ny, Nz), halo=(4, 4, 4),
                        x, y, z, topology=(Bounded, Periodic, Bounded))
@@ -81,8 +80,8 @@ iS_north = extrapolate(interpolate((z_data,), S_north, Gridded(Linear())), Inter
 @inline ssbc(x, y, z, t) = ssbc(x, z, t)
 @inline snbc(x, y, z, t) = snbc(x, z, t)
 
-Tₑ(x, y, z) = 23.11
-Sₑ(x, y, z) = 36.4
+Tᵢ(x, y, z) = 23.11
+Sᵢ(x, y, z) = 36.4
 
 
 @info "setting up boundary conditions"
@@ -93,11 +92,12 @@ v∞(x, z, t) = 0.10
 
 # north and south sponges 
 
-Lₛ = 10e3
+Lₛ = 50e3
 τ = 6hours
-τ_ts = 10days
+τ_ts = 6days
+τ_e = 6days
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
-params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
+params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ = τ, τ_ts = τ_ts, τ_e = τ_e)
 
 # linear masks 0 at interior 1 at boundary for north and south. 
 # extent of this mask should be from y = 0 (south boundary) to y = Lₛ = 20 km 
@@ -136,58 +136,29 @@ end
 
 # add sigmoid taper past x = 60 km
 
-@inline function east_nudge(x, y, z, p)
-    xC = 3e3
-    xS = 60e3
-    Lw = p.Lx
-    k1 = 80 / Lw
-    k2 = 40 / Lw
-
-    s1 = 1 / (1 + exp(-k1 * (x - xC)))
-    s2 = 1 / (1 + exp(k2 * (x - xS)))
-    s = (s1 - 1) + s2
-    return clamp(s, 0.0, 1.0)
-end
-
 @inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Ls
-    x1 = p.Lx
-
-    if x0 <= x <= x1
-        return (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
+    x0 = 60e3
+    Lw = p.Lx
+    k = 8 / Lw
+    s = 1 / (1 + exp(-k * (x - x0)))
+    return clamp(s, 1.0, 0.0)
 end
 
-
-# testing the east mask
-for xs in (0.0, 2e3, 3e3, 50e3, 60e3, 70e3)
-    val = east_nudge(xs, 0.0, 0.0, ( Lx = 100e3,))
-    println("x = $(xs/1e3) km → east_nudge = $val")
-end
-
-for xs in (0.0, 90e3, 95e3, 100e3)
-    val = east_mask(xs, 0.0, 0.0, ( Lx = 100e3, Ls = 10e3,))
-    println("x = $(xs / 1e3) km -> east_mask = $val")
-end
-
-    
 
 # sponge functions
-@inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
-@inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
-@inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
+@inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_mask(x, y, z, p)) * u / p.τ 
+@inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_mask(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
+@inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_mask(x, y, z, p)) * w / p.τ
 
 # temperature and salinity: we need to nudge south to B2 mooring, and north to B1 mooring. 
 @inline sponge_T(x, y, z, t, T, p) =
     -south_mask(x, y, z, p) / p.τ_ts * (T - tsbc(x, y, z, t)) -
     north_mask(x, y, z, p) / p.τ_ts * (T - tnbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (T - Tₑ(x, y, z))
+    east_mask(x, y, z, p) / p.τ_e * (T - Tᵢ(x, y, z))
 @inline sponge_S(x, y, z, t, S, p) =
     -south_mask(x, y, z, p) / p.τ_ts * (S - ssbc(x, y, z, t)) -
     north_mask(x, y, z, p) / p.τ_ts * (S - snbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (S - Sₑ(x, y, z))
+    east_mask(x, y, z, p) / p.τ_e * (S - Sᵢ(x, y, z))
 
 # add forcings
 FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
@@ -260,7 +231,7 @@ PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, mod
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
-saved_output_prefix = "vnshoals_ts_periodic"
+saved_output_prefix = "vnshoals_ts_extended"
 
 saved_output_filename = saved_output_prefix * ".nc"
 checkpointer_prefix = "checkpoint_" * saved_output_prefix
@@ -299,10 +270,10 @@ vᵢ .+= 0.10
 # Tᵢ(x, y, z) = iT_south(z)
 # Sᵢ(x, y, z) = iS_south(z)
 
-@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
-@inline blend(a, b, α) = (1 - α) * a + α * b
-@inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
-@inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
+# @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
+# @inline blend(a, b, α) = (1 - α) * a + α * b
+# @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
+# @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
 # # test initial condition clamp...
 # using Oceananigans.Grids: xnodes, ynodes, znodes, Center
@@ -319,42 +290,6 @@ set!(model, u = uᵢ, v = vᵢ, w = wᵢ, T = Tᵢ, S = Sᵢ)
 # diagnostics before running...
 
 dx, dy, dz = Lx / Nx, Ly / Ny, Lz / Nz
-
-
-# verify t/s boundary conditions...
-zc = znodes(ib_grid, Center())
-
-T_south_model = [iT_south(z) for z in zc]
-T_north_model = [iT_north(z) for z in zc]
-S_south_model = [iS_south(z) for z in zc]
-S_north_model = [iS_north(z) for z in zc]
-
-using Plots
-
-# ---- Temperature panel ----
-p1 = plot(T_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Temperature [°C]",
-          ylabel = "z [m]",
-          title = "Temperature profiles",
-          grid = true)
-plot!(p1, T_south_model, zc;
-      lw = 2, label = "B2 south")
-
-# ---- Salinity panel ----
-p2 = plot(S_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Salinity [psu]",
-          ylabel = "",
-          title = "Salinity profiles",
-          grid = true)
-plot!(p2, S_south_model, zc;
-      lw = 2, label = "B2 south")
-
-# ---- Combine panels ----
-plt = plot(p1, p2; layout = (1, 2), size = (600, 300))
-display(plt)
-
 
 
 @info "time to run simulation!"

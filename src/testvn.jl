@@ -2,7 +2,7 @@ using Oceananigans
 using Oceananigans.Units
 using SeawaterPolynomials: TEOS10EquationOfState
 using Oceananigans.Grids: znodes, Center
-using Oceananigans.BoundaryConditions: PerturbationAdvection, OpenBoundaryCondition
+using Oceananigans.BoundaryConditions: PerturbationAdvection, OpenBoundaryCondition, ValueBoundaryCondition
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using NCDatasets
 using Statistics
@@ -15,7 +15,7 @@ using DataFrames
 
 # parameters for boundary condition timescales (use later)
 τ_v = 6hours
-τ_ts = 3days
+τ_ts = 1days
 
 Lx, Ly, Lz = 100e3, 200e3, 50
 Nx, Ny, Nz = 30, 30, 10
@@ -44,19 +44,13 @@ V₂ = 0.1 # m/s
 
 H = Lz
 
-open_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = τ_v,
-                                                                  outflow_timescale =τ_v),
+south_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = τ_v, outflow_timescale = τ_v),
                                 parameters=(; V₂))
 
-# open_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = 2minutes,
-#                                                                   outflow_timescale = 2minutes),
-#                                 parameters = (; V₂))
+north_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = 1days, outflow_timescale = 10minutes),
+                                 parameters = (; V₂))
 
-
-zero_bc = OpenBoundaryCondition(V₀; scheme = PerturbationAdvection(inflow_timescale = 6hours,
-                                                                   outflow_timescale = 2hours))
-
-v_bcs = FieldBoundaryConditions(south = open_bc, north = zero_bc)
+v_bcs = FieldBoundaryConditions(south = south_bc, north = north_bc)
 
 @info "loading B1 and B2 T/S profiles"
 using CSV, Interpolations
@@ -82,35 +76,43 @@ iS_north = extrapolate(interpolate((z_data,), S_north, Gridded(Linear())), Inter
 @inline ssbc(x, y, z, t) = ssbc(x, z, t)
 @inline snbc(x, y, z, t) = snbc(x, z, t)
 
+Tᵢ(x, y, z) = 23.11
+Sᵢ(x, y, z) = 36.4
+
 @info "setting up boundary conditions"
 
-south_temp = OpenBoundaryCondition(tsbc; scheme = PerturbationAdvection(inflow_timescale = τ_ts,
-                                                                        outflow_timescale = τ_ts))
-north_temp = OpenBoundaryCondition(tnbc; scheme = PerturbationAdvection(inflow_timescale = τ_ts,
-                                                                        outflow_timescale = τ_ts))
+# south_temp = OpenBoundaryCondition(tsbc; scheme = PerturbationAdvection())
+north_temp = OpenBoundaryCondition(tnbc; scheme = PerturbationAdvection(inflow_timescale = 1days,
+                                                                        outflow_timescale = 10minutes))
 
-south_salin = OpenBoundaryCondition(ssbc; scheme = PerturbationAdvection(inflow_timescale = τ_ts,
-                                                                        outflow_timescale = τ_ts))
-north_salin = OpenBoundaryCondition(snbc; scheme = PerturbationAdvection(inflow_timescale = τ_ts,
-                                                                        outflow_timescale = τ_ts))
+# south_salin = OpenBoundaryCondition(ssbc; scheme = PerturbationAdvection())
+north_salin = OpenBoundaryCondition(snbc; scheme = PerturbationAdvection(inflow_timescale = 1days,
+                                                                         outflow_timescale = 10minutes))
 
+# T_bcs = FieldBoundaryConditions(south = south_temp, north = north_temp)
+# S_bcs = FieldBoundaryConditions(south = south_salin, north = north_salin)
 
-T_bcs = FieldBoundaryConditions(south = ValueBoundaryCondition(tsbc), north = ValueBoundaryCondition(tnbc))
-S_bcs = FieldBoundaryConditions(south = ValueBoundaryCondition(ssbc), north = ValueBoundaryCondition(snbc))
+tempS = ValueBoundaryCondition(tsbc)
+salinS = ValueBoundaryCondition(ssbc)
+tempN = OpenBoundaryCondition(tnbc)
+salinN = OpenBoundaryCondition(snbc)
 
-T_bcs = FieldBoundaryConditions(south = south_temp, north = north_temp)
-S_bcs = FieldBoundaryConditions(south = south_salin, north = north_salin)
+tempE = OpenBoundaryCondition(Tᵢ)
+salinE = OpenBoundaryCondition(Sᵢ)
+
+T_bcs = FieldBoundaryConditions(south = tempS, north = north_temp, east = tempE)
+S_bcs = FieldBoundaryConditions(south = salinS, north = north_salin, east = salinE)
 
 model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
                               buoyancy = SeawaterBuoyancy(),
                               pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
-                              advection = WENO(order=5), coriolis = FPlane(latitude=35.2480),
                               closure = AnisotropicMinimumDissipation(),
-                              # boundary_conditions = (; v = v_bcs))
+                              advection = WENO(order=5), coriolis = FPlane(latitude=35.2480),
                               boundary_conditions = (; T=T_bcs, v = v_bcs, S = S_bcs))
 
 # check bcs...
 @show model.velocities.v.boundary_conditions
+@show model.tracers.T.boundary_conditions
 # @show model.velocities.u.boundary_conditions
 # @show model.tracers.T.boundary_conditions
 # @show model.tracers.S.boundary_conditions
@@ -155,7 +157,7 @@ zC = znodes(ib_grid, Center())
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times  = Float64[]       # Stores model time
 
-simulation = Simulation(model, Δt=5seconds, stop_time=50days)
+simulation = Simulation(model, Δt=5seconds, stop_time=100days)
 conjure_time_step_wizard!(simulation, cfl=0.7)
 
 start_time = time_ns() * 1e-9
@@ -216,19 +218,16 @@ end
 # initial conditions for temperature and salinity based on cast 77?
 # salinity avg = 36.4, temperature avg = 23.11
 
-Tᵢ(x, y, z) = 23.11
-Sᵢ(x, y, z) = 36.4
-
 # set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = vᵢ, w = wᵢ) #, v=V(0, 0, 0, 0, (; V₂)))
 set!(model, T = Tᵢ, S = Sᵢ) #, v = V(0, 0, 0, 0, (; V₂)))
 
-# check velocity
-zC = znodes(ib_grid, Center())
-ktop = length(zC)
-vs_surf = [model.velocities.v[i, 1, ktop] for i in 1:Nx]
+# # check velocity
+# zC = znodes(ib_grid, Center())
+# ktop = length(zC)
+# vs_surf = [model.velocities.v[i, 1, ktop] for i in 1:Nx]
 
-@show mean(vs_surf), extrema(vs_surf)
-@show extrema(model.tracers.T), extrema(model.tracers.S)
+# @show mean(vs_surf), extrema(vs_surf)
+# @show extrema(model.tracers.T), extrema(model.tracers.S)
 
 println(model)              # prints a structured summary
 
