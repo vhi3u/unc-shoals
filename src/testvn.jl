@@ -44,13 +44,10 @@ V₂ = 0.1 # m/s
 
 H = Lz
 
-south_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = τ_v, outflow_timescale = τ_v),
+open_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = τ_v, outflow_timescale = τ_v),
                                 parameters=(; V₂))
 
-north_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = 1days, outflow_timescale = 10minutes),
-                                 parameters = (; V₂))
-
-v_bcs = FieldBoundaryConditions(south = south_bc, north = north_bc)
+v_bcs = FieldBoundaryConditions(south = open_bc, north = open_bc)
 
 @info "loading B1 and B2 T/S profiles"
 using CSV, Interpolations
@@ -82,12 +79,10 @@ Sᵢ(x, y, z) = 36.4
 @info "setting up boundary conditions"
 
 # south_temp = OpenBoundaryCondition(tsbc; scheme = PerturbationAdvection())
-north_temp = OpenBoundaryCondition(tnbc; scheme = PerturbationAdvection(inflow_timescale = 1days,
-                                                                        outflow_timescale = 10minutes))
+# north_temp = OpenBoundaryCondition(tnbc; scheme = PerturbationAdvection())
 
 # south_salin = OpenBoundaryCondition(ssbc; scheme = PerturbationAdvection())
-north_salin = OpenBoundaryCondition(snbc; scheme = PerturbationAdvection(inflow_timescale = 1days,
-                                                                         outflow_timescale = 10minutes))
+# north_salin = OpenBoundaryCondition(snbc; scheme = PerturbationAdvection())
 
 # T_bcs = FieldBoundaryConditions(south = south_temp, north = north_temp)
 # S_bcs = FieldBoundaryConditions(south = south_salin, north = north_salin)
@@ -100,8 +95,8 @@ salinN = OpenBoundaryCondition(snbc)
 tempE = OpenBoundaryCondition(Tᵢ)
 salinE = OpenBoundaryCondition(Sᵢ)
 
-T_bcs = FieldBoundaryConditions(south = tempS, north = north_temp, east = tempE)
-S_bcs = FieldBoundaryConditions(south = salinS, north = north_salin, east = salinE)
+T_bcs = FieldBoundaryConditions(south = tempS, north = tempN, east = tempE)
+S_bcs = FieldBoundaryConditions(south = salinS, north = salinN, east = salinE)
 
 model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
                               buoyancy = SeawaterBuoyancy(),
