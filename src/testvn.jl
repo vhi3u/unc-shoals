@@ -100,7 +100,7 @@ S_bcs = FieldBoundaryConditions(south = salinS, north = salinN, east = salinE)
 
 model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
                               buoyancy = SeawaterBuoyancy(),
-                              pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
+                              # pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
                               closure = AnisotropicMinimumDissipation(),
                               advection = WENO(order=5), coriolis = FPlane(latitude=35.2480),
                               boundary_conditions = (; T=T_bcs, v = v_bcs, S = S_bcs))
@@ -212,6 +212,14 @@ end
 
 # initial conditions for temperature and salinity based on cast 77?
 # salinity avg = 36.4, temperature avg = 23.11
+
+# test area?
+
+A_w = get_west_area(ib_grid)
+A_e = get_east_area(ib_grid)
+
+@show A_w
+@show A_e
 
 # set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = vᵢ, w = wᵢ) #, v=V(0, 0, 0, 0, (; V₂)))
 set!(model, T = Tᵢ, S = Sᵢ) #, v = V(0, 0, 0, 0, (; V₂)))

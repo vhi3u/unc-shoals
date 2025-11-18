@@ -26,8 +26,8 @@ x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
 # Nx, Ny, Nz = 100, 100, 12 # do this one if you have the time.
 # Nx, Ny, Nz = 60, 60, 20
-# Nx, Ny, Nz = 60, 60, 10
-Nx, Ny, Nz = 30, 30, 10
+Nx, Ny, Nz = 60, 60, 10
+# Nx, Ny, Nz = 30, 30, 10
 
 # plan: closed boundary conditions on east and west, periodic flow from south to north.
 
@@ -87,17 +87,32 @@ Sₑ(x, y, z) = 36.4
 
 @info "setting up boundary conditions"
 
-# prescribed inflow (we want 0.10 m/s flow from south to north i.e. positive)
-
-v∞(x, z, t) = 0.10
 
 # north and south sponges 
 
 Lₛ = 10e3
-τ = 6hours
+τₛ = 6hours
+τₙ = 6hours
+τₑ = 1hours
 τ_ts = 10days
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
-params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
+params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τₙ = τₙ, τₛ = τₛ, τₑ = τₑ, τ_ts = τ_ts)
+
+# sigmoid taper for velocity
+
+@inline function v∞(x, z, t, p)
+    xC = 3e3
+    xS = 60e3
+    Lw = p.Lx
+    k1 = 80 / Lw
+    k2 = 40 / Lw
+
+    s1 = 1 / (1 + exp(-k1 * (x - xC)))
+    s2 = 1 / (1 + exp(k2 * (x - xS)))
+    s = (s1 - 1) + s2
+    sc = clamp(s, 0.0, 1.0)
+    return 0.10 * sc
+end
 
 # linear masks 0 at interior 1 at boundary for north and south. 
 # extent of this mask should be from y = 0 (south boundary) to y = Lₛ = 20 km 
@@ -123,32 +138,6 @@ end
     end
 end
 
-# @inline function east_mask(x, y, z, p)
-#     x0 = p.Lx - p.Ls
-#     x1 = p.Lx
-
-#     if x0 <= x <= x1
-#         return (x - x0) / (x1 - x0)
-#     else
-#         return 0.0 
-#     end
-# end
-
-# add sigmoid taper past x = 60 km
-
-@inline function east_nudge(x, y, z, p)
-    xC = 3e3
-    xS = 60e3
-    Lw = p.Lx
-    k1 = 80 / Lw
-    k2 = 40 / Lw
-
-    s1 = 1 / (1 + exp(-k1 * (x - xC)))
-    s2 = 1 / (1 + exp(k2 * (x - xS)))
-    s = (s1 - 1) + s2
-    return clamp(s, 0.0, 1.0)
-end
-
 @inline function east_mask(x, y, z, p)
     x0 = p.Lx - p.Ls
     x1 = p.Lx
@@ -159,35 +148,37 @@ end
         return 0.0
     end
 end
-
-
-# testing the east mask
-for xs in (0.0, 2e3, 3e3, 50e3, 60e3, 70e3)
-    val = east_nudge(xs, 0.0, 0.0, ( Lx = 100e3,))
-    println("x = $(xs/1e3) km → east_nudge = $val")
-end
-
-for xs in (0.0, 90e3, 95e3, 100e3)
-    val = east_mask(xs, 0.0, 0.0, ( Lx = 100e3, Ls = 10e3,))
-    println("x = $(xs / 1e3) km -> east_mask = $val")
-end
-
-    
+ 
 
 # sponge functions
-@inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
-@inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
-@inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
+# @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
+# @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
+# @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
 
-# temperature and salinity: we need to nudge south to B2 mooring, and north to B1 mooring. 
-@inline sponge_T(x, y, z, t, T, p) =
-    -south_mask(x, y, z, p) / p.τ_ts * (T - tsbc(x, y, z, t)) -
-    north_mask(x, y, z, p) / p.τ_ts * (T - tnbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (T - Tₑ(x, y, z))
-@inline sponge_S(x, y, z, t, S, p) =
-    -south_mask(x, y, z, p) / p.τ_ts * (S - ssbc(x, y, z, t)) -
-    north_mask(x, y, z, p) / p.τ_ts * (S - snbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (S - Sₑ(x, y, z))
+@inline sponge_u(x, y, z, t, u, p) = -min(
+    south_mask(x, y, z, p) * u / τₛ,
+    north_mask(x, y, z, p) * u / τₙ,
+    east_mask(x, y, z, p) * u / τₑ )
+
+@inline sponge_v(x, y, z, t, v, p) = -min(
+    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
+    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
+    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ ) 
+
+@inline sponge_w(x, y, z, t, w, p) = -min(
+    south_mask(x, y, z, p) * w / τₙ,
+    north_mask(x, y, z, p) * w / τₛ,
+    east_mask(x, y, z, p) * w / τₑ )
+
+@inline sponge_T(x, y, z, t, T, p) = -min(
+    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ,
+    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ,
+    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ ) 
+
+@inline sponge_S(x, y, z, t, S, p) = -min(
+    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ,
+    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ,
+    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ )
 
 # add forcings
 FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
@@ -197,7 +188,6 @@ Fᵥ = Forcing(sponge_v, field_dependencies = :v, parameters = params)
 F_w = Forcing(sponge_w, field_dependencies = :w, parameters = params)
 
 forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
-# forcings = (T = FT, S = FS)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
@@ -215,7 +205,7 @@ model = NonhydrostaticModel(
     closure = AnisotropicMinimumDissipation(),
     pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
     tracers = (:T, :S),
-    buoyancy = SeawaterBuoyancy(),
+    buoyancy = SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
     coriolis = FPlane(latitude = 35.2480),
     boundary_conditions = bcs,
     forcing = forcings
@@ -230,12 +220,7 @@ cfl_values = Float64[]       # Stores CFL at each step
 cfl_times  = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=100days)
-# conjure_time_step_wizard!(simulation, cfl=0.8,
-#                           diffusive_cfl = 0.9,
-#                           max_change = 5.0,
-#                           min_Δt = 2seconds,
-#                           max_Δt = 3hours
-#                           )
+
 
 conjure_time_step_wizard!(simulation, cfl = 0.7, diffusive_cfl = 0.8)
 
@@ -304,17 +289,7 @@ vᵢ .+= 0.10
 @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
 @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
-# # test initial condition clamp...
-# using Oceananigans.Grids: xnodes, ynodes, znodes, Center
-# xs = xnodes(ib_grid, Center()); ys = ynodes(ib_grid, Center()); zs = znodes(ib_grid, Center())
-# xmid, ymid, z0 = xs[div(end,2)], ys[div(end,2)], zs[end]
-
-# Tx1 = Tᵢ(xs[1], ymid, z0);    Tx2 = Tᵢ(xs[end], ymid, z0)   # vary x only
-# Ty1 = Tᵢ(xmid, ys[1], z0);    Ty2 = Tᵢ(xmid, ys[end], z0)   # vary y only
-# @show Tx1 Tx2 Ty1 Ty2  (Tx2-Tx1)  (Ty2-Ty1)
-
 set!(model, u = uᵢ, v = vᵢ, w = wᵢ, T = Tᵢ, S = Sᵢ)
-# set!(model; u=uᵢ, v=vᵢ, w=wᵢ)
 
 # diagnostics before running...
 
@@ -354,7 +329,6 @@ plot!(p2, S_south_model, zc;
 # ---- Combine panels ----
 plt = plot(p1, p2; layout = (1, 2), size = (600, 300))
 display(plt)
-
 
 
 @info "time to run simulation!"
