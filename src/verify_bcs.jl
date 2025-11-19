@@ -87,7 +87,7 @@ v∞(x, z, t) = 0.10
 
 Lₛ = 10e3
 τ = 6hours
-τ_ts = 10days
+τ_ts = 6hours
 params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
 
 # linear masks 0 at interior 1 at boundary for north and south. 
@@ -287,6 +287,6 @@ savefig(p_final, "verification_bcs.png")
 println("Verification Results:")
 println("South Boundary (y=0): T_model = $(T_profile[1]), T_target = $T_target_south")
 println("North Boundary (y=Ly): T_model = $(T_profile[end]), T_target = $T_target_north")
-println("South Sponge End (y=$(Lₛ/1e3)km): T_model = $(T_profile[findfirst(y_T .>= Lₛ)])")
+println("South Sponge End (y=$(Lₛ/1e3)km): T_model = $(T_profile[findfirst(y_T .>= Lₛ)]), T_target = $T_target_south")
 println("North Sponge Start (y=$((Ly-Lₛ)/1e3)km): T_model = $(T_profile[findfirst(y_T .>= Ly-Lₛ)])")
 

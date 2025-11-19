@@ -15,11 +15,14 @@ using DataFrames
 
 # parameters for boundary condition timescales (use later)
 τ_v = 6hours
-τ_ts = 1days
+τ_ts = 6hours
+Lₛ = 10e3
 
 Lx, Ly, Lz = 100e3, 200e3, 50
 Nx, Ny, Nz = 30, 30, 10
 x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
+
+params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ_v = τ_v, τ_ts = τ_ts)
 
 grid = RectilinearGrid(CPU(); size=(Nx, Ny, Nz), halo=(4, 4, 4),
                        x, y, z, topology=(Bounded, Bounded, Bounded))
@@ -89,25 +92,85 @@ Sᵢ(x, y, z) = 36.4
 
 tempS = ValueBoundaryCondition(tsbc)
 salinS = ValueBoundaryCondition(ssbc)
-tempN = OpenBoundaryCondition(tnbc)
-salinN = OpenBoundaryCondition(snbc)
+tempN = ValueBoundaryCondition(tnbc)
+salinN = ValueBoundaryCondition(snbc)
 
-tempE = OpenBoundaryCondition(Tᵢ)
-salinE = OpenBoundaryCondition(Sᵢ)
+tempE = ValueBoundaryCondition(Tᵢ)
+salinE = ValueBoundaryCondition(Sᵢ)
 
 T_bcs = FieldBoundaryConditions(south = tempS, north = tempN, east = tempE)
 S_bcs = FieldBoundaryConditions(south = salinS, north = salinN, east = salinE)
 
+# create same nudgings from periodic case:
+
+@inline function south_mask(x, y, z, p)
+    y0 = 0
+    y1 = p.Ls
+    if y0 <= y <= y1
+        return 1 - y/y1
+    else
+        return 0.0
+    end
+end
+
+@inline function north_mask(x, y, z, p) 
+    y0 = p.Ly - p.Ls
+    y1 = p.Ly
+
+    if y0 <= y <= y1
+        return (y - y0) / (y1 - y0)
+    else
+        return 0.0
+    end
+end
+
+@inline function east_mask(x, y, z, p)
+    x0 = p.Lx - p.Ls
+    x1 = p.Lx
+
+    if x0 <= x <= x1
+        return (x - x0) / (x1 - x0)
+    else
+        return 0.0
+    end
+end
+
+# sponge functions
+@inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
+@inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
+@inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
+
+# temperature and salinity: we need to nudge south to B2 mooring, and north to B1 mooring. 
+@inline sponge_T(x, y, z, t, T, p) =
+    -south_mask(x, y, z, p) / p.τ_ts * (T - tsbc(x, y, z, t)) -
+    north_mask(x, y, z, p) / p.τ_ts * (T - tnbc(x, y, z, t)) -
+    east_mask(x, y, z, p) / p.τ_ts * (T - Tₑ(x, y, z))
+@inline sponge_S(x, y, z, t, S, p) =
+    -south_mask(x, y, z, p) / p.τ_ts * (S - ssbc(x, y, z, t)) -
+    north_mask(x, y, z, p) / p.τ_ts * (S - snbc(x, y, z, t)) -
+    east_mask(x, y, z, p) / p.τ_ts * (S - Sₑ(x, y, z))
+
+# add forcings
+FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
+FS = Forcing(sponge_S, field_dependencies = :S, parameters = params)
+Fᵤ = Forcing(sponge_u, field_dependencies = :u, parameters = params)
+Fᵥ = Forcing(sponge_v, field_dependencies = :v, parameters = params)
+F_w = Forcing(sponge_w, field_dependencies = :w, parameters = params)
+
+forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
+
+
 model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
-                              buoyancy = SeawaterBuoyancy(),
+                              buoyancy = SeawaterBuoyancy(equation_of_state = TEOS10EquationOfState()),
                               pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
                               closure = AnisotropicMinimumDissipation(),
                               advection = WENO(order=5), coriolis = FPlane(latitude=35.2480),
-                              boundary_conditions = (; T=T_bcs, v = v_bcs, S = S_bcs))
+                              boundary_conditions = (; T=T_bcs, v = v_bcs, S = S_bcs),
+                              forcing = forcings)
 
 # check bcs...
-@show model.velocities.v.boundary_conditions
-@show model.tracers.T.boundary_conditions
+# @show model.velocities.v.boundary_conditions
+# @show model.tracers.T.boundary_conditions
 # @show model.velocities.u.boundary_conditions
 # @show model.tracers.T.boundary_conditions
 # @show model.tracers.S.boundary_conditions
@@ -124,30 +187,6 @@ model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
 
 # make sure T/S profiles are doing their job...
 zC = znodes(ib_grid, Center())
-# T_south_prof = [iT_south(z) for z in zC]
-
-# T_north_prof = [iT_north(z) for z in zC]
-# S_south_prof = [iS_south(z) for z in zC]
-# S_north_prof = [iS_north(z) for z in zC]
-# df = DataFrame(
-#     k        = 1:length(zC),
-#     z_model  = zC,                  # negative-up (top ≈ 0)
-#     depth_m  = -zC,                 # positive-down, for readability
-#     T_south  = T_south_prof,
-#     T_north  = T_north_prof,
-#     S_south  = S_south_prof,
-#     S_north  = S_north_prof
-# )
-
-# show(first(df, 8), allcols=true)    # peek at the top 8 rows
-# println()
-# show(last(df, 8), allcols=true)     # peek at the bottom 8 rows
-# println()
-
-# Quick sanity checks:
-# @show extrema(T_south_prof), extrema(T_north_prof)
-# @show extrema(S_south_prof), extrema(S_north_prof)
-
 
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times  = Float64[]       # Stores model time
