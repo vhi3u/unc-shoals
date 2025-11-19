@@ -22,17 +22,16 @@ Lx, Ly, Lz = 100e3, 200e3, 50
 Nx, Ny, Nz = 30, 30, 10
 x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
-params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τ_v = τ_v, τ_ts = τ_ts)
+params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τ_v=τ_v, τ_ts=τ_ts)
 
 grid = RectilinearGrid(CPU(); size=(Nx, Ny, Nz), halo=(4, 4, 4),
-                       x, y, z, topology=(Bounded, Bounded, Bounded))
-
+    x, y, z, topology=(Bounded, Bounded, Bounded))
 
 include("dshoal_vn.jl")
 
-σ = 8.0       
-Hs = 15.0      
-x_km, y_km, h = dshoal(Lx/1e3, Ly/1e3, σ, Hs, Nx)
+σ = 8.0
+Hs = 15.0
+x_km, y_km, h = dshoal(Lx / 1e3, Ly / 1e3, σ, Hs, Nx)
 
 ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h))
 # wedge(x, y) = -H *(1 + (y + abs(x)) / δ)
@@ -47,10 +46,10 @@ V₂ = 0.1 # m/s
 
 H = Lz
 
-open_bc = OpenBoundaryCondition(V; scheme = PerturbationAdvection(inflow_timescale = τ_v, outflow_timescale = τ_v),
-                                parameters=(; V₂))
+open_bc = OpenBoundaryCondition(V; scheme=PerturbationAdvection(inflow_timescale=τ_v, outflow_timescale=τ_v),
+    parameters=(; V₂))
 
-v_bcs = FieldBoundaryConditions(south = open_bc, north = open_bc)
+v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc)
 
 @info "loading B1 and B2 T/S profiles"
 using CSV, Interpolations
@@ -76,8 +75,10 @@ iS_north = extrapolate(interpolate((z_data,), S_north, Gridded(Linear())), Inter
 @inline ssbc(x, y, z, t) = ssbc(x, z, t)
 @inline snbc(x, y, z, t) = snbc(x, z, t)
 
-Tᵢ(x, y, z) = 23.11
-Sᵢ(x, y, z) = 36.4
+Tₑ(x, y, z) = 23.11
+Sₑ(x, y, z) = 36.4
+
+
 
 @info "setting up boundary conditions"
 
@@ -95,101 +96,26 @@ salinS = ValueBoundaryCondition(ssbc)
 tempN = ValueBoundaryCondition(tnbc)
 salinN = ValueBoundaryCondition(snbc)
 
-tempE = ValueBoundaryCondition(Tᵢ)
-salinE = ValueBoundaryCondition(Sᵢ)
+tempE = ValueBoundaryCondition(Tₑ)
+salinE = ValueBoundaryCondition(Sₑ)
 
-T_bcs = FieldBoundaryConditions(south = tempS, north = tempN, east = tempE)
-S_bcs = FieldBoundaryConditions(south = salinS, north = salinN, east = salinE)
-
-# create same nudgings from periodic case:
-
-@inline function south_mask(x, y, z, p)
-    y0 = 0
-    y1 = p.Ls
-    if y0 <= y <= y1
-        return 1 - y/y1
-    else
-        return 0.0
-    end
-end
-
-@inline function north_mask(x, y, z, p) 
-    y0 = p.Ly - p.Ls
-    y1 = p.Ly
-
-    if y0 <= y <= y1
-        return (y - y0) / (y1 - y0)
-    else
-        return 0.0
-    end
-end
-
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Ls
-    x1 = p.Lx
-
-    if x0 <= x <= x1
-        return (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
-end
-
-# sponge functions
-@inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
-@inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
-@inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
-
-# temperature and salinity: we need to nudge south to B2 mooring, and north to B1 mooring. 
-@inline sponge_T(x, y, z, t, T, p) =
-    -south_mask(x, y, z, p) / p.τ_ts * (T - tsbc(x, y, z, t)) -
-    north_mask(x, y, z, p) / p.τ_ts * (T - tnbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (T - Tₑ(x, y, z))
-@inline sponge_S(x, y, z, t, S, p) =
-    -south_mask(x, y, z, p) / p.τ_ts * (S - ssbc(x, y, z, t)) -
-    north_mask(x, y, z, p) / p.τ_ts * (S - snbc(x, y, z, t)) -
-    east_mask(x, y, z, p) / p.τ_ts * (S - Sₑ(x, y, z))
-
-# add forcings
-FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
-FS = Forcing(sponge_S, field_dependencies = :S, parameters = params)
-Fᵤ = Forcing(sponge_u, field_dependencies = :u, parameters = params)
-Fᵥ = Forcing(sponge_v, field_dependencies = :v, parameters = params)
-F_w = Forcing(sponge_w, field_dependencies = :w, parameters = params)
-
-forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
+T_bcs = FieldBoundaryConditions(south=tempS, north=tempN, east=tempE)
+S_bcs = FieldBoundaryConditions(south=salinS, north=salinN, east=salinE)
 
 
-model = NonhydrostaticModel(; grid = ib_grid, tracers = (:T, :S),
-                              buoyancy = SeawaterBuoyancy(equation_of_state = TEOS10EquationOfState()),
-                              pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
-                              closure = AnisotropicMinimumDissipation(),
-                              advection = WENO(order=5), coriolis = FPlane(latitude=35.2480),
-                              boundary_conditions = (; T=T_bcs, v = v_bcs, S = S_bcs),
-                              forcing = forcings)
+model = NonhydrostaticModel(; grid=ib_grid, tracers=(:T, :S),
+    buoyancy=SeawaterBuoyancy(equation_of_state=LinearEquationOfState()),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+    closure=AnisotropicMinimumDissipation(),
+    advection=WENO(order=5), coriolis=FPlane(latitude=35.2480),
+    boundary_conditions=(; T=T_bcs, v=v_bcs, S=S_bcs))
 
-# check bcs...
-# @show model.velocities.v.boundary_conditions
-# @show model.tracers.T.boundary_conditions
-# @show model.velocities.u.boundary_conditions
-# @show model.tracers.T.boundary_conditions
-# @show model.tracers.S.boundary_conditions
-# need to blend temperature/salinity profiles from B1 and B2 for the initial conditions.
-
-# @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
-# @inline blend(a, b, α) = (1 - α) * a + α * b
-# @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
-# @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
-
-
-# make sure gradient works...
-# @show extrema(model.tracers.T), extrema(model.tracers.S)
 
 # make sure T/S profiles are doing their job...
 zC = znodes(ib_grid, Center())
 
 cfl_values = Float64[]       # Stores CFL at each step
-cfl_times  = Float64[]       # Stores model time
+cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=5seconds, stop_time=100days)
 conjure_time_step_wizard!(simulation, cfl=0.7)
@@ -224,10 +150,10 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, u_c, v_c, w_c, ω_z, PV, Ro, T, S)
 
-simulation.output_writers[:fields] = NetCDFWriter(model, outputs, 
-                                                        schedule = TimeInterval(86400seconds), # (86400seconds) (43200seconds)
-                                                        filename = saved_output_filename,
-                                                        overwrite_existing = true)
+simulation.output_writers[:fields] = NetCDFWriter(model, outputs,
+    schedule=TimeInterval(86400seconds), # (86400seconds) (43200seconds)
+    filename=saved_output_filename,
+    overwrite_existing=true)
 
 cfl = CFL(simulation.Δt)
 
@@ -252,8 +178,13 @@ end
 # initial conditions for temperature and salinity based on cast 77?
 # salinity avg = 36.4, temperature avg = 23.11
 
+@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
+@inline blend(a, b, α) = (1 - α) * a + α * b
+@inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
+@inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
+
 # set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = vᵢ, w = wᵢ) #, v=V(0, 0, 0, 0, (; V₂)))
-set!(model, T = Tᵢ, S = Sᵢ) #, v = V(0, 0, 0, 0, (; V₂)))
+set!(model, T=Tᵢ, S=Sᵢ, v=0.10)  #, v = V(0, 0, 0, 0, (; V₂)))
 
 # # check velocity
 # zC = znodes(ib_grid, Center())
