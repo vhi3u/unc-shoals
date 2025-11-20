@@ -41,8 +41,6 @@ V₂ = 0.1 # m/s
 
 @inline V(x, y, z, t, p) = p.V₂
 @inline V(x, z, t, p) = V(x, zero(x), z, t, p)
-@inline V₀(x, y, z, t) = 0.0
-@inline V₀(x, z, t) = V₀(x, zero(x), z, t)
 
 H = Lz
 
@@ -79,17 +77,7 @@ Tₑ(x, y, z) = 23.11
 Sₑ(x, y, z) = 36.4
 
 
-
 @info "setting up boundary conditions"
-
-# south_temp = OpenBoundaryCondition(tsbc; scheme = PerturbationAdvection())
-# north_temp = OpenBoundaryCondition(tnbc; scheme = PerturbationAdvection())
-
-# south_salin = OpenBoundaryCondition(ssbc; scheme = PerturbationAdvection())
-# north_salin = OpenBoundaryCondition(snbc; scheme = PerturbationAdvection())
-
-# T_bcs = FieldBoundaryConditions(south = south_temp, north = north_temp)
-# S_bcs = FieldBoundaryConditions(south = south_salin, north = north_salin)
 
 tempS = ValueBoundaryCondition(tsbc)
 salinS = ValueBoundaryCondition(ssbc)
