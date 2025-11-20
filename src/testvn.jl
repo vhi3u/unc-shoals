@@ -87,13 +87,13 @@ salinN = ValueBoundaryCondition(snbc)
 tempE = ValueBoundaryCondition(Tₑ)
 salinE = ValueBoundaryCondition(Sₑ)
 
-T_bcs = FieldBoundaryConditions(south=tempS, north=tempN, east=tempE)
-S_bcs = FieldBoundaryConditions(south=salinS, north=salinN, east=salinE)
+T_bcs = FieldBoundaryConditions(south=tempS, north=tempN) #, east=tempE)
+S_bcs = FieldBoundaryConditions(south=salinS, north=salinN) #, east=salinE)
 
 
 model = NonhydrostaticModel(; grid=ib_grid, tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(equation_of_state=LinearEquationOfState()),
-    pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+    #pressure_solver=(),
     closure=AnisotropicMinimumDissipation(),
     advection=WENO(order=5), coriolis=FPlane(latitude=35.2480),
     boundary_conditions=(; T=T_bcs, v=v_bcs, S=S_bcs))
@@ -172,7 +172,7 @@ end
 @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
 # set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = vᵢ, w = wᵢ) #, v=V(0, 0, 0, 0, (; V₂)))
-set!(model, T=Tᵢ, S=Sᵢ, v=0.10)  #, v = V(0, 0, 0, 0, (; V₂)))
+set!(model, T=Tᵢ, S=Sᵢ)  #, v = V(0, 0, 0, 0, (; V₂)))
 
 # # check velocity
 # zC = znodes(ib_grid, Center())
