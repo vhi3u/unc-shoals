@@ -83,13 +83,6 @@ salinS = ValueBoundaryCondition(ssbc)
 tempN = ValueBoundaryCondition(tnbc)
 salinN = ValueBoundaryCondition(snbc)
 
-model = NonhydrostaticModel(; grid=ib_grid, tracers=(:T, :S),
-    buoyancy=SeawaterBuoyancy(),
-    # pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
-    closure=AnisotropicMinimumDissipation(),
-    advection=WENO(order=5), coriolis=FPlane(latitude=35.2480),
-    boundary_conditions=(; T=T_bcs, v=v_bcs, S=S_bcs))
-
 T_bcs = FieldBoundaryConditions(south=tempS, north=tempN) #, east=tempE)
 S_bcs = FieldBoundaryConditions(south=salinS, north=salinN) #, east=salinE)
 
