@@ -26,20 +26,20 @@ x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
 # Nx, Ny, Nz = 100, 100, 12 # do this one if you have the time.
 # Nx, Ny, Nz = 60, 60, 20
-Nx, Ny, Nz = 60, 60, 10
-# Nx, Ny, Nz = 30, 30, 10
+# Nx, Ny, Nz = 60, 60, 10
+Nx, Ny, Nz = 30, 30, 10
 
 # plan: closed boundary conditions on east and west, periodic flow from south to north.
 
 grid = RectilinearGrid(CPU(); size=(Nx, Ny, Nz), halo=(4, 4, 4),
-                       x, y, z, topology=(Bounded, Periodic, Bounded))
+    x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # bathymetry parameters
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 
 # bathymetry
-x_km, y_km, h = dshoal(Lx/1e3, Ly/1e3, σ, Hs, Nx)
+x_km, y_km, h = dshoal(Lx / 1e3, Ly / 1e3, σ, Hs, Nx)
 @show size(h) == (Nx, Ny)
 
 # plt = surface(x_km, y_km, h)
@@ -96,7 +96,7 @@ Lₛ = 10e3
 τₑ = 1hours
 τ_ts = 10days
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
-params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τₙ = τₙ, τₛ = τₛ, τₑ = τₑ, τ_ts = τ_ts)
+params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
 
 # sigmoid taper for velocity
 
@@ -120,14 +120,14 @@ end
     y0 = 0
     y1 = p.Ls
     if y0 <= y <= y1
-        return 1 - y/y1
+        return 1 - y / y1
     else
         return 0.0
     end
 end
 
 # extent of this mask should be from Ly - Ls to y = Ly ? 
-@inline function north_mask(x, y, z, p) 
+@inline function north_mask(x, y, z, p)
     y0 = p.Ly - p.Ls
     y1 = p.Ly
 
@@ -148,46 +148,46 @@ end
         return 0.0
     end
 end
- 
+
 
 # sponge functions
 # @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
 # @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
 # @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
 
-@inline sponge_u(x, y, z, t, u, p) = -min(
-    south_mask(x, y, z, p) * u / τₛ,
-    north_mask(x, y, z, p) * u / τₙ,
-    east_mask(x, y, z, p) * u / τₑ )
+@inline sponge_u(x, y, z, t, u, p) = -(
+    south_mask(x, y, z, p) * u / τₛ +
+    north_mask(x, y, z, p) * u / τₙ +
+    east_mask(x, y, z, p) * u / τₑ)
 
-@inline sponge_v(x, y, z, t, v, p) = -min(
-    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
-    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
-    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ ) 
+@inline sponge_v(x, y, z, t, v, p) = -(
+    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ +
+    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ +
+    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ)
 
-@inline sponge_w(x, y, z, t, w, p) = -min(
-    south_mask(x, y, z, p) * w / τₙ,
-    north_mask(x, y, z, p) * w / τₛ,
-    east_mask(x, y, z, p) * w / τₑ )
+@inline sponge_w(x, y, z, t, w, p) = -(
+    south_mask(x, y, z, p) * w / τₙ +
+    north_mask(x, y, z, p) * w / τₛ +
+    east_mask(x, y, z, p) * w / τₑ)
 
-@inline sponge_T(x, y, z, t, T, p) = -min(
-    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ,
-    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ,
-    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ ) 
+@inline sponge_T(x, y, z, t, T, p) = -(
+    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ +
+    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ +
+    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
 
-@inline sponge_S(x, y, z, t, S, p) = -min(
-    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ,
-    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ,
-    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ )
+@inline sponge_S(x, y, z, t, S, p) = -(
+    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ +
+    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ +
+    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
 
 # add forcings
-FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
-FS = Forcing(sponge_S, field_dependencies = :S, parameters = params)
-Fᵤ = Forcing(sponge_u, field_dependencies = :u, parameters = params)
-Fᵥ = Forcing(sponge_v, field_dependencies = :v, parameters = params)
-F_w = Forcing(sponge_w, field_dependencies = :w, parameters = params)
+FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
 
-forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
+forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
@@ -196,19 +196,19 @@ u_bcs = FieldBoundaryConditions()
 v_bcs = FieldBoundaryConditions()
 w_bcs = FieldBoundaryConditions()
 
-bcs = (u = u_bcs, v = v_bcs, w = w_bcs, T = T_bcs, S = S_bcs)
+bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
 model = NonhydrostaticModel(
-    grid = ib_grid,
-    timestepper = :RungeKutta3,
-    advection = WENO(order=5),
-    closure = AnisotropicMinimumDissipation(),
-    pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
-    tracers = (:T, :S),
-    buoyancy = SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
-    coriolis = FPlane(latitude = 35.2480),
-    boundary_conditions = bcs,
-    forcing = forcings
+    grid=ib_grid,
+    timestepper=:RungeKutta3,
+    advection=WENO(order=5),
+    closure=AnisotropicMinimumDissipation(),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+    tracers=(:T, :S),
+    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
+    coriolis=FPlane(latitude=35.2480),
+    boundary_conditions=bcs,
+    forcing=forcings
 )
 
 # output stuff
@@ -217,12 +217,12 @@ model = NonhydrostaticModel(
 overwrite_existing = true
 
 cfl_values = Float64[]       # Stores CFL at each step
-cfl_times  = Float64[]       # Stores model time
+cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=100days)
 
 
-conjure_time_step_wizard!(simulation, cfl = 0.7, diffusive_cfl = 0.8)
+conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.8)
 
 start_time = time_ns() * 1e-9
 progress = SingleLineMessenger()
@@ -252,12 +252,12 @@ checkpointer_prefix = "checkpoint_" * saved_output_prefix
 
 # NETCDF writers
 
-simulation.output_writers[:fields] = NetCDFWriter(model, outputs, 
-                                                        schedule = TimeInterval(86400seconds),
-                                                        filename = saved_output_filename,
-                                                        overwrite_existing = overwrite_existing)
+simulation.output_writers[:fields] = NetCDFWriter(model, outputs,
+    schedule=TimeInterval(86400seconds),
+    filename=saved_output_filename,
+    overwrite_existing=overwrite_existing)
 
-ccc_scratch = Field{Center, Center, Center}(model.grid) 
+ccc_scratch = Field{Center,Center,Center}(model.grid)
 
 # CFL logger
 cfl = CFL(simulation.Δt)
@@ -289,7 +289,9 @@ vᵢ .+= 0.10
 @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
 @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
-set!(model, u = uᵢ, v = vᵢ, w = wᵢ, T = Tᵢ, S = Sᵢ)
+# set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+
+set!(model, T=Tᵢ, S=Sᵢ)
 
 # diagnostics before running...
 
@@ -308,26 +310,26 @@ using Plots
 
 # ---- Temperature panel ----
 p1 = plot(T_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Temperature [°C]",
-          ylabel = "z [m]",
-          title = "Temperature profiles",
-          grid = true)
+    lw=2, label="B1 north",
+    xlabel="Temperature [°C]",
+    ylabel="z [m]",
+    title="Temperature profiles",
+    grid=true)
 plot!(p1, T_south_model, zc;
-      lw = 2, label = "B2 south")
+    lw=2, label="B2 south")
 
 # ---- Salinity panel ----
 p2 = plot(S_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Salinity [psu]",
-          ylabel = "",
-          title = "Salinity profiles",
-          grid = true)
+    lw=2, label="B1 north",
+    xlabel="Salinity [psu]",
+    ylabel="",
+    title="Salinity profiles",
+    grid=true)
 plot!(p2, S_south_model, zc;
-      lw = 2, label = "B2 south")
+    lw=2, label="B2 south")
 
 # ---- Combine panels ----
-plt = plot(p1, p2; layout = (1, 2), size = (600, 300))
+plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
 display(plt)
 
 
