@@ -34,18 +34,17 @@ Hs = 15.0
 x_km, y_km, h = dshoal(Lx / 1e3, Ly / 1e3, σ, Hs, Nx)
 
 ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h))
-# wedge(x, y) = -H *(1 + (y + abs(x)) / δ)
-# grid = ImmersedBoundaryGrid(grid, GridFittedBottom(wedge))
 
 V₂ = 0.1 # m/s
+T₂ = 12.421hours
 
-@inline V(x, y, z, t, p) = p.V₂
+@inline V(x, y, z, t, p) = p.V₂ * sin(2π * t / p.T₂)
 @inline V(x, z, t, p) = V(x, zero(x), z, t, p)
 
 H = Lz
 
 open_bc = OpenBoundaryCondition(V; scheme=PerturbationAdvection(inflow_timescale=τ_v, outflow_timescale=τ_v),
-    parameters=(; V₂))
+    parameters=(; V₂, T₂))
 
 v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc)
 
@@ -122,11 +121,8 @@ overwrite_existing = true
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-# ζ = ∂x(v) - ∂y(u)
 
 using Oceanostics: ErtelPotentialVorticity
-# using Oceananigans.BuoyancyFormulations: buoyancy
-# q = Field(ErtelPotentialVorticity(model, model.velocities..., buoyancy(model), model.coriolis))
 
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
@@ -145,43 +141,59 @@ simulation.output_writers[:fields] = NetCDFWriter(model, outputs,
 
 cfl = CFL(simulation.Δt)
 
-
-
 simulation.callbacks[:cfl_recorder] = Callback(TimeInterval(10minutes)) do sim
     push!(cfl_values, cfl(sim.model))
     push!(cfl_times, sim.model.clock.time)
 end
-
-# using Statistics: mean
-# uᵢ = 0.005 * rand(size(u)...)
-# vᵢ = 0.005 * rand(size(v)...)
-# wᵢ = 0.005 * rand(size(w)...)
-
-# uᵢ .-= mean(uᵢ)
-# vᵢ .-= mean(vᵢ)
-# wᵢ .-= mean(wᵢ)
-
-# vᵢ .+= 0.10
-
-# initial conditions for temperature and salinity based on cast 77?
-# salinity avg = 36.4, temperature avg = 23.11
 
 @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
 @inline blend(a, b, α) = (1 - α) * a + α * b
 @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
 @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
-# set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = vᵢ, w = wᵢ) #, v=V(0, 0, 0, 0, (; V₂)))
-set!(model, T=Tᵢ, S=Sᵢ)  #, v = V(0, 0, 0, 0, (; V₂)))
+using Plots
+# verify boundary conditions
+zc = znodes(ib_grid, Center())
 
-# # check velocity
-# zC = znodes(ib_grid, Center())
-# ktop = length(zC)
-# vs_surf = [model.velocities.v[i, 1, ktop] for i in 1:Nx]
+T_south_model = [iT_south(z) for z in zc]
+T_north_model = [iT_north(z) for z in zc]
+S_south_model = [iS_south(z) for z in zc]
+S_north_model = [iS_north(z) for z in zc]
 
-# @show mean(vs_surf), extrema(vs_surf)
-# @show extrema(model.tracers.T), extrema(model.tracers.S)
+p1 = plot(T_north_model, zc;
+    lw=2, label="B1 north",
+    xlabel="Temperature [°C]",
+    ylabel="z [m]",
+    title="Temperature profiles",
+    grid=true)
+plot!(p1, T_south_model, zc;
+    lw=2, label="B2 south")
+
+# ---- Salinity panel ----
+p2 = plot(S_north_model, zc;
+    lw=2, label="B1 north",
+    xlabel="Salinity [psu]",
+    ylabel="",
+    title="Salinity profiles",
+    grid=true)
+plot!(p2, S_south_model, zc;
+    lw=2, label="B2 south")
+
+# ---- Combine panels ----
+plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
+display(plt)
+
+set!(model, T=Tᵢ, S=Sᵢ)
 
 println(model)              # prints a structured summary
+
+
+using Oceananigans.Models.NonhydrostaticModels: north_mass_flux, south_mass_flux
+
+north_flux = north_mass_flux(v)
+south_flux = south_mass_flux(v)
+
+println("North flux: ", north_flux)
+println("South flux: ", south_flux)
 
 run!(simulation)
