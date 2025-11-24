@@ -279,6 +279,8 @@ wᵢ = 0.005 * rand(size(w)...)
 uᵢ .-= mean(uᵢ)
 vᵢ .-= mean(vᵢ)
 wᵢ .-= mean(wᵢ)
+# xv, yv, zv = nodes(v, reshape=true)
+# vᵢ .+= v∞.(xv, zv, 0.0, Ref(params))
 vᵢ .+= 0.10
 
 # Tᵢ(x, y, z) = iT_south(z)
@@ -291,7 +293,7 @@ vᵢ .+= 0.10
 
 # set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
-set!(model, T=Tᵢ, S=Sᵢ)
+set!(model, T=Tᵢ, S=Sᵢ, v=vᵢ)
 
 # diagnostics before running...
 
