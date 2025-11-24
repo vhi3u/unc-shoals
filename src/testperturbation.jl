@@ -25,7 +25,7 @@ ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h))
 
 T₂ = 12.421hours
 V₂ = 0.1
-@inline V(x, y, z, t, p) = p.V₂ # * sin(2π * t / p.T₂)
+@inline V(x, y, z, t, p) = p.V₂ * sin(2π * t / p.T₂)
 @inline V(x, z, t, p) = V(x, zero(x), z, t, p)
 
 τ = 2minutes
