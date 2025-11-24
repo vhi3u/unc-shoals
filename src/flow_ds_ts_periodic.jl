@@ -26,8 +26,8 @@ x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
 # Nx, Ny, Nz = 100, 100, 12 # do this one if you have the time.
 # Nx, Ny, Nz = 60, 60, 20
-Nx, Ny, Nz = 60, 60, 10
-# Nx, Ny, Nz = 30, 30, 10
+# Nx, Ny, Nz = 60, 60, 10
+Nx, Ny, Nz = 30, 30, 10
 
 # plan: closed boundary conditions on east and west, periodic flow from south to north.
 
@@ -93,8 +93,8 @@ Sₑ(x, y, z) = 36.4
 Lₛ = 10e3
 τₛ = 6hours
 τₙ = 6hours
-τₑ = 1hours # make same as ts/tn
-τ_ts = 10days # make stronger (reduce)
+τₑ = 6hours # make same as ts/tn
+τ_ts = 5days # make stronger (reduce)
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
 params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
 
@@ -219,7 +219,7 @@ overwrite_existing = true
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
 
-simulation = Simulation(model, Δt=15minutes, stop_time=100days)
+simulation = Simulation(model, Δt=15minutes, stop_time=20days)
 
 
 
@@ -284,13 +284,13 @@ wᵢ .-= mean(wᵢ)
 # vᵢ .+= v∞.(xv, zv, 0.0, Ref(params))
 vᵢ .+= 0.10
 
-# Tᵢ(x, y, z) = iT_south(z)
-# Sᵢ(x, y, z) = iS_south(z)
+Tᵢ(x, y, z) = iT_south(z)
+Sᵢ(x, y, z) = iS_south(z)
 
-@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
-@inline blend(a, b, α) = (1 - α) * a + α * b
-@inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
-@inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
+# @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
+# @inline blend(a, b, α) = (1 - α) * a + α * b
+# @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
+# @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
 set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
@@ -336,5 +336,5 @@ display(plt)
 
 @info "time to run simulation!"
 # run simulation
-# run!(simulation)
+run!(simulation)
 
