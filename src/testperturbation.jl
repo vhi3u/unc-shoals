@@ -28,16 +28,13 @@ V₂ = 0.1
 @inline V(x, y, z, t, p) = p.V₂ * sin(2π * t / p.T₂)
 @inline V(x, z, t, p) = V(x, zero(x), z, t, p)
 
-τ = 2minutes
-
-
 # @inline U(x, y, z, t, p) = p.U₂
 # @inline U(y, z, t, p) = U(zero(y), y, z, t, p)
 
 H = Lz
 
 open_bc = OpenBoundaryCondition(V; parameters=(; V₂, T₂),
-    scheme=PerturbationAdvection(inflow_timescale=τ, outflow_timescale=τ))
+    scheme=PerturbationAdvection())
 
 v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc)
 
