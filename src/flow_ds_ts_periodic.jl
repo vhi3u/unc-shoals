@@ -32,14 +32,14 @@ Nx, Ny, Nz = 60, 60, 10
 # plan: closed boundary conditions on east and west, periodic flow from south to north.
 
 grid = RectilinearGrid(CPU(); size=(Nx, Ny, Nz), halo=(4, 4, 4),
-                       x, y, z, topology=(Bounded, Periodic, Bounded))
+    x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # bathymetry parameters
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 
 # bathymetry
-x_km, y_km, h = dshoal(Lx/1e3, Ly/1e3, σ, Hs, Nx)
+x_km, y_km, h = dshoal(Lx / 1e3, Ly / 1e3, σ, Hs, Nx)
 @show size(h) == (Nx, Ny)
 
 # plt = surface(x_km, y_km, h)
@@ -120,14 +120,14 @@ end
     y0 = 0
     y1 = p.Ls
     if y0 <= y <= y1
-        return 1 - y/y1
+        return 1 - y / y1
     else
         return 0.0
     end
 end
 
 # extent of this mask should be from Ly - Ls to y = Ly ? 
-@inline function north_mask(x, y, z, p) 
+@inline function north_mask(x, y, z, p)
     y0 = p.Ly - p.Ls
     y1 = p.Ly
 
@@ -181,11 +181,11 @@ end
     east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ )
 
 # add forcings
-FT = Forcing(sponge_T, field_dependencies = :T, parameters = params)
-FS = Forcing(sponge_S, field_dependencies = :S, parameters = params)
-Fᵤ = Forcing(sponge_u, field_dependencies = :u, parameters = params)
-Fᵥ = Forcing(sponge_v, field_dependencies = :v, parameters = params)
-F_w = Forcing(sponge_w, field_dependencies = :w, parameters = params)
+FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
 
 forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
 
@@ -196,7 +196,7 @@ u_bcs = FieldBoundaryConditions()
 v_bcs = FieldBoundaryConditions()
 w_bcs = FieldBoundaryConditions()
 
-bcs = (u = u_bcs, v = v_bcs, w = w_bcs, T = T_bcs, S = S_bcs)
+bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
 model = NonhydrostaticModel(
     grid = ib_grid,
@@ -217,12 +217,13 @@ model = NonhydrostaticModel(
 overwrite_existing = true
 
 cfl_values = Float64[]       # Stores CFL at each step
-cfl_times  = Float64[]       # Stores model time
+cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=100days)
 
 
-conjure_time_step_wizard!(simulation, cfl = 0.7, diffusive_cfl = 0.8)
+
+conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.8)
 
 start_time = time_ns() * 1e-9
 progress = SingleLineMessenger()
@@ -252,12 +253,12 @@ checkpointer_prefix = "checkpoint_" * saved_output_prefix
 
 # NETCDF writers
 
-simulation.output_writers[:fields] = NetCDFWriter(model, outputs, 
-                                                        schedule = TimeInterval(86400seconds),
-                                                        filename = saved_output_filename,
-                                                        overwrite_existing = overwrite_existing)
+simulation.output_writers[:fields] = NetCDFWriter(model, outputs,
+    schedule=TimeInterval(86400seconds),
+    filename=saved_output_filename,
+    overwrite_existing=overwrite_existing)
 
-ccc_scratch = Field{Center, Center, Center}(model.grid) 
+ccc_scratch = Field{Center,Center,Center}(model.grid)
 
 # CFL logger
 cfl = CFL(simulation.Δt)
@@ -279,6 +280,8 @@ wᵢ = 0.005 * rand(size(w)...)
 uᵢ .-= mean(uᵢ)
 vᵢ .-= mean(vᵢ)
 wᵢ .-= mean(wᵢ)
+# xv, yv, zv = nodes(v, reshape=true)
+# vᵢ .+= v∞.(xv, zv, 0.0, Ref(params))
 vᵢ .+= 0.10
 
 # Tᵢ(x, y, z) = iT_south(z)
@@ -308,26 +311,26 @@ using Plots
 
 # ---- Temperature panel ----
 p1 = plot(T_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Temperature [°C]",
-          ylabel = "z [m]",
-          title = "Temperature profiles",
-          grid = true)
+    lw=2, label="B1 north",
+    xlabel="Temperature [°C]",
+    ylabel="z [m]",
+    title="Temperature profiles",
+    grid=true)
 plot!(p1, T_south_model, zc;
-      lw = 2, label = "B2 south")
+    lw=2, label="B2 south")
 
 # ---- Salinity panel ----
 p2 = plot(S_north_model, zc;
-          lw = 2, label = "B1 north",
-          xlabel = "Salinity [psu]",
-          ylabel = "",
-          title = "Salinity profiles",
-          grid = true)
+    lw=2, label="B1 north",
+    xlabel="Salinity [psu]",
+    ylabel="",
+    title="Salinity profiles",
+    grid=true)
 plot!(p2, S_south_model, zc;
-      lw = 2, label = "B2 south")
+    lw=2, label="B2 south")
 
 # ---- Combine panels ----
-plt = plot(p1, p2; layout = (1, 2), size = (600, 300))
+plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
 display(plt)
 
 
