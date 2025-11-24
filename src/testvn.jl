@@ -87,12 +87,17 @@ T_bcs = FieldBoundaryConditions(south=tempS, north=tempN) #, east=tempE)
 S_bcs = FieldBoundaryConditions(south=salinS, north=salinN) #, east=salinE)
 
 
-model = NonhydrostaticModel(; grid=ib_grid, tracers=(:T, :S),
+model = NonhydrostaticModel(;
+    grid=ib_grid,
+    timestepper=:RungeKutta3,
+    tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(equation_of_state=LinearEquationOfState()),
-    #pressure_solver=(),
+    pressure_solver=(ConjugateGradientPoissonSolver(ib_grid)),
     closure=AnisotropicMinimumDissipation(),
-    advection=WENO(order=5), coriolis=FPlane(latitude=35.2480),
-    boundary_conditions=(; T=T_bcs, v=v_bcs, S=S_bcs))
+    advection=WENO(order=5),
+    coriolis=FPlane(latitude=35.2480),
+    boundary_conditions=(; T=T_bcs, v=v_bcs, S=S_bcs)
+)
 
 
 # make sure T/S profiles are doing their job...
@@ -180,7 +185,7 @@ plot!(p2, S_south_model, zc;
 plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
 display(plt)
 
-set!(model, T=Tᵢ, S=Sᵢ)
+set!(model, T=Tᵢ, S=Sᵢ, v=V(0, 0, 0, 0, (; V₂, T₂)))
 
 println(model)              # prints a structured summary
 
