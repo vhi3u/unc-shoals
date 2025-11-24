@@ -26,8 +26,8 @@ x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
 # Nx, Ny, Nz = 100, 100, 12 # do this one if you have the time.
 # Nx, Ny, Nz = 60, 60, 20
-# Nx, Ny, Nz = 60, 60, 10
-Nx, Ny, Nz = 30, 30, 10
+Nx, Ny, Nz = 60, 60, 10
+# Nx, Ny, Nz = 30, 30, 10
 
 # plan: closed boundary conditions on east and west, periodic flow from south to north.
 
@@ -96,7 +96,7 @@ Lₛ = 10e3
 τₑ = 1hours
 τ_ts = 10days
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
-params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
+params = (; Lx = Lx, Ly = Ly, Ls = Lₛ, τₙ = τₙ, τₛ = τₛ, τₑ = τₑ, τ_ts = τ_ts)
 
 # sigmoid taper for velocity
 
@@ -148,37 +148,37 @@ end
         return 0.0
     end
 end
-
+ 
 
 # sponge functions
 # @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * u / p.τ 
 # @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
 # @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
 
-@inline sponge_u(x, y, z, t, u, p) = -(
-    south_mask(x, y, z, p) * u / τₛ +
-    north_mask(x, y, z, p) * u / τₙ +
-    east_mask(x, y, z, p) * u / τₑ)
+@inline sponge_u(x, y, z, t, u, p) = -min(
+    south_mask(x, y, z, p) * u / τₛ,
+    north_mask(x, y, z, p) * u / τₙ,
+    east_mask(x, y, z, p) * u / τₑ )
 
-@inline sponge_v(x, y, z, t, v, p) = -(
-    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ +
-    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ +
-    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ)
+@inline sponge_v(x, y, z, t, v, p) = -min(
+    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
+    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
+    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ ) 
 
-@inline sponge_w(x, y, z, t, w, p) = -(
-    south_mask(x, y, z, p) * w / τₙ +
-    north_mask(x, y, z, p) * w / τₛ +
-    east_mask(x, y, z, p) * w / τₑ)
+@inline sponge_w(x, y, z, t, w, p) = -min(
+    south_mask(x, y, z, p) * w / τₙ,
+    north_mask(x, y, z, p) * w / τₛ,
+    east_mask(x, y, z, p) * w / τₑ )
 
-@inline sponge_T(x, y, z, t, T, p) = -(
-    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ +
-    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ +
-    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
+@inline sponge_T(x, y, z, t, T, p) = -min(
+    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ,
+    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ,
+    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ ) 
 
-@inline sponge_S(x, y, z, t, S, p) = -(
-    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ +
-    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ +
-    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
+@inline sponge_S(x, y, z, t, S, p) = -min(
+    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ,
+    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ,
+    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ )
 
 # add forcings
 FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
@@ -187,7 +187,7 @@ Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
 Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
 F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
 
-forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+forcings = (u = Fᵤ, v = Fᵥ, w = F_w, T = FT, S = FS)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
@@ -199,16 +199,16 @@ w_bcs = FieldBoundaryConditions()
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
 model = NonhydrostaticModel(
-    grid=ib_grid,
-    timestepper=:RungeKutta3,
-    advection=WENO(order=5),
-    closure=AnisotropicMinimumDissipation(),
-    pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
-    tracers=(:T, :S),
-    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
-    coriolis=FPlane(latitude=35.2480),
-    boundary_conditions=bcs,
-    forcing=forcings
+    grid = ib_grid,
+    timestepper = :RungeKutta3,
+    advection = WENO(order=5),
+    closure = AnisotropicMinimumDissipation(),
+    pressure_solver = ConjugateGradientPoissonSolver(ib_grid),
+    tracers = (:T, :S),
+    buoyancy = SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
+    coriolis = FPlane(latitude = 35.2480),
+    boundary_conditions = bcs,
+    forcing = forcings
 )
 
 # output stuff
@@ -220,6 +220,7 @@ cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=100days)
+
 
 
 conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.8)
@@ -291,9 +292,7 @@ vᵢ .+= 0.10
 @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
 @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
-# set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
-
-set!(model, T=Tᵢ, S=Sᵢ, v=vᵢ)
+set!(model, u = uᵢ, v = vᵢ, w = wᵢ, T = Tᵢ, S = Sᵢ)
 
 # diagnostics before running...
 
