@@ -94,7 +94,7 @@ Lₛ = 10e3
 τₛ = 6hours
 τₙ = 6hours
 τₑ = 6hours # make same as ts/tn
-τ_ts = 5days # make stronger (reduce)
+τ_ts = 1days # make stronger (reduce)
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
 params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
 
@@ -171,13 +171,13 @@ end
     east_mask(x, y, z, p) * w / τₑ)
 
 @inline sponge_T(x, y, z, t, T, p) = -min(
-    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τₛ,
-    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τₛ,
+    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τ_ts,
+    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τ_ts,
     east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
 
 @inline sponge_S(x, y, z, t, S, p) = -min(
-    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τₛ,
-    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τₙ,
+    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τ_ts,
+    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τ_ts,
     east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
 
 # add forcings
