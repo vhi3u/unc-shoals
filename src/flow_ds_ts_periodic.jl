@@ -91,12 +91,15 @@ Sₑ(x, y, z) = 36.4
 # north and south sponges 
 
 Lₛ = 10e3
+# Lₑ = 20e3
 τₛ = 6hours
 τₙ = 6hours
-τₑ = 6hours # make same as ts/tn
-τ_ts = 1days # make stronger (reduce)
+# τₑ = 6hours # make same as ts/tn
+τ_ts = 6hours # make stronger (reduce)
 # params = (; Lx = Lx, Ls = Lₛ, τ = τ, τ_ts = τ_ts)
-params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
+# params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, Le=Lₑ, τₙ=τₙ, τₛ=τₛ, τₑ=τₑ, τ_ts=τ_ts)
+params = (; Lx=Lx, Ly=Ly, Ls=Lₛ, τₙ=τₙ, τₛ=τₛ, τ_ts=τ_ts)
+
 
 # sigmoid taper for velocity
 
@@ -138,16 +141,16 @@ end
     end
 end
 
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Ls
-    x1 = p.Lx
+# @inline function east_mask(x, y, z, p)
+#     x0 = p.Lx - p.Le
+#     x1 = p.Lx
 
-    if x0 <= x <= x1
-        return (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
-end
+#     if x0 <= x <= x1
+#         return (x - x0) / (x1 - x0)
+#     else
+#         return 0.0
+#     end
+# end
 
 
 # sponge functions
@@ -155,32 +158,86 @@ end
 # @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * (v - v∞(x, z, t)) / p.τ 
 # @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) + east_nudge(x, y, z, p)) * w / p.τ
 
-@inline sponge_u(x, y, z, t, u, p) = -min(
-    south_mask(x, y, z, p) * u / τₛ,
-    north_mask(x, y, z, p) * u / τₙ,
-    east_mask(x, y, z, p) * u / τₑ)
+# @inline sponge_u(x, y, z, t, u, p) = -min(
+#     south_mask(x, y, z, p) * u / τₛ,
+#     north_mask(x, y, z, p) * u / τₙ,
+#     east_mask(x, y, z, p) * u / τₑ)
 
-@inline sponge_v(x, y, z, t, v, p) = -min(
-    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
-    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
-    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ)
+# @inline sponge_v(x, y, z, t, v, p) = -min(
+#     south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
+#     north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
+#     east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ)
 
-@inline sponge_w(x, y, z, t, w, p) = -min(
-    south_mask(x, y, z, p) * w / τₙ,
-    north_mask(x, y, z, p) * w / τₛ,
-    east_mask(x, y, z, p) * w / τₑ)
+# @inline sponge_w(x, y, z, t, w, p) = -min(
+#     south_mask(x, y, z, p) * w / τₙ,
+#     north_mask(x, y, z, p) * w / τₛ,
+#     east_mask(x, y, z, p) * w / τₑ)
 
-@inline sponge_T(x, y, z, t, T, p) = -min(
-    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τ_ts,
-    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τ_ts,
-    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
+# @inline sponge_T(x, y, z, t, T, p) = -min(
+#     south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τ_ts,
+#     north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τ_ts,
+#     east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
 
-@inline sponge_S(x, y, z, t, S, p) = -min(
-    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τ_ts,
-    north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / τ_ts,
-    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
+# @inline sponge_S(x, y, z, t, S, p) = -min(
+#     south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τ_ts,
+#     north_mask(x, y, z, p) * (S - snbc(x, y, z, p)) / τ_ts,
+#     east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
 
-# add forcings
+# @inline sponge_u(x, y, z, t, u, p) = -(
+#     (south_mask(x, y, z, p) * u / p.τₛ) +
+#     (north_mask(x, y, z, p) * u / p.τₙ) +
+#     (east_mask(x, y, z, p) * u / p.τₑ)
+# )
+
+@inline sponge_u(x, y, z, t, u, p) = -(
+    (south_mask(x, y, z, p) * u / p.τₛ) +
+    (north_mask(x, y, z, p) * u / p.τₙ)
+)
+
+# @inline sponge_v(x, y, z, t, v, p) = -(
+#     (south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ) +
+#     (north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ) +
+#     (east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
+# )
+
+@inline sponge_v(x, y, z, t, v, p) = -(
+    (south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ) +
+    (north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ)
+)
+
+# @inline sponge_w(x, y, z, t, w, p) = -(
+#     (south_mask(x, y, z, p) * w / p.τₛ) +
+#     (north_mask(x, y, z, p) * w / p.τₙ) +
+#     (east_mask(x, y, z, p) * w / p.τₑ)
+# )
+
+@inline sponge_w(x, y, z, t, w, p) = -(
+    (south_mask(x, y, z, p) * w / p.τₛ) +
+    (north_mask(x, y, z, p) * w / p.τₙ)
+)
+
+# @inline sponge_T(x, y, z, t, T, p) = -(
+#     (south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / p.τ_ts) +
+#     (north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / p.τ_ts) +
+#     (east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / p.τₑ)
+# )
+
+@inline sponge_T(x, y, z, t, T, p) = -(
+    (south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / p.τ_ts) +
+    (north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / p.τ_ts)
+)
+
+# @inline sponge_S(x, y, z, t, S, p) = -(
+#     (south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / p.τ_ts) +
+#     (north_mask(x, y, z, p) * (S - snbc(x, y, z, p)) / p.τ_ts) +
+#     (east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / p.τₑ)
+# )
+
+@inline sponge_S(x, y, z, t, S, p) = -(
+    (south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / p.τ_ts) +
+    (north_mask(x, y, z, p) * (S - snbc(x, y, z, p)) / p.τ_ts)
+)
+# # add forcings
 FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
 FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
 Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
@@ -188,6 +245,7 @@ Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
 F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
 
 forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+# forcings = (u=Fᵤ, w=F_w, T=FT, S=FS)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
@@ -219,7 +277,7 @@ overwrite_existing = true
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
 
-simulation = Simulation(model, Δt=15minutes, stop_time=20days)
+simulation = Simulation(model, Δt=15minutes, stop_time=100days)
 
 
 
@@ -284,20 +342,27 @@ wᵢ .-= mean(wᵢ)
 # vᵢ .+= v∞.(xv, zv, 0.0, Ref(params))
 vᵢ .+= 0.10
 
-Tᵢ(x, y, z) = iT_south(z)
-Sᵢ(x, y, z) = iS_south(z)
+# xv, yv, zv = nodes(v, reshape=true)  # or nodes(ib_grid, ...)
+# vstar = v∞.(xv, zv, 0.0, Ref(params))
+# # e.g. take a y-slice and plot vs x
+# using Plots
+# plt = plot(xv[:, 1, 1] ./ 1e3, vstar[:, 1, 1],
+#     xlabel="x (km)", ylabel="v∞ (m s⁻¹)")
+# display(plt)
 
-# @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
-# @inline blend(a, b, α) = (1 - α) * a + α * b
-# @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
-# @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
+# Tᵢ(x, y, z) = iT_south(z)
+# Sᵢ(x, y, z) = iS_south(z)
+
+@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
+@inline blend(a, b, α) = (1 - α) * a + α * b
+@inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
+@inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 
 set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
 # diagnostics before running...
 
 dx, dy, dz = Lx / Nx, Ly / Ny, Lz / Nz
-
 
 # verify t/s boundary conditions...
 zc = znodes(ib_grid, Center())
@@ -307,31 +372,31 @@ T_north_model = [iT_north(z) for z in zc]
 S_south_model = [iS_south(z) for z in zc]
 S_north_model = [iS_north(z) for z in zc]
 
-using Plots
+# using Plots
 
-# ---- Temperature panel ----
-p1 = plot(T_north_model, zc;
-    lw=2, label="B1 north",
-    xlabel="Temperature [°C]",
-    ylabel="z [m]",
-    title="Temperature profiles",
-    grid=true)
-plot!(p1, T_south_model, zc;
-    lw=2, label="B2 south")
+# # ---- Temperature panel ----
+# p1 = plot(T_north_model, zc;
+#     lw=2, label="B1 north",
+#     xlabel="Temperature [°C]",
+#     ylabel="z [m]",
+#     title="Temperature profiles",
+#     grid=true)
+# plot!(p1, T_south_model, zc;
+#     lw=2, label="B2 south")
 
-# ---- Salinity panel ----
-p2 = plot(S_north_model, zc;
-    lw=2, label="B1 north",
-    xlabel="Salinity [psu]",
-    ylabel="",
-    title="Salinity profiles",
-    grid=true)
-plot!(p2, S_south_model, zc;
-    lw=2, label="B2 south")
+# # ---- Salinity panel ----
+# p2 = plot(S_north_model, zc;
+#     lw=2, label="B1 north",
+#     xlabel="Salinity [psu]",
+#     ylabel="",
+#     title="Salinity profiles",
+#     grid=true)
+# plot!(p2, S_south_model, zc;
+#     lw=2, label="B2 south")
 
-# ---- Combine panels ----
-plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
-display(plt)
+# # ---- Combine panels ----
+# plt = plot(p1, p2; layout=(1, 2), size=(600, 300))
+# display(plt)
 
 
 @info "time to run simulation!"
