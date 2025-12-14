@@ -90,7 +90,7 @@ Sₑ(x, y, z) = 35.5
 
 # north and south sponges 
 
-Lₛ = 10e3
+Lₛ = 20e3
 Lₑ = 10e3
 τₛ = 1days
 τₙ = 1days
@@ -119,20 +119,20 @@ end
 
 # linear masks 0 at interior 1 at boundary for north and south. 
 # extent of this mask should be from y = 0 (south boundary) to y = Lₛ = 20 km 
-@inline function x_sigmoid(x, p)
-    xS = 60e3
-    Lw = p.Lx
-    k = 40 / Lw
-    s = 1 / (1 + exp(k * (x - xS)))
-    return 0.1 + 0.9 * s
-end
+# @inline function x_sigmoid(x, p)
+#     xS = 60e3
+#     Lw = p.Lx
+#     k = 40 / Lw
+#     s = 1 / (1 + exp(k * (x - xS)))
+#     return 0.1 + 0.9 * s
+# end
 
 @inline function south_mask(x, y, z, p)
     y0 = 0
     y1 = p.Ls
     if y0 <= y <= y1
         yy = (y - y0) / (y1 - y0)
-        return x_sigmoid(x, p) * yy
+        return yy
     else
         return 0.0
     end
@@ -145,7 +145,7 @@ end
 
     if y0 <= y <= y1
         yy = (y - y0) / (y1 - y0)
-        return x_sigmoid(x, p) * yy
+        return yy
     else
         return 0.0
     end
@@ -154,6 +154,12 @@ end
 @inline function east_mask(x, y, z, p)
     x0 = p.Lx - p.Le
     x1 = p.Lx
+    y0 = p.Ls
+    y1 = p.Ly - p.Ls
+
+    if !(y0 <= y <= y1)
+        return 0.0
+    end
 
     if x0 <= x <= x1
         return (x - x0) / (x1 - x0)
@@ -186,30 +192,35 @@ end
 
 # eastern mask included, v sponge included
 
-@inline sponge_u(x, y, z, t, u, p) = -min(
-    south_mask(x, y, z, p) * u / τₛ,
-    north_mask(x, y, z, p) * u / τₙ,
-    east_mask(x, y, z, p) * u / τₑ)
+@inline sponge_u(x, y, z, t, u, p) = -(
+    south_mask(x, y, z, p) * u / τₛ +
+    north_mask(x, y, z, p) * u / τₙ +
+    east_mask(x, y, z, p) * u / τₑ
+)
 
-@inline sponge_v(x, y, z, t, v, p) = -min(
-    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ,
-    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ,
-    east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₑ)
+@inline sponge_v(x, y, z, t, v, p) = -(
+    south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₛ +
+    north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / τₙ +
+    east_mask(x, y, z, p) * v / τₑ
+) # make zero 
 
-@inline sponge_w(x, y, z, t, w, p) = -min(
-    south_mask(x, y, z, p) * w / τₙ,
-    north_mask(x, y, z, p) * w / τₛ,
-    east_mask(x, y, z, p) * w / τₑ)
+@inline sponge_w(x, y, z, t, w, p) = -(
+    south_mask(x, y, z, p) * w / τₙ +
+    north_mask(x, y, z, p) * w / τₛ +
+    east_mask(x, y, z, p) * w / τₑ
+)
 
-@inline sponge_T(x, y, z, t, T, p) = -min(
-    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τ_ts,
-    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τ_ts,
-    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τₑ)
+@inline sponge_T(x, y, z, t, T, p) = -(
+    south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / τ_ts +
+    north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / τ_ts +
+    east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / τ_ts
+)
 
-@inline sponge_S(x, y, z, t, S, p) = -min(
-    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τ_ts,
-    north_mask(x, y, z, p) * (S - snbc(x, y, z, p)) / τ_ts,
-    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τₑ)
+@inline sponge_S(x, y, z, t, S, p) = -(
+    south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / τ_ts +
+    north_mask(x, y, z, p) * (S - snbc(x, y, z, p)) / τ_ts +
+    east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / τ_ts
+)
 
 
 # sum of masks, eastern included
@@ -408,63 +419,63 @@ S_north_model = [iS_north(z) for z in zc]
 
 # check masks:
 
-# using Plots
+using Plots
 
-# # Resolution for plotting (independent of model grid size)
-# Nx_plot, Ny_plot = 200, 200
+# Resolution for plotting (independent of model grid size)
+Nx_plot, Ny_plot = 200, 200
 
-# x_plot = range(0, Lx; length=Nx_plot)
-# y_plot = range(0, Ly; length=Ny_plot)
+x_plot = range(0, Lx; length=Nx_plot)
+y_plot = range(0, Ly; length=Ny_plot)
 
-# z_plot = 0.0   # z doesn't matter here; masks only use x,y,params
+z_plot = 0.0   # z doesn't matter here; masks only use x,y,params
 
-# # Compute masks on a regular 2D grid
-# Msouth = [south_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
-# Mnorth = [north_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
-# Meast = [east_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
+# Compute masks on a regular 2D grid
+Msouth = [south_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
+Mnorth = [north_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
+Meast = [east_mask(x, y, z_plot, params) for y in y_plot, x in x_plot]
 
-# # Combine masks (e.g. max or sum; here max so we stay in [0,1])
-# Mcombined = [max(Msouth[i, j], Mnorth[i, j], Meast[i, j])
-#              for i in eachindex(y_plot), j in eachindex(x_plot)]
+# Combine masks (e.g. max or sum; here max so we stay in [0,1])
+Mcombined = [max(Msouth[i, j], Mnorth[i, j], Meast[i, j])
+             for i in eachindex(y_plot), j in eachindex(x_plot)]
 
-# # Convert to km for nicer axes
-# x_km_plot = x_plot ./ 1e3
-# y_km_plot = y_plot ./ 1e3
+# Convert to km for nicer axes
+x_km_plot = x_plot ./ 1e3
+y_km_plot = y_plot ./ 1e3
 
-# # Base heatmap: combined mask value
-# plt = heatmap(
-#     x_km_plot, y_km_plot, Mcombined;
-#     size=(500, 1000),
-#     xlabel="x (km)",
-#     ylabel="y (km)",
-#     colorbar_title="mask value",
-#     #aspect_ratio=Ly / Lx,
-#     title="Sponge masks (combined, max of south/north/east)"
-# )
+# Base heatmap: combined mask value
+plt = heatmap(
+    x_km_plot, y_km_plot, Mcombined;
+    size=(500, 1000),
+    xlabel="x (km)",
+    ylabel="y (km)",
+    colorbar_title="mask value",
+    #aspect_ratio=Ly / Lx,
+    title="Sponge masks (combined, max of south/north/east)"
+)
 
-# # Overlay contours for individual masks so you can see each region
-# contour!(x_km_plot, y_km_plot, Msouth;
-#     levels=5,
-#     linewidth=1,
-#     linecolor=:white,
-#     label="south mask")
+# Overlay contours for individual masks so you can see each region
+contour!(x_km_plot, y_km_plot, Msouth;
+    levels=5,
+    linewidth=1,
+    linecolor=:white,
+    label="south mask")
 
-# contour!(x_km_plot, y_km_plot, Mnorth;
-#     levels=5,
-#     linewidth=1,
-#     linecolor=:red,
-#     label="north mask")
+contour!(x_km_plot, y_km_plot, Mnorth;
+    levels=5,
+    linewidth=1,
+    linecolor=:red,
+    label="north mask")
 
-# contour!(x_km_plot, y_km_plot, Meast;
-#     levels=5,
-#     linewidth=1,
-#     linecolor=:black,
-#     label="east mask")
+contour!(x_km_plot, y_km_plot, Meast;
+    levels=5,
+    linewidth=1,
+    linecolor=:black,
+    label="east mask")
 
-# # Add a legend
-# plot!(legend=:topright)
+# Add a legend
+plot!(legend=:topright)
 
-# display(plt)
+display(plt)
 
 
 
