@@ -7,7 +7,6 @@ using Statistics
 using Oceanostics.ProgressMessengers: SingleLineMessenger
 using Oceanostics: ErtelPotentialVorticity, RossbyNumber
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
-using Oceananigans.BuoyancyFormulations: SeawaterBuoyancy
 using Oceananigans.Models: buoyancy_operation
 using DataFrames
 
@@ -47,16 +46,11 @@ end
 @inline V(x, y, z, t, p) = v∞(x, z, t, p)
 @inline V(x, z, t, p) = v∞(x, z, t, p)
 
-@inline V₀(x, z, t, p) = 0.0
-
-
 
 H = Lz
 
 open_bc = OpenBoundaryCondition(V; parameters=(; Lx=Lx),
     scheme=PerturbationAdvection())
-
-open_zero = OpenBoundaryCondition(V₀; parameters=(; Lx=Lx), scheme=PerturbationAdvection())
 
 
 # bottom drag and surface wind stresses:
@@ -69,8 +63,8 @@ cᴰ = 2.5e-3
 drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ))
 drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ))
 
-u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
-v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc, bottom=drag_bc_v, east=open_zero)
+u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc, bottom=drag_bc_v)
 
 
 # temperature and salinity boundary conditions
@@ -196,7 +190,7 @@ start_time = time_ns() * 1e-9
 progress = SingleLineMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(1days))
 
-prefix = "testperturbation1"
+prefix = "testperturbation2"
 saved_output_filename = prefix * ".nc"
 
 overwrite_existing = true

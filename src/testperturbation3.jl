@@ -7,8 +7,7 @@ using Statistics
 using Oceanostics.ProgressMessengers: SingleLineMessenger
 using Oceanostics: ErtelPotentialVorticity, RossbyNumber
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
-using Oceananigans.BuoyancyFormulations: SeawaterBuoyancy
-using Oceananigans.Models: buoyancy_operation
+using Oceananigans.BuoyancyFormulations: buoyancy
 using DataFrames
 
 Lx, Ly, Lz = 100e3, 200e3, 50
@@ -47,16 +46,11 @@ end
 @inline V(x, y, z, t, p) = v∞(x, z, t, p)
 @inline V(x, z, t, p) = v∞(x, z, t, p)
 
-@inline V₀(x, z, t, p) = 0.0
-
-
 
 H = Lz
 
 open_bc = OpenBoundaryCondition(V; parameters=(; Lx=Lx),
     scheme=PerturbationAdvection())
-
-open_zero = OpenBoundaryCondition(V₀; parameters=(; Lx=Lx), scheme=PerturbationAdvection())
 
 
 # bottom drag and surface wind stresses:
@@ -69,8 +63,8 @@ cᴰ = 2.5e-3
 drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ))
 drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ))
 
-u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
-v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc, bottom=drag_bc_v, east=open_zero)
+u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+v_bcs = FieldBoundaryConditions(south=open_bc, north=open_bc, bottom=drag_bc_v)
 
 
 # temperature and salinity boundary conditions
@@ -98,9 +92,9 @@ iS_north = extrapolate(interpolate((z_data,), S_north, Gridded(Linear())), Inter
 @inline ssbc(x, y, z, t) = ssbc(x, z, t)
 @inline snbc(x, y, z, t) = snbc(x, z, t)
 
-Ls = 20e3
-τ = 6hours
-params = (; Lx=Lx, Ly=Ly, Ls=Ls, τ=τ)
+Ls = 10e3
+τ = 12hours
+params = (; Lx=Lx, Ly=Ly, Ls=Ls, τ=τ, V₂=V₂)
 
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
 T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
@@ -162,7 +156,7 @@ model = NonhydrostaticModel(
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-b = buoyancy_operation(model)
+b = buoyancy(model)
 
 @inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
 @inline blend(a, b, α) = (1 - α) * a + α * b
@@ -189,14 +183,14 @@ set!(model, T=Tᵢ, S=Sᵢ, u=uᵢ, v=vᵢ, w=wᵢ)
 cfl_values = Float64[]
 cfl_times = Float64[]
 
-simulation = Simulation(model, Δt=5seconds, stop_time=10days)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+simulation = Simulation(model, Δt=5seconds, stop_time=100days)
+conjure_time_step_wizard!(simulation, cfl=0.9)
 
 start_time = time_ns() * 1e-9
 progress = SingleLineMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(1days))
 
-prefix = "testperturbation1"
+prefix = "testperturbation3"
 saved_output_filename = prefix * ".nc"
 
 overwrite_existing = true
