@@ -309,13 +309,12 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
 if periodic_y
-    saved_output_filename = "periodic_over_shoals"
+    saved_output_filename = "periodic_over_shoals.nc"
 else
-    saved_output_filename = "bounded_over_shoals"
+    saved_output_filename = "bounded_over_shoals.nc"
 end
 
-saved_output_filename = saved_output_prefix * ".nc"
-checkpointer_prefix = "checkpoint_" * saved_output_prefix
+# checkpointer_prefix = "checkpoint_" * saved_output_filename
 
 # NETCDF writers
 

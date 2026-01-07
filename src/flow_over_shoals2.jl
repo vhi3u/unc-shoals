@@ -39,11 +39,11 @@ sigmoid_ic = false
 arch = CPU()
 
 # simulation knobs
-sim_runtime = 100days
+sim_runtime = 50days
 callback_interval = 86400seconds
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=400e3, Lz=50, Nx=30, Ny=30, Nz=10)
 else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
@@ -309,13 +309,12 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
 if periodic_y
-    saved_output_filename = "periodic_over_shoals2"
+    saved_output_filename = "periodic_over_shoals2.nc"
 else
-    saved_output_filename = "bounded_over_shoals2"
+    saved_output_filename = "bounded_over_shoals2.nc"
 end
 
-saved_output_filename = saved_output_prefix * ".nc"
-checkpointer_prefix = "checkpoint_" * saved_output_prefix
+# checkpointer_prefix = "checkpoint_" * saved_output_filename
 
 # NETCDF writers
 

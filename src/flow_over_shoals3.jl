@@ -29,7 +29,7 @@ LES = true
 mass_flux = true
 periodic_y = false
 gradient_IC = true
-sigmoid_v_bc = true
+sigmoid_v_bc = false
 sigmoid_ic = false
 # if has_cuda_gpu()
 #     arch = GPU()
@@ -39,7 +39,7 @@ sigmoid_ic = false
 arch = CPU()
 
 # simulation knobs
-sim_runtime = 100days
+sim_runtime = 50days
 callback_interval = 86400seconds
 
 if LES
@@ -309,13 +309,12 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
 if periodic_y
-    saved_output_filename = "periodic_over_shoals3"
+    saved_output_filename = "periodic_over_shoals3.nc"
 else
-    saved_output_filename = "bounded_over_shoals3"
+    saved_output_filename = "bounded_over_shoals3.nc"
 end
 
-saved_output_filename = saved_output_prefix * ".nc"
-checkpointer_prefix = "checkpoint_" * saved_output_prefix
+# checkpointer_prefix = "checkpoint_" * saved_output_filename
 
 # NETCDF writers
 
