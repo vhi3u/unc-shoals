@@ -77,7 +77,7 @@ end
 
 # store parameters for sponge setup
 params = (; params...,
-    Ls=20e3, # sponge layer size (north and south)
+    Ls=10e3, # sponge layer size (north and south)
     Le=50e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
