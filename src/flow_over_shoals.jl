@@ -31,6 +31,8 @@ periodic_y = false
 gradient_IC = true
 sigmoid_v_bc = true
 sigmoid_ic = true
+is_coriolis = true
+shoal_bath = true
 # if has_cuda_gpu()
 #     arch = GPU()
 # else
@@ -66,8 +68,12 @@ end
 # bathymetry
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
-x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
-ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
+if shoal_bath
+    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
+else
+    ib_grid = grid
+end
 
 if mass_flux
     v₀ = 0.10 # [m/s] mean flow velocity
@@ -245,7 +251,11 @@ else
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
-
+if is_coriolis
+    coriolis = FPlane(latitude=35.2480)
+else
+    coriolis = nothing
+end
 
 if periodic_y
     model = NonhydrostaticModel(
@@ -256,7 +266,7 @@ if periodic_y
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
-        coriolis=FPlane(latitude=35.2480),
+        coriolis=coriolis,
         boundary_conditions=bcs,
         forcing=forcings
     )
@@ -269,7 +279,7 @@ else
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
-        coriolis=FPlane(latitude=35.2480),
+        coriolis=coriolis,
         boundary_conditions=bcs,
         forcing=forcings
     )
