@@ -29,8 +29,8 @@ LES = true
 mass_flux = true
 periodic_y = false
 gradient_IC = true
-sigmoid_v_bc = false
-sigmoid_ic = false
+sigmoid_v_bc = true
+sigmoid_ic = true
 # if has_cuda_gpu()
 #     arch = GPU()
 # else
@@ -77,7 +77,8 @@ end
 
 # store parameters for sponge setup
 params = (; params...,
-    Ls=10e3, # sponge layer size
+    Ls=20e3, # sponge layer size (north and south)
+    Le=50e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=6hours, # relaxation timescale for east sponge
@@ -146,7 +147,7 @@ end
 end
 
 @inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Ls
+    x0 = p.Lx - p.Le
     x1 = p.Lx
 
     if x0 <= x <= x1
@@ -285,7 +286,7 @@ cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.8)
+conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 start_time = time_ns() * 1e-9
 progress = SingleLineMessenger()
