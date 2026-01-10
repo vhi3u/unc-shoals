@@ -84,10 +84,10 @@ end
 # store parameters for sponge setup
 params = (; params...,
     Ls=10e3, # sponge layer size (north and south)
-    Le=50e3, # sponge layer size (east)
+    Le=60e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
-    τₑ=6hours, # relaxation timescale for east sponge
+    τₑ=24hours, # relaxation timescale for east sponge
     τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # temperature and salinity profiles for north and south boundaries
@@ -118,7 +118,7 @@ end
 # temperature and salinity for eastern boundary (constant)
 if LES
     Tₑ(x, y, z) = 23.11
-    Sₑ(x, y, z) = 36.4
+    Sₑ(x, y, z) = 35.5
 end
 
 # bottom drag parameters
