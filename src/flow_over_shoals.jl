@@ -27,7 +27,7 @@ include("dshoal_vn.jl")
 # switches
 LES = true
 mass_flux = true
-periodic_y = false
+periodic_y = true
 gradient_IC = true
 sigmoid_v_bc = true
 sigmoid_ic = true
