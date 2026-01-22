@@ -27,7 +27,7 @@ include("dshoal_vn.jl")
 # switches
 LES = true
 mass_flux = true
-periodic_y = true
+periodic_y = false
 gradient_IC = true
 sigmoid_v_bc = true
 sigmoid_ic = true
@@ -45,7 +45,7 @@ sim_runtime = 50days
 callback_interval = 86400seconds
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=20)
 else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
