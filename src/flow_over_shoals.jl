@@ -18,6 +18,7 @@ using DataFrames
 
 # include shoal function
 include("dshoal_vn.jl")
+include("dshoal_taper_vn.jl")
 
 # add run directory [TBD]
 
@@ -69,7 +70,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    x_km, y_km, h = dshoal_taper(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -246,7 +247,7 @@ else
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
     u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, east=open_zero)
+    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc, east=open_zero)
     w_bcs = FieldBoundaryConditions()
 end
 
