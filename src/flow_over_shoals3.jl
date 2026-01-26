@@ -14,7 +14,7 @@ using SeawaterPolynomials.TEOS10
 using Oceanostics.ProgressMessengers: SingleLineMessenger
 using NCDatasets
 using DataFrames
-# using CUDA: has_cuda_gpu, @allowscalar, CuArray
+using CUDA: has_cuda_gpu
 
 # include shoal function
 include("dshoal_vn.jl")
@@ -35,12 +35,12 @@ sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
 shoal_bath = true
-# if has_cuda_gpu()
-#     arch = GPU()
-# else
-#     arch = CPU()
-# end
-arch = CPU()
+if has_cuda_gpu()
+    arch = GPU()
+else
+    arch = CPU()
+end
+# arch = CPU()
 
 # simulation knobs
 sim_runtime = 50days
@@ -52,7 +52,9 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
+else
+    params = (; params..., Nx=30, Ny=30, Nz=10)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -85,7 +87,7 @@ end
 
 # store parameters for sponge setup
 params = (; params...,
-    Ls=20e3, # sponge layer size (north and south)
+    Ls=10e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge

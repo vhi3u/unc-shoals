@@ -43,11 +43,11 @@ end
 # arch = CPU()
 
 # simulation knobs
-sim_runtime = 10days
+sim_runtime = 50days
 callback_interval = 86400seconds
 
 if LES
-    params = (; Lx=100e3, Ly=400e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
 else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
@@ -73,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=50.0) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=20.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -89,10 +89,10 @@ end
 params = (; params...,
     Ls=10e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
-    τₙ=12hours, # relaxation timescale for north sponge
-    τₛ=12hours, # relaxation timescale for south sponge
+    τₙ=6hours, # relaxation timescale for north sponge
+    τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=12hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # temperature and salinity profiles for north and south boundaries
 @info "loading B1 and B2 T/S profiles"
