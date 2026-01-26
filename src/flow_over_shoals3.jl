@@ -73,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=50.0) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=20.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
