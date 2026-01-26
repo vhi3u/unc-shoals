@@ -19,6 +19,7 @@ using DataFrames
 # include shoal function
 include("dshoal_vn.jl")
 include("dshoal_taper_vn.jl")
+include("dshoal_sigmoid_vn.jl")
 
 # add run directory [TBD]
 
@@ -51,7 +52,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
+    params = (; params..., Nx=60, Ny=60, Nz=10) # keep the same for now
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -70,7 +71,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_taper(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=50.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -375,3 +376,16 @@ set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 # run simulation
 @info "time to run simulation!"
 run!(simulation)
+
+# # --- Plot bathymetry with GLMakie ---
+# using GLMakie
+
+# fig = Figure(size=(800, 600))
+# ax = Axis3(fig[1, 1],
+#     xlabel="x (km)",
+#     ylabel="y (km)",
+#     zlabel="Depth (m)",
+#     title="Shoal Bathymetry")
+# surf = surface!(ax, collect(x_km), collect(y_km), h, colormap=:viridis)
+# Colorbar(fig[1, 2], surf, label="Depth (m)")
+# display(fig)
