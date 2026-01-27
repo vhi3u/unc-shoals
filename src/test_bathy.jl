@@ -1,13 +1,3 @@
-# using Pkg
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# import Pkg;
-# Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
@@ -53,7 +43,7 @@ end
 # arch = CPU()
 
 # simulation knobs
-sim_runtime = 50days
+sim_runtime = 100days
 callback_interval = 86400seconds
 
 if LES
@@ -62,7 +52,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
+    params = (; params..., Nx=100, Ny=100, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=30, Ny=30, Nz=10)
 end
@@ -83,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=20.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -209,7 +199,7 @@ if mass_flux
         @inline sponge_v(x, y, z, t, v, p) = -min(
             south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₛ,
             north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₙ,
-            east_mask(x, y, z, p) * v / params.τₑ)
+            east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₑ)
 
         @inline sponge_w(x, y, z, t, w, p) = -min(
             south_mask(x, y, z, p) * w / params.τₙ,
@@ -256,7 +246,7 @@ if periodic_y
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(V; parameters=params, scheme=PerturbationAdvection())
-    open_zero = OpenBoundaryCondition(0.0) # Gradient Boundary Condition = 0
+    open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
     u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
@@ -334,9 +324,9 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
 if periodic_y
-    saved_output_filename = "periodic_over_shoals.nc"
+    saved_output_filename = "test_bathy_periodic.nc"
 else
-    saved_output_filename = "bounded_over_shoals.nc"
+    saved_output_filename = "test_bathy_bounded.nc"
 end
 
 # checkpointer_prefix = "checkpoint_" * saved_output_filename
@@ -387,7 +377,7 @@ set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info "time to run simulation!"
-run!(simulation)
+# run!(simulation)
 
 # # --- Plot bathymetry with GLMakie ---
 # using GLMakie
@@ -401,3 +391,22 @@ run!(simulation)
 # surf = surface!(ax, collect(x_km), collect(y_km), h, colormap=:viridis)
 # Colorbar(fig[1, 2], surf, label="Depth (m)")
 # display(fig)
+
+using GLMakie
+using Oceananigans.Grids: xnodes, ynodes, znodes
+# Extract the grid coordinates (in meters, convert to km for plotting)
+xg = xnodes(ib_grid, Center()) ./ 1e3  # x coordinates at cell centers
+yg = ynodes(ib_grid, Center()) ./ 1e3  # y coordinates at cell centers
+# Get the bottom height from the immersed boundary
+# The immersed boundary stores the bottom as a Field
+bottom = interior(ib_grid.immersed_boundary.bottom_height, :, :, 1)
+# Create surface plot
+fig = Figure(size=(800, 600))
+ax = Axis3(fig[1, 1],
+    xlabel="x (km)", ylabel="y (km)", zlabel="Depth (m)",
+    title="Immersed Boundary Grid",
+    azimuth=-0.5π,    # Rotate around z-axis (in radians)
+    elevation=0.2π)   # Tilt angle (in radians)
+surf = surface!(ax, xg, yg, bottom, colormap=:viridis)
+Colorbar(fig[1, 2], surf, label="Depth (m)")
+display(fig)

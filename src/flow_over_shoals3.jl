@@ -29,7 +29,7 @@ include("dshoal_sigmoid_vn.jl")
 # switches
 LES = true
 mass_flux = true
-periodic_y = false
+periodic_y = true
 gradient_IC = true
 sigmoid_v_bc = true
 sigmoid_ic = true
@@ -73,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=20.0) # feed grid into shoal function
+    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -92,7 +92,7 @@ params = (; params...,
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=1hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # temperature and salinity profiles for north and south boundaries
 @info "loading B1 and B2 T/S profiles"
@@ -199,7 +199,7 @@ if mass_flux
         @inline sponge_v(x, y, z, t, v, p) = -min(
             south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₛ,
             north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₙ,
-            east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₑ)
+            east_mask(x, y, z, p) * v / params.τₑ)
 
         @inline sponge_w(x, y, z, t, w, p) = -min(
             south_mask(x, y, z, p) * w / params.τₙ,
