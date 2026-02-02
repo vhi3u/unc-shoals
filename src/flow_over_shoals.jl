@@ -1,20 +1,20 @@
-# using Pkg
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# Pkg.add("NCDatasets");
-# Pkg.add("DataFrames");
-# Pkg.add("Interpolations");
-# Pkg.add("CUDA");
-# Pkg.add("Oceanostics");
-# Pkg.add("CSV");
-# Pkg.add("Statistics");
-# Pkg.add("SeawaterPolynomials");
-# import Pkg;
-# # Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
+using Pkg
+Pkg.instantiate() # Only need to do this once when you started the repo in another machine
+Pkg.resolve()
+import Pkg;
+Pkg.add("Oceananigans");
+Pkg.add("NCDatasets");
+Pkg.add("DataFrames");
+Pkg.add("Interpolations");
+Pkg.add("CUDA");
+Pkg.add("Oceanostics");
+Pkg.add("CSV");
+Pkg.add("Statistics");
+Pkg.add("SeawaterPolynomials");
+import Pkg;
+# Pkg.add("Rasters");
+Pkg.instantiate() # Only need to do this once when you started the repo in another machine
+Pkg.resolve()
 
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
@@ -64,9 +64,9 @@ sim_runtime = 100days
 callback_interval = 86400seconds
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
     params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
@@ -105,83 +105,88 @@ end
 # store parameters for sponge setup
 params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
-    Ls=10e3, # sponge layer size (north and south)
+    Ls=50e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
     τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
-# GPU-compatible piecewise linear T/S profiles (from CTD data)
+# GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
-# These functions mirror the MATLAB pwl() function and work on GPU
+# Uses tanh blending for smooth transitions (equivalent to MATLAB smoothdata)
+# δ = smoothing length scale (meters), set to ~2.5m for 5m effective smoothing
 
-# Temperature at North boundary (B1)
+const δ_smooth = 2.5  # smoothing length scale in meters
+
+# Smooth transition function: 0 when z >> z0, 1 when z << z0
+@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+
+# Temperature at North boundary (B1) - SMOOTHED
 @inline function T_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 20.5389, 17.8875, 14.3323
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    if z >= z1
-        return v1
-    elseif z >= z2
-        return v1 + m12 * (z - z1)
-    elseif z >= z3
-        return v2 + m23 * (z - z2)
-    else
-        return v3
-    end
+    # Piecewise linear values
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    # Smooth blending between segments
+    w1 = smooth_step(z, z1)  # 0 above z1, 1 below z1
+    w2 = smooth_step(z, z2)  # 0 above z2, 1 below z2
+    w3 = smooth_step(z, z3)  # 0 above z3, 1 below z3
+    # Blend: start with val1, transition to val2 at z1, to val3 at z2, to val4 at z3
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Temperature at South boundary (B2)
+# Temperature at South boundary (B2) - SMOOTHED
 @inline function T_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 24.5378, 24.3073, 23.4116
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    if z >= z1
-        return v1
-    elseif z >= z2
-        return v1 + m12 * (z - z1)
-    elseif z >= z3
-        return v2 + m23 * (z - z2)
-    else
-        return v3
-    end
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at North boundary (B1)
+# Salinity at North boundary (B1) - SMOOTHED
 @inline function S_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 32.6264, 33.7062, 33.2648
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    if z >= z1
-        return v1
-    elseif z >= z2
-        return v1 + m12 * (z - z1)
-    elseif z >= z3
-        return v2 + m23 * (z - z2)
-    else
-        return v3
-    end
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at South boundary (B2)
+# Salinity at South boundary (B2) - SMOOTHED
 @inline function S_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 35.5830, 35.9986, 36.1776
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    if z >= z1
-        return v1
-    elseif z >= z2
-        return v1 + m12 * (z - z1)
-    elseif z >= z3
-        return v2 + m23 * (z - z2)
-    else
-        return v3
-    end
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
 # Eastern boundary T/S constants
