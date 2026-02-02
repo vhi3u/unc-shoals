@@ -52,7 +52,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=100, Ny=100, Nz=10) # keep the same for now
+    params = (; params..., Nx=100, Ny=100, Nz=50) # keep the same for now
 else
     params = (; params..., Nx=30, Ny=30, Nz=10)
 end
@@ -73,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=20.0) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=50.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid

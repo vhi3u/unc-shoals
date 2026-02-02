@@ -88,7 +88,7 @@ function dshoal_sigmoid(Lx, Ly, sigma, Hs, N; taper_width_y=20.0)
     h = max.(hw, hs)
 
     # --- Y-TAPER: blend to -50 m at y = 0 and y = Ly using sigmoid ---
-    h_bottom = -50.0
+    h_bottom = h_aw
 
     # Sigmoid steepness: k controls sharpness of transition
     # k = 6/taper_width means ~95% of transition happens within taper_width
@@ -108,8 +108,19 @@ function dshoal_sigmoid(Lx, Ly, sigma, Hs, N; taper_width_y=20.0)
     end
 
     # Apply taper: blend h towards -50 at y-boundaries
-    # h_new = taper_y * h + (1 - taper_y) * h_bottom
-    h = taper_y .* h .+ (1 .- taper_y) .* h_bottom
+    # Only apply taper for x <= 10 km; beyond x = 10 km, use original bathymetry
+    x_taper_limit = aw  # km
+
+    h_tapered = taper_y .* h .+ (1 .- taper_y) .* h_bottom
+
+    # Blend: use tapered bathymetry for x <= 10 km, original for x > 10 km
+    for i in eachindex(x)
+        if x[i] > x_taper_limit
+            h[:, i] .= h[:, i]  # keep original (no change needed, but explicit)
+        else
+            h[:, i] .= h_tapered[:, i]  # apply y-taper
+        end
+    end
 
     return x, y, h'
 end
