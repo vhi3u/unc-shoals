@@ -47,9 +47,9 @@ include("dshoal_vn.jl")
 LES = true
 mass_flux = true
 periodic_y = true
-gradient_IC = true
-sigmoid_v_bc = false
-sigmoid_ic = false
+gradient_IC = false
+sigmoid_v_bc = true
+sigmoid_ic = true
 is_coriolis = true
 shoal_bath = true
 if has_cuda_gpu()
