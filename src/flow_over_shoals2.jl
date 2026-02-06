@@ -49,7 +49,7 @@ mass_flux = true
 periodic_y = true
 gradient_IC = true
 sigmoid_v_bc = false
-sigmoid_ic = true
+sigmoid_ic = false
 is_coriolis = true
 shoal_bath = true
 if has_cuda_gpu()
