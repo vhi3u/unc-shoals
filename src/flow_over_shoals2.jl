@@ -60,7 +60,7 @@ end
 # arch = CPU()
 
 # simulation knobs
-sim_runtime = 100days
+sim_runtime = 50days
 callback_interval = 86400seconds
 
 if LES
@@ -71,7 +71,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
 else
-    params = (; params..., Nx=60, Ny=60, Nz=20)
+    params = (; params..., Nx=120, Ny=120, Nz=20)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -110,7 +110,7 @@ params = (; params...,
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=3hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -201,6 +201,10 @@ if LES
     @inline drag_v(x, y, t, u, v, p) = -cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
+    @inline tsbc(x, z, t) = T_south_pwl(z)
+    @inline tnbc(x, z, t) = T_north_pwl(z)
+    @inline ssbc(x, z, t) = S_south_pwl(z)
+    @inline snbc(x, z, t) = S_north_pwl(z)
 end
 
 # mask functions
@@ -271,18 +275,18 @@ if mass_flux
             east_mask(x, y, z, p) * v / p.τₑ)
 
         @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₙ,
-            north_mask(x, y, z, p) * w / p.τₛ,
+            south_mask(x, y, z, p) * w / p.τₛ,
+            north_mask(x, y, z, p) * w / p.τₙ,
             east_mask(x, y, z, p) * w / p.τₑ)
 
         @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τₛ,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τₛ,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τₑ)
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
         @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τₛ,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τₙ,
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
             east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
     else
         @inline V(x, y, z, t, p) = v∞(x, z, t, p)
@@ -290,8 +294,8 @@ if mass_flux
         @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) * u / p.τₛ + north_mask(x, y, z, p) * u / p.τₙ)
         @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₛ + north_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₙ)
         @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) * w / p.τₛ + north_mask(x, y, z, p) * w / p.τₙ)
-        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τₛ + north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τₛ)
-        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τₛ + north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τₙ)
+        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts)
+        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts)
     end
 end
 
