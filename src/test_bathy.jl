@@ -1,28 +1,10 @@
-# using Pkg
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# Pkg.add("NCDatasets");
-# Pkg.add("DataFrames");
-# Pkg.add("Interpolations");
-# Pkg.add("CUDA");
-# Pkg.add("Oceanostics");
-# Pkg.add("CSV");
-# Pkg.add("Statistics");
-# Pkg.add("SeawaterPolynomials");
-# import Pkg;
-# # Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions, FluxBoundaryCondition
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
-using Oceananigans.Models: buoyancy_operation
+using Oceananigans.BuoyancyFormulations: buoyancy
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
@@ -36,7 +18,8 @@ using CUDA: has_cuda_gpu
 
 # include shoal function
 include("dshoal_vn.jl")
-# include("dshoal_sigmoid_vn.jl")
+include("dshoal_taper_vn.jl")
+include("dshoal_sigmoid_vn.jl")
 
 # add run directory [TBD]
 
@@ -60,18 +43,18 @@ end
 # arch = CPU()
 
 # simulation knobs
-sim_runtime = 50days
+sim_runtime = 100days
 callback_interval = 86400seconds
 
 if LES
-    params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
 else
-    params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
+    params = (; params..., Nx=100, Ny=100, Nz=50) # keep the same for now
 else
-    params = (; params..., Nx=120, Ny=120, Nz=20)
+    params = (; params..., Nx=30, Ny=30, Nz=10)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -79,9 +62,9 @@ x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 # grid  
 
 if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
+    grid = RectilinearGrid(CPU(); size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
+    grid = RectilinearGrid(CPU(); size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
 end
 
 # model parameters
@@ -90,7 +73,7 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    x_km, y_km, h = dshoal_sigmoid(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx; taper_width_y=50.0) # feed grid into shoal function
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -104,95 +87,43 @@ end
 
 # store parameters for sponge setup
 params = (; params...,
-    v₀=v₀, # add v₀ to params for GPU compatibility
-    Ls=50e3, # sponge layer size (north and south)
-    Le=60e3, # sponge layer size (east)
+    Ls=10e3, # sponge layer size (north and south)
+    Le=10e3, # sponge layer size (east)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
     τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
-# GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
-# B1 = North, B2 = South
-# Uses tanh blending for smooth transitions (equivalent to MATLAB smoothdata)
-# δ = smoothing length scale (meters), set to ~2.5m for 5m effective smoothing
-
-const δ_smooth = 2.5  # smoothing length scale in meters
-
-# Smooth transition function: 0 when z >> z0, 1 when z << z0
-@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
-
-# Temperature at North boundary (B1) - SMOOTHED
-@inline function T_north_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -35.0
-    v1, v2, v3 = 20.5389, 17.8875, 14.3323
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    # Piecewise linear values
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    # Smooth blending between segments
-    w1 = smooth_step(z, z1)  # 0 above z1, 1 below z1
-    w2 = smooth_step(z, z2)  # 0 above z2, 1 below z2
-    w3 = smooth_step(z, z3)  # 0 above z3, 1 below z3
-    # Blend: start with val1, transition to val2 at z1, to val3 at z2, to val4 at z3
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# temperature and salinity profiles for north and south boundaries
+@info "loading B1 and B2 T/S profiles"
+using CSV
+using Interpolations: extrapolate, interpolate, Gridded, Flat, Linear
+if LES
+    ctd = CSV.read("src/ctd_smoothed.csv", DataFrame)
+    z_data = collect(ctd.z)
+    T_south = collect(ctd.T_B2)
+    T_north = collect(ctd.T_B1)
+    S_south = collect(ctd.S_B2)
+    S_north = collect(ctd.S_B1)
+    iT_south = extrapolate(interpolate((z_data,), T_south, Gridded(Linear())), Flat()) # Gridded and Flat are imported from Interpolations
+    iT_north = extrapolate(interpolate((z_data,), T_north, Gridded(Linear())), Flat())
+    iS_south = extrapolate(interpolate((z_data,), S_south, Gridded(Linear())), Flat())
+    iS_north = extrapolate(interpolate((z_data,), S_north, Gridded(Linear())), Flat())
+    @inline tsbc(x, z, t) = iT_south(z)
+    @inline tnbc(x, z, t) = iT_north(z)
+    @inline ssbc(x, z, t) = iS_south(z)
+    @inline snbc(x, z, t) = iS_north(z)
+    @inline tsbc(x, y, z, t) = tsbc(x, z, t) # wrapper function for temperature at south boundary
+    @inline tnbc(x, y, z, t) = tnbc(x, z, t) # wrapper function for temperature at north boundary
+    @inline ssbc(x, y, z, t) = ssbc(x, z, t) # wrapper function for salinity at south boundary
+    @inline snbc(x, y, z, t) = snbc(x, z, t) # wrapper function for salinity at north boundary
 end
 
-# Temperature at South boundary (B2) - SMOOTHED
-@inline function T_south_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -30.0
-    v1, v2, v3 = 24.5378, 24.3073, 23.4116
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# temperature and salinity for eastern boundary (constant)
+if LES
+    Tₑ(x, y, z) = 23.11
+    Sₑ(x, y, z) = 35.5
 end
-
-# Salinity at North boundary (B1) - SMOOTHED
-@inline function S_north_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -35.0
-    v1, v2, v3 = 32.6264, 33.7062, 33.2648
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
-
-# Salinity at South boundary (B2) - SMOOTHED
-@inline function S_south_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -30.0
-    v1, v2, v3 = 35.5830, 35.9986, 36.1776
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
-
-# Eastern boundary T/S constants
-Tₑ_val = 23.11
-Sₑ_val = 35.5
-params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
 # bottom drag parameters
 cᴰ = 2.5e-3 # dimensionless drag coefficient
@@ -201,10 +132,6 @@ if LES
     @inline drag_v(x, y, t, u, v, p) = -cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
-    @inline tsbc(x, z, t) = T_south_pwl(z)
-    @inline tnbc(x, z, t) = T_north_pwl(z)
-    @inline ssbc(x, z, t) = S_south_pwl(z)
-    @inline snbc(x, z, t) = S_north_pwl(z)
 end
 
 # mask functions
@@ -253,11 +180,11 @@ if sigmoid_v_bc
         s2 = 1 / (1 + exp(k2 * (x - xS)))
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
-        return p.v₀ * sc
+        return v₀ * sc
     end
 else
     @inline function v∞(x, z, t, p)
-        return p.v₀
+        return v₀
     end
 end
 
@@ -265,37 +192,37 @@ end
 if mass_flux
     if periodic_y
         @inline sponge_u(x, y, z, t, u, p) = -min(
-            south_mask(x, y, z, p) * u / p.τₛ,
-            north_mask(x, y, z, p) * u / p.τₙ,
-            east_mask(x, y, z, p) * u / p.τₑ)
+            south_mask(x, y, z, p) * u / params.τₛ,
+            north_mask(x, y, z, p) * u / params.τₙ,
+            east_mask(x, y, z, p) * u / params.τₑ)
 
         @inline sponge_v(x, y, z, t, v, p) = -min(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
+            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₛ,
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₙ,
+            east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / params.τₑ)
 
         @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₛ,
-            north_mask(x, y, z, p) * w / p.τₙ,
-            east_mask(x, y, z, p) * w / p.τₑ)
+            south_mask(x, y, z, p) * w / params.τₙ,
+            north_mask(x, y, z, p) * w / params.τₛ,
+            east_mask(x, y, z, p) * w / params.τₑ)
 
         @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+            south_mask(x, y, z, p) * (T - tsbc(x, y, z, t)) / params.τₛ,
+            north_mask(x, y, z, p) * (T - tnbc(x, y, z, t)) / params.τₛ,
+            east_mask(x, y, z, p) * (T - Tₑ(x, y, z)) / params.τₑ)
 
         @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+            south_mask(x, y, z, p) * (S - ssbc(x, y, z, t)) / params.τₛ,
+            north_mask(x, y, z, p) * (S - snbc(x, y, z, t)) / params.τₙ,
+            east_mask(x, y, z, p) * (S - Sₑ(x, y, z)) / params.τₑ)
     else
         @inline V(x, y, z, t, p) = v∞(x, z, t, p)
         @inline V(x, z, t, p) = v∞(x, z, t, p)
-        @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) * u / p.τₛ + north_mask(x, y, z, p) * u / p.τₙ)
-        @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₛ + north_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₙ)
-        @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) * w / p.τₛ + north_mask(x, y, z, p) * w / p.τₙ)
-        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts)
-        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts)
+        @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) * u / params.τₛ + north_mask(x, y, z, p) * u / params.τₙ)
+        @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) * (v - V(x, z, t, p)) / params.τₛ + north_mask(x, y, z, p) * (v - V(x, z, t, p)) / params.τₙ)
+        @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) * w / params.τₛ + north_mask(x, y, z, p) * w / params.τₙ)
+        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - tsbc(x, z, t)) / params.τₛ + north_mask(x, y, z, p) * (T - tnbc(x, z, t)) / params.τₛ)
+        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - ssbc(x, z, t)) / params.τₛ + north_mask(x, y, z, p) * (S - snbc(x, z, t)) / params.τₙ)
     end
 end
 
@@ -335,8 +262,8 @@ else
 end
 
 if periodic_y
-    model = NonhydrostaticModel(ib_grid;
-        #grid=ib_grid,
+    model = NonhydrostaticModel(
+        grid=ib_grid,
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
@@ -348,8 +275,8 @@ if periodic_y
         forcing=forcings
     )
 else
-    model = NonhydrostaticModel(ib_grid;
-        #grid=ib_grid,
+    model = NonhydrostaticModel(
+        grid=ib_grid,
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
@@ -382,7 +309,7 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_inter
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-b = buoyancy_operation(model)
+b = buoyancy(model)
 
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
@@ -397,9 +324,9 @@ Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
 if periodic_y
-    saved_output_filename = "periodic_over_shoals3.nc"
+    saved_output_filename = "test_bathy_periodic.nc"
 else
-    saved_output_filename = "bounded_over_shoals3.nc"
+    saved_output_filename = "test_bathy_bounded.nc"
 end
 
 # checkpointer_prefix = "checkpoint_" * saved_output_filename
@@ -439,20 +366,20 @@ end
 if gradient_IC
     @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
     @inline blend(a, b, α) = (1 - α) * a + α * b
-    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
+    @inline Tᵢ(x, y, z) = blend(iT_south(z), iT_north(z), α_lin(y))
+    @inline Sᵢ(x, y, z) = blend(iS_south(z), iS_north(z), α_lin(y))
 else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z)
+    @inline Tᵢ(x, y, z) = iT_south(z)
+    @inline Sᵢ(x, y, z) = iS_south(z)
 end
 
 set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info "time to run simulation!"
-run!(simulation)
+# run!(simulation)
 
-# --- Plot bathymetry with GLMakie ---
+# # --- Plot bathymetry with GLMakie ---
 # using GLMakie
 
 # fig = Figure(size=(800, 600))
@@ -464,3 +391,22 @@ run!(simulation)
 # surf = surface!(ax, collect(x_km), collect(y_km), h, colormap=:viridis)
 # Colorbar(fig[1, 2], surf, label="Depth (m)")
 # display(fig)
+
+using GLMakie
+using Oceananigans.Grids: xnodes, ynodes, znodes
+# Extract the grid coordinates (in meters, convert to km for plotting)
+xg = xnodes(ib_grid, Center()) ./ 1e3  # x coordinates at cell centers
+yg = ynodes(ib_grid, Center()) ./ 1e3  # y coordinates at cell centers
+# Get the bottom height from the immersed boundary
+# The immersed boundary stores the bottom as a Field
+bottom = interior(ib_grid.immersed_boundary.bottom_height, :, :, 1)
+# Create surface plot
+fig = Figure(size=(800, 600))
+ax = Axis3(fig[1, 1],
+    xlabel="x (km)", ylabel="y (km)", zlabel="Depth (m)",
+    title="Immersed Boundary Grid",
+    azimuth=-0.5π,    # Rotate around z-axis (in radians)
+    elevation=0.2π)   # Tilt angle (in radians)
+surf = surface!(ax, xg, yg, bottom, colormap=:viridis)
+Colorbar(fig[1, 2], surf, label="Depth (m)")
+display(fig)
