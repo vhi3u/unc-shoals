@@ -1,6 +1,6 @@
-function dshoal(Lx, Ly, sigma, Hs, N)
-    x = range(0, stop=Lx, length=N)
-    y = range(0, stop=Ly, length=N)
+function dshoal(Lx, Ly, sigma, Hs, Nx, Ny=Nx)
+    x = range(0, stop=Lx, length=Nx)
+    y = range(0, stop=Ly, length=Ny)
 
     # --- BACKGROUND BATHYMETRY (HW) ---
 
@@ -67,7 +67,7 @@ function dshoal(Lx, Ly, sigma, Hs, N)
 
     # across-shoal (hsy)
     y0 = Ly / 2
-    gauss = Hs .* exp.(-((y .- y0).^2) ./ (2 * sigma^2))
+    gauss = Hs .* exp.(-((y .- y0) .^ 2) ./ (2 * sigma^2))
     hsy = gauss # centered Gaussian
 
     # taper in x
