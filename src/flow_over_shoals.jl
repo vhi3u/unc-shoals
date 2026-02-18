@@ -286,28 +286,42 @@ if mass_flux
         south_mask(x, y, z, p) * w / p.τₛ +
         north_mask(x, y, z, p) * w / p.τₙ +
         east_mask(x, y, z, p) * w / p.τₑ)
+    if periodic_y
+        @inline sponge_T(x, y, z, t, T, p) = -(
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-    @inline sponge_T(x, y, z, t, T, p) = -(
-        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
-
-    @inline sponge_S(x, y, z, t, S, p) = -(
-        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+        @inline sponge_S(x, y, z, t, S, p) = -(
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+    end
 end
 
 # forcing functions
-FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+if periodic_y
+    FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+    FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+else
+    FT = nothing
+    FS = nothing
+end
 if mass_flux
     Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
     Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
     F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    if periodic_y
+        forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    else
+        forcings = (u=Fᵤ, v=Fᵥ, w=F_w)
+    end
 else
-    forcings = (T=FT, S=FS)
+    if periodic_y
+        forcings = (T=FT, S=FS)
+    else
+        forcings = NamedTuple()
+    end
 end
 
 if periodic_y
