@@ -27,18 +27,14 @@ using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
 using Oceananigans.Diagnostics: CFL
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity
+using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
+    KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
+    XShearProductionRate, YShearProductionRate, ZShearProductionRate
 using SeawaterPolynomials.TEOS10
 using Oceanostics.ProgressMessengers: SingleLineMessenger
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu
-
-# include shoal function
-include("dshoal_vn.jl")
-# include("dshoal_sigmoid_vn.jl")
-
-# add run directory [TBD]
+using CUDA: has_cuda_gpu, allowscalar
 
 # build
 @info "building domain"
@@ -47,10 +43,11 @@ include("dshoal_vn.jl")
 LES = true
 mass_flux = true
 periodic_y = true
-gradient_IC = true
+gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
+checkpointing = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -59,9 +56,18 @@ else
 end
 # arch = CPU()
 
+# switch shoal function based on whether GPU or CPU
+if arch isa GPU
+    include("dshoal_vn_gpu_NxNy.jl")
+else
+    include("dshoal_vn_NxNy.jl")
+end
+
 # simulation knobs
+run_number = 54  # <-- change this for each new run
 sim_runtime = 50days
 callback_interval = 86400seconds
+run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -69,9 +75,9 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=30, Nz=10) # keep the same for now
+    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
 else
-    params = (; params..., Nx=120, Ny=120, Nz=20)
+    params = (; params..., Nx=200, Ny=600, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -90,7 +96,11 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    if arch isa GPU
+        x_km, y_km, h = dshoal_gpu(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
+    else
+        x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
+    end
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -197,8 +207,8 @@ params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 # bottom drag parameters
 cᴰ = 2.5e-3 # dimensionless drag coefficient
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -cᴰ * √(u^2 + v^2) * v
+    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
@@ -261,42 +271,32 @@ else
     end
 end
 
-# sponge functions
+# sponge functions (additive — masks are non-overlapping so sum == whichever is active)
 if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -min(
-            south_mask(x, y, z, p) * u / p.τₛ,
-            north_mask(x, y, z, p) * u / p.τₙ,
-            east_mask(x, y, z, p) * u / p.τₑ)
+    @inline sponge_u(x, y, z, t, u, p) = -(
+        south_mask(x, y, z, p) * u / p.τₛ +
+        north_mask(x, y, z, p) * u / p.τₙ +
+        east_mask(x, y, z, p) * u / p.τₑ)
 
-        @inline sponge_v(x, y, z, t, v, p) = -min(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
+    @inline sponge_v(x, y, z, t, v, p) = -(
+        south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
+        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+        east_mask(x, y, z, p) * v / p.τₑ)
 
-        @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₛ,
-            north_mask(x, y, z, p) * w / p.τₙ,
-            east_mask(x, y, z, p) * w / p.τₑ)
+    @inline sponge_w(x, y, z, t, w, p) = -(
+        south_mask(x, y, z, p) * w / p.τₛ +
+        north_mask(x, y, z, p) * w / p.τₙ +
+        east_mask(x, y, z, p) * w / p.τₑ)
 
-        @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-        @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
-    else
-        @inline V(x, y, z, t, p) = v∞(x, z, t, p)
-        @inline V(x, z, t, p) = v∞(x, z, t, p)
-        @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) * u / p.τₛ + north_mask(x, y, z, p) * u / p.τₙ)
-        @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₛ + north_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₙ)
-        @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) * w / p.τₛ + north_mask(x, y, z, p) * w / p.τₙ)
-        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts)
-        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts)
-    end
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
 end
 
 # forcing functions
@@ -318,7 +318,7 @@ if periodic_y
     v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
-    open_bc = OpenBoundaryCondition(V; parameters=params, scheme=PerturbationAdvection())
+    open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
@@ -362,11 +362,26 @@ else
     )
 end
 
+# Check for existing checkpoint to determine if we should pickup or start fresh
+if checkpointing
+    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
+    checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2"), readdir("."))
+    if !isempty(checkpoint_files)
+        @info "Found checkpoint file(s) - will restore when simulation runs"
+        pickup = true
+    else
+        pickup = false
+    end
+else
+    pickup = false
+end
+
 # output
 
 @info "creating output fields"
 
-overwrite_existing = true
+# Don't overwrite the NetCDF file when picking up from a checkpoint
+overwrite_existing = !pickup
 
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
@@ -388,30 +403,106 @@ u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
-# vorticity, potential vorticity, rossby number calculations
-ω_z = Field(∂x(v_c) - ∂y(u_c))
-ξ = @at (Center, Center, Center) ω_z
+# # vorticity, potential vorticity, rossby number calculations
+# ζ = @at (Center, Center, Center) Field(∂x(v_c) - ∂y(u_c))
 
-PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
+# PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 
-outputs = (; u, v, w, T, S, u_c, v_c, w_c, ω_z, ξ, PV, Ro)
-if periodic_y
-    saved_output_filename = "periodic_over_shoals2.nc"
-else
-    saved_output_filename = "bounded_over_shoals2.nc"
-end
+slice_fields = (; u_c, v_c, w_c, T, S, Ro)
 
-# checkpointer_prefix = "checkpoint_" * saved_output_filename
+# Surface XY slice (top layer)
+simulation.output_writers[:surface_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="top_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, :, params.Nz),
+        overwrite_existing=overwrite_existing)
 
-# NETCDF writers
+# Mid-y XZ slice (cross-shore transect at domain center)
+simulation.output_writers[:midy_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="midy_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, round(Int, params.Ny / 2), :),
+        overwrite_existing=overwrite_existing)
 
-simulation.output_writers[:fields] = NetCDFWriter(model, outputs,
-    schedule=TimeInterval(callback_interval),
-    filename=saved_output_filename,
+# Cross-correlation fields (Reynolds stresses & tracer fluxes)
+uu = Field((@at (Center, Center, Center) u * u))
+vv = Field((@at (Center, Center, Center) v * v))
+ww = Field((@at (Center, Center, Center) w * w))
+uv = Field((@at (Center, Center, Center) u * v))
+uw = Field((@at (Center, Center, Center) u * w))
+vw = Field((@at (Center, Center, Center) v * w))
+uT = Field((@at (Center, Center, Center) u * T))
+vT = Field((@at (Center, Center, Center) v * T))
+wT = Field((@at (Center, Center, Center) w * T))
+uS = Field((@at (Center, Center, Center) u * S))
+vS = Field((@at (Center, Center, Center) v * S))
+wS = Field((@at (Center, Center, Center) w * S))
+
+# Y-averages of velocities and tracers
+u_yavg = Average(u, dims=2)
+v_yavg = Average(v, dims=2)
+w_yavg = Average(w, dims=2)
+uu_yavg = Average(uu, dims=2)
+vv_yavg = Average(vv, dims=2)
+ww_yavg = Average(ww, dims=2)
+T_yavg = Average(T, dims=2)
+S_yavg = Average(S, dims=2)
+
+# Y-averages of cross-correlations
+uv_yavg = Average(uv, dims=2)
+uw_yavg = Average(uw, dims=2)
+vw_yavg = Average(vw, dims=2)
+uT_yavg = Average(uT, dims=2)
+vT_yavg = Average(vT, dims=2)
+wT_yavg = Average(wT, dims=2)
+uS_yavg = Average(uS, dims=2)
+vS_yavg = Average(vS, dims=2)
+wS_yavg = Average(wS, dims=2)
+
+output_interval = callback_interval
+
+simulation.output_writers[:yavg_fields] = NetCDFWriter(
+    model,
+    (; u_yavg, v_yavg, w_yavg, T_yavg, S_yavg,
+        uv_yavg, uw_yavg, vw_yavg,
+        uT_yavg, vT_yavg, wT_yavg,
+        uS_yavg, vS_yavg, wS_yavg),
+    schedule=AveragedTimeInterval(output_interval, window=output_interval),
+    filename="time_yavg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-ccc_scratch = Field{Center,Center,Center}(model.grid)
+KE = KineticEnergy(model)
+# ε = KineticEnergyDissipationRate(model)
+TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
+             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
+             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
+
+# # Domain-integrated quantities (scalar time series)
+∫KE = Integral(KE)
+
+# # Y-averages for spatial structure
+KE_yavg = Average(KE, dims=2)
+TKE_yavg = Average(TKE, dims=2)
+
+simulation.output_writers[:ke_yavg] = NetCDFWriter(
+    model,
+    (; KE_yavg, TKE_yavg,
+        ∫KE),
+    filename="KE_yavg_$(run_tag).nc",
+    schedule=TimeInterval(output_interval),
+    overwrite_existing=overwrite_existing)
+
+if checkpointing
+    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
+    simulation.output_writers[:checkpointer] = Checkpointer(model,
+        schedule=TimeInterval(5days),
+        prefix=checkpoint_prefix,
+        overwrite_existing=true,
+        cleanup=true)
+end
 
 # CFL logger
 cfl = CFL(simulation.Δt)
@@ -421,46 +512,42 @@ simulation.callbacks[:cfl_recorder] = Callback(TimeInterval(10minutes)) do sim
     push!(cfl_times, sim.model.clock.time)
 end
 
-# initial conditions
-uᵢ = 0.005 * rand(size(u)...)
-vᵢ = 0.005 * rand(size(v)...)
-wᵢ = 0.005 * rand(size(w)...)
-uᵢ .-= mean(uᵢ)
-vᵢ .-= mean(vᵢ)
-wᵢ .-= mean(wᵢ)
-uᵢ .+= 0
-if sigmoid_ic
-    xv, yv, zv = nodes(v, reshape=true)
-    vᵢ .+= v∞.(xv, zv, 0, Ref(params))
-else
-    vᵢ .+= v₀
-end
+# (checkpoint detection moved above NetCDF writer setup)
 
-if gradient_IC
-    @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-    @inline blend(a, b, α) = (1 - α) * a + α * b
-    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
-else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z)
-end
+if !pickup
+    @info "No checkpoint found, setting initial conditions"
+    # initial conditions
+    uᵢ = 0.005 * rand(size(u)...)
+    vᵢ = 0.005 * rand(size(v)...)
+    wᵢ = 0.005 * rand(size(w)...)
+    uᵢ .-= mean(uᵢ)
+    vᵢ .-= mean(vᵢ)
+    wᵢ .-= mean(wᵢ)
+    uᵢ .+= 0
+    if sigmoid_ic
+        xv, yv, zv = nodes(v, reshape=true)
+        vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+    else
+        vᵢ .+= v₀
+    end
 
-set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+    if gradient_IC
+        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+        @inline blend(a, b, α) = (1 - α) * a + α * b
+        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
+    else
+        @inline Tᵢ(x, y, z) = T_south_pwl(z)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z)
+    end
+
+    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+end
 
 # run simulation
 @info "time to run simulation!"
-run!(simulation)
-
-# --- Plot bathymetry with GLMakie ---
-# using GLMakie
-
-# fig = Figure(size=(800, 600))
-# ax = Axis3(fig[1, 1],
-#     xlabel="x (km)",
-#     ylabel="y (km)",
-#     zlabel="Depth (m)",
-#     title="Shoal Bathymetry")
-# surf = surface!(ax, collect(x_km), collect(y_km), h, colormap=:viridis)
-# Colorbar(fig[1, 2], surf, label="Depth (m)")
-# display(fig)
+if pickup
+    allowscalar(true)  # Allow scalar indexing during checkpoint restore (CPU → GPU transfer)
+end
+run!(simulation, pickup=pickup)
+allowscalar(false) # Re-disable after restore for performance safety
