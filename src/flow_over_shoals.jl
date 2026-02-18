@@ -26,12 +26,11 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceananigans.Diagnostics: CFL
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
 using SeawaterPolynomials.TEOS10
-using Oceanostics.ProgressMessengers: SingleLineMessenger
+using Oceanostics.ProgressMessengers: SingleLineMessenger, MaxVVelocity, MaxWVelocity
 using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
@@ -391,7 +390,7 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 start_time = time_ns() * 1e-9
-progress = SingleLineMessenger()
+progress = SingleLineMessenger(MaxVVelocity(), MaxWVelocity())
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
@@ -502,14 +501,6 @@ if checkpointing
         prefix=checkpoint_prefix,
         overwrite_existing=true,
         cleanup=true)
-end
-
-# CFL logger
-cfl = CFL(simulation.Δt)
-
-simulation.callbacks[:cfl_recorder] = Callback(TimeInterval(10minutes)) do sim
-    push!(cfl_values, cfl(sim.model))
-    push!(cfl_times, sim.model.clock.time)
 end
 
 # (checkpoint detection moved above NetCDF writer setup)
