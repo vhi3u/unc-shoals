@@ -36,11 +36,6 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
-# include shoal function
-include("dshoal_vn_gpu.jl")
-
-# add run directory [TBD]
-
 # build
 @info "building domain"
 
@@ -61,9 +56,16 @@ else
 end
 # arch = CPU()
 
+# switch shoal function based on whether GPU or CPU
+if arch isa GPU
+    include("dshoal_vn_gpu_NxNy.jl")
+else
+    include("dshoal_vn_NxNy.jl")
+end
+
 # simulation knobs
-run_number = 2  # <-- change this for each new run
-sim_runtime = 40days
+run_number = 54  # <-- change this for each new run
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -94,7 +96,11 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    x_km, y_km, h = dshoal_gpu(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx) # feed grid into shoal function
+    if arch isa GPU
+        x_km, y_km, h = dshoal_gpu(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
+    else
+        x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
+    end
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
@@ -265,42 +271,32 @@ else
     end
 end
 
-# sponge functions
+# sponge functions (additive — masks are non-overlapping so sum == whichever is active)
 if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -min(
-            south_mask(x, y, z, p) * u / p.τₛ,
-            north_mask(x, y, z, p) * u / p.τₙ,
-            east_mask(x, y, z, p) * u / p.τₑ)
+    @inline sponge_u(x, y, z, t, u, p) = -(
+        south_mask(x, y, z, p) * u / p.τₛ +
+        north_mask(x, y, z, p) * u / p.τₙ +
+        east_mask(x, y, z, p) * u / p.τₑ)
 
-        @inline sponge_v(x, y, z, t, v, p) = -min(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
+    @inline sponge_v(x, y, z, t, v, p) = -(
+        south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
+        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+        east_mask(x, y, z, p) * v / p.τₑ)
 
-        @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₛ,
-            north_mask(x, y, z, p) * w / p.τₙ,
-            east_mask(x, y, z, p) * w / p.τₑ)
+    @inline sponge_w(x, y, z, t, w, p) = -(
+        south_mask(x, y, z, p) * w / p.τₛ +
+        north_mask(x, y, z, p) * w / p.τₙ +
+        east_mask(x, y, z, p) * w / p.τₑ)
 
-        @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-        @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
-    else
-        @inline V(x, y, z, t, p) = v∞(x, z, t, p)
-        @inline V(x, z, t, p) = v∞(x, z, t, p)
-        @inline sponge_u(x, y, z, t, u, p) = -(south_mask(x, y, z, p) * u / p.τₛ + north_mask(x, y, z, p) * u / p.τₙ)
-        @inline sponge_v(x, y, z, t, v, p) = -(south_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₛ + north_mask(x, y, z, p) * (v - V(x, z, t, p)) / p.τₙ)
-        @inline sponge_w(x, y, z, t, w, p) = -(south_mask(x, y, z, p) * w / p.τₛ + north_mask(x, y, z, p) * w / p.τₙ)
-        @inline sponge_T(x, y, z, t, T, p) = -(south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts)
-        @inline sponge_S(x, y, z, t, S, p) = -(south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts + north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts)
-    end
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
 end
 
 # forcing functions
@@ -322,7 +318,7 @@ if periodic_y
     v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
-    open_bc = OpenBoundaryCondition(V; parameters=params, scheme=PerturbationAdvection())
+    open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
@@ -407,11 +403,10 @@ u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
-# vorticity, potential vorticity, rossby number calculations
-ω_z = Field(∂x(v_c) - ∂y(u_c))
-ξ = @at (Center, Center, Center) ω_z
+# # vorticity, potential vorticity, rossby number calculations
+# ζ = @at (Center, Center, Center) Field(∂x(v_c) - ∂y(u_c))
 
-PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
+# PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 slice_fields = (; u_c, v_c, w_c, T, S, Ro)
@@ -433,6 +428,9 @@ simulation.output_writers[:midy_slice] =
         overwrite_existing=overwrite_existing)
 
 # Cross-correlation fields (Reynolds stresses & tracer fluxes)
+uu = Field((@at (Center, Center, Center) u * u))
+vv = Field((@at (Center, Center, Center) v * v))
+ww = Field((@at (Center, Center, Center) w * w))
 uv = Field((@at (Center, Center, Center) u * v))
 uw = Field((@at (Center, Center, Center) u * w))
 vw = Field((@at (Center, Center, Center) v * w))
@@ -447,6 +445,9 @@ wS = Field((@at (Center, Center, Center) w * S))
 u_yavg = Average(u, dims=2)
 v_yavg = Average(v, dims=2)
 w_yavg = Average(w, dims=2)
+uu_yavg = Average(uu, dims=2)
+vv_yavg = Average(vv, dims=2)
+ww_yavg = Average(ww, dims=2)
 T_yavg = Average(T, dims=2)
 S_yavg = Average(S, dims=2)
 
@@ -473,36 +474,26 @@ simulation.output_writers[:yavg_fields] = NetCDFWriter(
     filename="time_yavg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-# KE = KineticEnergy(model)
+KE = KineticEnergy(model)
 # ε = KineticEnergyDissipationRate(model)
-# TKE = TurbulentKineticEnergy(model, u, v, w;
-#     U=Field(u_yavg), V=Field(v_yavg), W=Field(w_yavg))
-
-# # Shear production rates (where eddies extract energy from the mean flow)
-# SP_x = XShearProductionRate(model; U=Field(u_yavg))
-# SP_y = YShearProductionRate(model; U=Field(v_yavg))
-# SP_z = ZShearProductionRate(model; U=Field(w_yavg))
+TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
+             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
+             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
 
 # # Domain-integrated quantities (scalar time series)
-# ∫KE = Integral(KE)
-# ∫ε = Integral(ε)
+∫KE = Integral(KE)
 
 # # Y-averages for spatial structure
-# KE_yavg = Average(KE, dims=2)
-# ε_yavg = Average(ε, dims=2)
-# TKE_yavg = Average(TKE, dims=2)
-# SP_x_yavg = Average(SP_x, dims=2)
-# SP_y_yavg = Average(SP_y, dims=2)
-# SP_z_yavg = Average(SP_z, dims=2)
+KE_yavg = Average(KE, dims=2)
+TKE_yavg = Average(TKE, dims=2)
 
-# simulation.output_writers[:ke_yavg] = NetCDFWriter(
-#     model,
-#     (; KE_yavg, ε_yavg, TKE_yavg,
-#         SP_x_yavg, SP_y_yavg, SP_z_yavg,
-#         ∫KE, ∫ε),
-#     filename="KE_yavg_$(run_tag).nc",
-#     schedule=TimeInterval(output_interval),
-#     overwrite_existing=overwrite_existing)
+simulation.output_writers[:ke_yavg] = NetCDFWriter(
+    model,
+    (; KE_yavg, TKE_yavg,
+        ∫KE),
+    filename="KE_yavg_$(run_tag).nc",
+    schedule=TimeInterval(output_interval),
+    overwrite_existing=overwrite_existing)
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
@@ -560,16 +551,3 @@ if pickup
 end
 run!(simulation, pickup=pickup)
 allowscalar(false) # Re-disable after restore for performance safety
-
-# --- Plot bathymetry with GLMakie ---
-# using GLMakie
-
-# fig = Figure(size=(800, 600))
-# ax = Axis3(fig[1, 1],
-#     xlabel="x (km)",
-#     ylabel="y (km)",
-#     zlabel="Depth (m)",
-#     title="Shoal Bathymetry")
-# surf = surface!(ax, collect(x_km), collect(y_km), h, colormap=:viridis)
-# Colorbar(fig[1, 2], surf, label="Depth (m)")
-# display(fig)

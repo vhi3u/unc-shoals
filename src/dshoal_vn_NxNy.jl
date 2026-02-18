@@ -1,12 +1,6 @@
-"""
-Modified shoal bathymetry with flattened north/south boundaries.
-The bathymetry is smoothly transitioned to a flat bottom near
-y=0 and y=Ly to create buffer zones for open boundaries.
-"""
-function dshoal_flat_boundaries(Lx, Ly, sigma, Hs, N; buffer_width=20.0)
-    # buffer_width is in km - distance from N/S boundaries to flatten
-    x = range(0, stop=Lx, length=N)
-    y = range(0, stop=Ly, length=N)
+function dshoal(Lx, Ly, sigma, Hs, Nx, Ny)
+    x = range(0, stop=Lx, length=Nx)
+    y = range(0, stop=Ly, length=Ny)
 
     # --- BACKGROUND BATHYMETRY (HW) ---
 
@@ -65,7 +59,7 @@ function dshoal_flat_boundaries(Lx, Ly, sigma, Hs, N; buffer_width=20.0)
         elseif xi < cs
             hsx[i] = h_bs + m3s * (xi - bs)
         elseif xi < ds
-            hsx[i] = h_cs + m4s * (xi - ds)
+            hsx[i] = h_cs + m4s * (xi - cs)
         else
             hsx[i] = h_ds
         end
@@ -91,33 +85,7 @@ function dshoal_flat_boundaries(Lx, Ly, sigma, Hs, N; buffer_width=20.0)
     hs .-= maximum(hs)
 
     # Combine background and shoal bathymetry
-    h_raw = max.(hw, hs)
-
-    # --- FLATTEN NEAR N/S BOUNDARIES ---
-    # Create a smooth taper that goes to flat bottom (h_cw = -50 m) near y=0 and y=Ly
-
-    h_flat = h_cw  # target flat depth at boundaries
-    h = copy(h_raw)
-
-    for j in eachindex(y)
-        yj = y[j]
-
-        # South boundary taper (y near 0)
-        if yj < buffer_width
-            # Cosine taper from 0 (flat) to 1 (full bathymetry)
-            α = 0.5 * (1 - cos(π * yj / buffer_width))
-            for i in eachindex(x)
-                h[j, i] = α * h_raw[j, i] + (1 - α) * h_flat
-            end
-            # North boundary taper (y near Ly)
-        elseif yj > Ly - buffer_width
-            # Cosine taper from 1 (full bathymetry) to 0 (flat)
-            α = 0.5 * (1 - cos(π * (Ly - yj) / buffer_width))
-            for i in eachindex(x)
-                h[j, i] = α * h_raw[j, i] + (1 - α) * h_flat
-            end
-        end
-    end
+    h = max.(hw, hs)
 
     return x, y, h'
 end
