@@ -26,9 +26,10 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity, MaxVelocities, TimedMessenger,
+using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
+using Oceanostics.ProgressMessengers: TimedMessenger
 using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
@@ -41,12 +42,12 @@ using CUDA: has_cuda_gpu, allowscalar
 # switches
 LES = true
 mass_flux = true
-periodic_y = false
+periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = false
+checkpointing = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -286,42 +287,28 @@ if mass_flux
         south_mask(x, y, z, p) * w / p.τₛ +
         north_mask(x, y, z, p) * w / p.τₙ +
         east_mask(x, y, z, p) * w / p.τₑ)
-    if periodic_y
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
-    end
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
 end
 
 # forcing functions
-if periodic_y
-    FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-    FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
-else
-    FT = nothing
-    FS = nothing
-end
+FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
 if mass_flux
     Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
     Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
     F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    if periodic_y
-        forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
-    else
-        forcings = (u=Fᵤ, v=Fᵥ, w=F_w)
-    end
+    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 else
-    if periodic_y
-        forcings = (T=FT, S=FS)
-    else
-        forcings = NamedTuple()
-    end
+    forcings = (T=FT, S=FS)
 end
 
 if periodic_y
@@ -401,10 +388,9 @@ cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
-conjure_time_step_wizard!(simulation, cfl=0.95, diffusive_cfl=0.8)
+conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 progress = TimedMessenger()
-
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
