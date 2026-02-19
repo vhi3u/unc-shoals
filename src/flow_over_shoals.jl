@@ -26,7 +26,7 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity, MaxVelocities, SingleLineMessenger,
+using Oceanostics: RossbyNumber, ErtelPotentialVorticity, MaxVelocities, TimedMessenger,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
 using SeawaterPolynomials.TEOS10
@@ -403,8 +403,8 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
 conjure_time_step_wizard!(simulation, cfl=0.95, diffusive_cfl=0.8)
 
-pm = SingleLineMessenger(print=false) + MaxVelocities(print=false)
-progress(sim) = @info pm(sim)
+progress = TimedMessenger()
+
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
