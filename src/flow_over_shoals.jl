@@ -42,12 +42,12 @@ using CUDA: has_cuda_gpu, allowscalar
 # switches
 LES = true
 mass_flux = true
-periodic_y = false
+periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = false
+checkpointing = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -64,10 +64,10 @@ else
 end
 
 # simulation knobs
-run_number = 50  # <-- change this for each new run
+run_number = 6  # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = (periodic_y ? "periodic" : "bounded") * "_hpc_shoals$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -210,7 +210,7 @@ if LES
     @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
+    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -303,17 +303,10 @@ end
 FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
 FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
 if mass_flux
-    if periodic_y
-        Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-        Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-        F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-        forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
-    else
-        Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-        Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-        F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-        forcings = (u=Fᵤ, v=Fᵥ, w=F_w)
-    end
+    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
+    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 else
     forcings = (T=FT, S=FS)
 end
