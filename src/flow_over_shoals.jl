@@ -42,12 +42,12 @@ using CUDA: has_cuda_gpu, allowscalar
 # switches
 LES = true
 mass_flux = true
-periodic_y = true
+periodic_y = false
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
