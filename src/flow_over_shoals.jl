@@ -303,10 +303,17 @@ end
 FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
 FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
 if mass_flux
-    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    if periodic_y
+        Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+        Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+        F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
+        forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    else
+        Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+        Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+        F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
+        forcings = (u=Fᵤ, v=Fᵥ, w=F_w)
+    end
 else
     forcings = (T=FT, S=FS)
 end
