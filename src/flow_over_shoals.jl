@@ -26,7 +26,7 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
+using Oceanostics: RossbyNumber, ErtelPotentialVorticity, MaxVelocities, SingleLineMessenger,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
 using SeawaterPolynomials.TEOS10
@@ -46,7 +46,7 @@ gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -401,17 +401,10 @@ cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
-conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
+conjure_time_step_wizard!(simulation, cfl=0.95, diffusive_cfl=0.8)
 
-start_time = time_ns() * 1e-9
-
-function progress(sim)
-    u, v, w = sim.model.velocities
-    wall_min = (time_ns() * 1e-9 - start_time) / 60
-    @info @sprintf("iter=%d  t=%.2f days  Δt=%.1f s  wall=%.1f min  max|v|=%.4f m/s  max|w|=%.4f m/s",
-        iteration(sim), time(sim) / 86400, sim.Δt, wall_min,
-        maximum(abs, v), maximum(abs, w))
-end
+pm = SingleLineMessenger(print=false) + MaxVelocities(print=false)
+progress(sim) = @info pm(sim)
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
