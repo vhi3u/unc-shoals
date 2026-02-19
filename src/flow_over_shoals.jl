@@ -26,12 +26,12 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceananigans.Diagnostics: CFL
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
+using Oceanostics.ProgressMessengers: TimedMessenger
 using SeawaterPolynomials.TEOS10
-using Oceanostics.ProgressMessengers: SingleLineMessenger
+using Printf: @sprintf
 using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
@@ -42,12 +42,12 @@ using CUDA: has_cuda_gpu, allowscalar
 # switches
 LES = true
 mass_flux = true
-periodic_y = true
+periodic_y = false
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -64,7 +64,7 @@ else
 end
 
 # simulation knobs
-run_number = 54  # <-- change this for each new run
+run_number = 51  # <-- change this for each new run
 sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -120,7 +120,7 @@ params = (; params...,
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=12hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -210,7 +210,7 @@ if LES
     @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
+    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -390,8 +390,8 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
-start_time = time_ns() * 1e-9
-progress = SingleLineMessenger()
+progress = TimedMessenger()
+
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
@@ -502,14 +502,6 @@ if checkpointing
         prefix=checkpoint_prefix,
         overwrite_existing=true,
         cleanup=true)
-end
-
-# CFL logger
-cfl = CFL(simulation.Δt)
-
-simulation.callbacks[:cfl_recorder] = Callback(TimeInterval(10minutes)) do sim
-    push!(cfl_values, cfl(sim.model))
-    push!(cfl_times, sim.model.clock.time)
 end
 
 # (checkpoint detection moved above NetCDF writer setup)
