@@ -29,6 +29,7 @@ using Statistics: mean
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
+using Oceanostics.ProgressMessengers: SingleLineMessenger, MaxVelocities
 using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
@@ -389,15 +390,7 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
-start_time = time_ns() * 1e-9
-
-function progress(sim)
-    u, v, w = sim.model.velocities
-    wall_min = (time_ns() * 1e-9 - start_time) / 60
-    @info @sprintf("iter=%d  t=%.2f days  Δt=%.1f s  wall=%.1f min  max|v|=%.4f m/s  max|w|=%.4f m/s",
-        iteration(sim), time(sim) / 86400, sim.Δt, wall_min,
-        maximum(abs, v), maximum(abs, w))
-end
+progress = SingleLineMessenger() + MaxVelocities()
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
