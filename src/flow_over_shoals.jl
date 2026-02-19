@@ -67,7 +67,7 @@ end
 run_number = 50  # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_hpc_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
