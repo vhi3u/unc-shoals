@@ -42,12 +42,12 @@ using CUDA: has_cuda_gpu
 # switches
 LES = true
 mass_flux = true
-periodic_y = false
+periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = false
+checkpointing = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -367,7 +367,7 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
         coriolis=coriolis,
