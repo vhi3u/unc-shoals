@@ -273,30 +273,57 @@ end
 
 # sponge functions
 if mass_flux
-    @inline sponge_u(x, y, z, t, u, p) = -min(
-        south_mask(x, y, z, p) * u / p.τₛ,
-        north_mask(x, y, z, p) * u / p.τₙ,
-        east_mask(x, y, z, p) * u / p.τₑ)
+    if periodic_y
+        @inline sponge_u(x, y, z, t, u, p) = -min(
+            south_mask(x, y, z, p) * u / p.τₛ,
+            north_mask(x, y, z, p) * u / p.τₙ,
+            east_mask(x, y, z, p) * u / p.τₑ)
 
-    @inline sponge_v(x, y, z, t, v, p) = -min(
-        south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-        east_mask(x, y, z, p) * v / p.τₑ)
+        @inline sponge_v(x, y, z, t, v, p) = -min(
+            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
+            east_mask(x, y, z, p) * v / p.τₑ)
 
-    @inline sponge_w(x, y, z, t, w, p) = -min(
-        south_mask(x, y, z, p) * w / p.τₛ,
-        north_mask(x, y, z, p) * w / p.τₙ,
-        east_mask(x, y, z, p) * w / p.τₑ)
+        @inline sponge_w(x, y, z, t, w, p) = -min(
+            south_mask(x, y, z, p) * w / p.τₛ,
+            north_mask(x, y, z, p) * w / p.τₙ,
+            east_mask(x, y, z, p) * w / p.τₑ)
 
-    @inline sponge_T(x, y, z, t, T, p) = -min(
-        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+        @inline sponge_T(x, y, z, t, T, p) = -min(
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-    @inline sponge_S(x, y, z, t, S, p) = -min(
-        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+        @inline sponge_S(x, y, z, t, S, p) = -min(
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
+    else
+        @inline sponge_u(x, y, z, t, u, p) = -(
+            south_mask(x, y, z, p) * u / p.τₛ +
+            north_mask(x, y, z, p) * u / p.τₙ +
+            east_mask(x, y, z, p) * u / p.τₑ)
+
+        @inline sponge_v(x, y, z, t, v, p) = -(
+            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+            east_mask(x, y, z, p) * v / p.τₑ)
+
+        @inline sponge_w(x, y, z, t, w, p) = -(
+            south_mask(x, y, z, p) * w / p.τₛ +
+            north_mask(x, y, z, p) * w / p.τₙ +
+            east_mask(x, y, z, p) * w / p.τₑ)
+
+        @inline sponge_T(x, y, z, t, T, p) = -(
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+
+        @inline sponge_S(x, y, z, t, S, p) = -(
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
+    end
 end
 
 # forcing functions
