@@ -34,7 +34,7 @@ using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu, allowscalar
+using CUDA: has_cuda_gpu
 
 # build
 @info "building domain"
@@ -64,7 +64,7 @@ else
 end
 
 # simulation knobs
-run_number = 56  # <-- change this for each new run
+run_number = 7  # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -565,8 +565,4 @@ end
 
 # run simulation
 @info "time to run simulation!"
-if pickup
-    allowscalar(true)  # Allow scalar indexing during checkpoint restore (CPU → GPU transfer)
-end
 run!(simulation, pickup=pickup)
-allowscalar(false) # Re-disable after restore for performance safety
