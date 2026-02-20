@@ -64,8 +64,8 @@ else
 end
 
 # simulation knobs
-run_number = 52  # <-- change this for each new run
-sim_runtime = 20days
+run_number = 53  # <-- change this for each new run
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -297,7 +297,7 @@ if mass_flux
         @inline sponge_S(x, y, z, t, S, p) = -min(
             south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
             north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
     else
         @inline sponge_u(x, y, z, t, u, p) = -(
             south_mask(x, y, z, p) * u / p.τₛ +
@@ -322,7 +322,7 @@ if mass_flux
         @inline sponge_S(x, y, z, t, S, p) = -(
             south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
             north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
     end
 end
 
@@ -349,8 +349,8 @@ else
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc, east=open_zero)
+    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
