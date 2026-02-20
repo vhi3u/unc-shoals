@@ -26,15 +26,15 @@ using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceananigans.Diagnostics: CFL
 using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
     KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
     XShearProductionRate, YShearProductionRate, ZShearProductionRate
+using Oceanostics.ProgressMessengers: TimedMessenger
 using SeawaterPolynomials.TEOS10
-using Oceanostics.ProgressMessengers: SingleLineMessenger
+using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu, allowscalar
+using CUDA: has_cuda_gpu
 
 # build
 @info "building domain"
@@ -64,8 +64,8 @@ else
 end
 
 # simulation knobs
-run_number = 54  # <-- change this for each new run
-sim_runtime = 50days
+run_number = 7  # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -210,7 +210,7 @@ if LES
     @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:v, :v), parameters=(; cᴰ=cᴰ,))
+    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -271,32 +271,59 @@ else
     end
 end
 
-# sponge functions (additive — masks are non-overlapping so sum == whichever is active)
+# sponge functions
 if mass_flux
-    @inline sponge_u(x, y, z, t, u, p) = -(
-        south_mask(x, y, z, p) * u / p.τₛ +
-        north_mask(x, y, z, p) * u / p.τₙ +
-        east_mask(x, y, z, p) * u / p.τₑ)
+    if periodic_y
+        @inline sponge_u(x, y, z, t, u, p) = -min(
+            south_mask(x, y, z, p) * u / p.τₛ,
+            north_mask(x, y, z, p) * u / p.τₙ,
+            east_mask(x, y, z, p) * u / p.τₑ)
 
-    @inline sponge_v(x, y, z, t, v, p) = -(
-        south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
-        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-        east_mask(x, y, z, p) * v / p.τₑ)
+        @inline sponge_v(x, y, z, t, v, p) = -min(
+            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
+            east_mask(x, y, z, p) * v / p.τₑ)
 
-    @inline sponge_w(x, y, z, t, w, p) = -(
-        south_mask(x, y, z, p) * w / p.τₛ +
-        north_mask(x, y, z, p) * w / p.τₙ +
-        east_mask(x, y, z, p) * w / p.τₑ)
+        @inline sponge_w(x, y, z, t, w, p) = -min(
+            south_mask(x, y, z, p) * w / p.τₛ,
+            north_mask(x, y, z, p) * w / p.τₙ,
+            east_mask(x, y, z, p) * w / p.τₑ)
 
-    @inline sponge_T(x, y, z, t, T, p) = -(
-        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+        @inline sponge_T(x, y, z, t, T, p) = -min(
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
 
-    @inline sponge_S(x, y, z, t, S, p) = -(
-        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τₑ)
+        @inline sponge_S(x, y, z, t, S, p) = -min(
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
+    else
+        @inline sponge_u(x, y, z, t, u, p) = -(
+            south_mask(x, y, z, p) * u / p.τₛ +
+            north_mask(x, y, z, p) * u / p.τₙ +
+            east_mask(x, y, z, p) * u / p.τₑ)
+
+        @inline sponge_v(x, y, z, t, v, p) = -(
+            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+            east_mask(x, y, z, p) * v / p.τₑ)
+
+        @inline sponge_w(x, y, z, t, w, p) = -(
+            south_mask(x, y, z, p) * w / p.τₛ +
+            north_mask(x, y, z, p) * w / p.τₙ +
+            east_mask(x, y, z, p) * w / p.τₑ)
+
+        @inline sponge_T(x, y, z, t, T, p) = -(
+            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
+
+        @inline sponge_S(x, y, z, t, S, p) = -(
+            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
+    end
 end
 
 # forcing functions
@@ -322,8 +349,8 @@ else
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=open_zero)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc, east=open_zero)
+    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -340,7 +367,7 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
         coriolis=coriolis,
@@ -390,8 +417,8 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
-start_time = time_ns() * 1e-9
-progress = SingleLineMessenger()
+progress = TimedMessenger()
+
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
@@ -504,14 +531,6 @@ if checkpointing
         cleanup=true)
 end
 
-# CFL logger
-cfl = CFL(simulation.Δt)
-
-simulation.callbacks[:cfl_recorder] = Callback(TimeInterval(10minutes)) do sim
-    push!(cfl_values, cfl(sim.model))
-    push!(cfl_times, sim.model.clock.time)
-end
-
 # (checkpoint detection moved above NetCDF writer setup)
 
 if !pickup
@@ -546,8 +565,4 @@ end
 
 # run simulation
 @info "time to run simulation!"
-if pickup
-    allowscalar(true)  # Allow scalar indexing during checkpoint restore (CPU → GPU transfer)
-end
 run!(simulation, pickup=pickup)
-allowscalar(false) # Re-disable after restore for performance safety
