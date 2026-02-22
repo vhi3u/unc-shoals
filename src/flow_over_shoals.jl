@@ -64,8 +64,8 @@ else
 end
 
 # simulation knobs
-run_number = 7  # <-- change this for each new run
-sim_runtime = 20days
+run_number = 11  # <-- change this for each new run
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -367,7 +367,7 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
         coriolis=coriolis,
