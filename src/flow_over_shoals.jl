@@ -54,8 +54,7 @@ if has_cuda_gpu()
 else
     arch = CPU()
 end
-# arch = CPU()
-
+@info "architecture = $(arch)"
 # switch shoal function based on whether GPU or CPU
 if arch isa GPU
     include("dshoal_vn_gpu_NxNy.jl")
@@ -64,7 +63,7 @@ else
 end
 
 # simulation knobs
-run_number = 11  # <-- change this for each new run
+run_number = 13  # <-- change this for each new run
 sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -367,7 +366,7 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
         coriolis=coriolis,
