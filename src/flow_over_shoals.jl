@@ -48,7 +48,7 @@ sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
 checkpointing = true
-shoal_bath = false
+shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
 else
