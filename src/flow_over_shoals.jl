@@ -100,7 +100,7 @@ if shoal_bath
     else
         x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
     end
-    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
+    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(-params.Lz / 2)) # immersed boundary grid
 else
     ib_grid = grid
 end
@@ -500,26 +500,26 @@ simulation.output_writers[:yavg_fields] = NetCDFWriter(
     filename="time_yavg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-KE = KineticEnergy(model)
-# ε = KineticEnergyDissipationRate(model)
-TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
-             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
-             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
+# KE = KineticEnergy(model)
+# # ε = KineticEnergyDissipationRate(model)
+# TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
+#              + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
+#              + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
 
-# # Domain-integrated quantities (scalar time series)
-∫KE = Integral(KE)
+# # # Domain-integrated quantities (scalar time series)
+# ∫KE = Integral(KE)
 
-# # Y-averages for spatial structure
-KE_yavg = Average(KE, dims=2)
-TKE_yavg = Average(TKE, dims=2)
+# # # Y-averages for spatial structure
+# KE_yavg = Average(KE, dims=2)
+# TKE_yavg = Average(TKE, dims=2)
 
-simulation.output_writers[:ke_yavg] = NetCDFWriter(
-    model,
-    (; KE_yavg, TKE_yavg,
-        ∫KE),
-    filename="KE_yavg_$(run_tag).nc",
-    schedule=TimeInterval(output_interval),
-    overwrite_existing=overwrite_existing)
+# simulation.output_writers[:ke_yavg] = NetCDFWriter(
+#     model,
+#     (; KE_yavg, TKE_yavg,
+#         ∫KE),
+#     filename="KE_yavg_$(run_tag).nc",
+#     schedule=TimeInterval(output_interval),
+#     overwrite_existing=overwrite_existing)
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
