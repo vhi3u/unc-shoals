@@ -55,15 +55,11 @@ else
     arch = CPU()
 end
 @info "architecture = $(arch)"
-# switch shoal function based on whether GPU or CPU
-if arch isa GPU
-    include("dshoal_vn_gpu_NxNy.jl")
-else
-    include("dshoal_vn_NxNy.jl")
-end
+# shoal bathymetry (architecture-agnostic, uses @inline functions)
+include("dshoal_vn_new.jl")
 
 # simulation knobs
-run_number = 18  # <-- change this for each new run
+run_number = 20  # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -95,12 +91,8 @@ end
 σ = 8.0         # [km] Gaussian width for shoal cross-section
 Hs = 15.0       # [m] shoal height
 if shoal_bath
-    if arch isa GPU
-        x_km, y_km, h = dshoal_gpu(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
-    else
-        x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
-    end
-    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
+    bottom = dshoal_bottom(params.Ly, σ, Hs)
+    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
 else
     ib_grid = grid
 end
