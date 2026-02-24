@@ -100,6 +100,10 @@ function dshoal_gpu(Lx, Ly, sigma, Hs, Nx, Ny; arch=GPU())
     # Combine background and shoal bathymetry
     h = max.(hw, hs)
 
+    # Add: ensure minimum water depth (e.g., 3 grid cells)
+    h_min = -3.0  # meters — adjust to taste (3m = 3 grid cells with Δz=1m)
+    h = min.(h, h_min)
+
     # Return with permutedims and convert to CuArray for GPU
     h_out = permutedims(h)
     if arch isa GPU

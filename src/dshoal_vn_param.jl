@@ -51,12 +51,8 @@ function dshoal_param(Lx, Ly, sigma, Hs, Nx, Ny;
 
     # Scale shoal points proportionally
     as, h_as = shoal_length * (2.5 / 30.0), shoal_crest_depth
-
-    # Make Hs directly increase the height of the bump from the default geometry
-    bump_offset = Hs - 15.0
-
-    bs, h_bs = shoal_length * (27.0 / 30.0), shoal_crest_depth - 10.0 + bump_offset
-    cs, h_cs = shoal_length, shoal_crest_depth - 22.0 + bump_offset
+    bs, h_bs = shoal_length * (27.0 / 30.0), shoal_crest_depth - 10.0
+    cs, h_cs = shoal_length, shoal_crest_depth - 22.0
     ds, h_ds = shoal_length * (36.0 / 30.0), deep_ocean_depth
 
     m1s = h_as / as

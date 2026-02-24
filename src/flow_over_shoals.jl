@@ -63,8 +63,8 @@ else
 end
 
 # simulation knobs
-run_number = 13  # <-- change this for each new run
-sim_runtime = 50days
+run_number = 16  # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -100,7 +100,7 @@ if shoal_bath
     else
         x_km, y_km, h = dshoal(params.Lx / 1e3, params.Ly / 1e3, σ, Hs, params.Nx, params.Ny) # feed grid into shoal function
     end
-    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(-params.Lz / 2)) # immersed boundary grid
+    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(h)) # immersed boundary grid
 else
     ib_grid = grid
 end
@@ -366,7 +366,7 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
         coriolis=coriolis,
