@@ -19,9 +19,9 @@
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions, FluxBoundaryCondition
+using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
-using Oceananigans.Solvers: ConjugateGradientPoissonSolver
+using Oceananigans.Solvers: ConjugateGradientPoissonSolver, FFTBasedPoissonSolver
 using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
@@ -34,7 +34,7 @@ using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu
+using CUDA: has_cuda_gpu, allowscalar
 
 # build
 @info "building domain"
@@ -47,20 +47,22 @@ gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
+    allowscalar(false)
 else
     arch = CPU()
 end
 @info "architecture = $(arch)"
 # shoal bathymetry (architecture-agnostic, uses @inline functions)
-include("dshoal_vn_new.jl")
+# include("dshoal_vn_new.jl")
+include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 20  # <-- change this for each new run
-sim_runtime = 10days
+run_number = 30 # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -87,15 +89,65 @@ end
 
 # model parameters
 
-# bathymetry
-σ = 8.0         # [km] Gaussian width for shoal cross-section
-Hs = 15.0       # [m] shoal height
+
+# # Gaussian seamount parameters
+# const H_sea = 50        # domain depth [m]
+# const h_sea = 30        # seamount height [m]
+# const x₀_sea = 50e3     # center x [m]
+# const y₀_sea = 150e3    # center y [m]
+# const σ_sea = 10e3      # width [m]
+# @inline bottom(x, y) = -H_sea + h_sea * exp(-((x - x₀_sea)^2 + (y - y₀_sea)^2) / (2 * σ_sea^2))
+
+# # Headland bathymetry parameters
+# # Headland juts from western wall (x≈0) into the domain, centered at y₀
+# const H_hl = 50        # domain depth [m]
+# const h_hl = 40        # headland height [m] (rises from -50m to -10m)
+# const y₀_hl = 150e3     # along-shore center [m]
+# const σx_hl = 20e3       # cross-shore decay width [m] (narrow → steep headland)
+# const σy_hl = 100e3      # along-shore half-width [m] (zero beyond ±σy_hl from center)
+
+# # Compact-support window: 1 inside, smooth taper to 0 at edges, 0 outside
+# @inline function _hl_window(y, y₀, σy)
+#     dy = abs(y - y₀)
+#     if dy >= σy
+#         return 0.0
+#     else
+#         # cosine taper in the outer 10% for smoothness
+#         taper_start = 0.9 * σy
+#         if dy <= taper_start
+#             return 1.0
+#         else
+#             return 0.5 * (1.0 + cos(π * (dy - taper_start) / (σy - taper_start)))
+#         end
+#     end
+# end
+
+# @inline bottom(x, y) = -H_hl + h_hl * exp(-(x / σx_hl)^2) * _hl_window(y, y₀_hl, σy_hl)
+
+# bathymetry — const globals + @inline (no closure)
+const _shelf_length = 30e3
+const _shelf_depth = -20.0
+const _shoal_length = 30e3
+const _shoal_crest_depth = -5.0
+const _deep_ocean_depth = -50.0
+const _sigma_shoal = 8e3
+const _Hs_shoal = 15.0
+const _Ly_shoal = 300e3
+const _y0_shoal = params.Ly / 2.0
+const _half_extent_shoal = _Ly_shoal / 2.0
+
+@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
+    _half_extent_shoal, _shelf_length, _shelf_depth,
+    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
+
 if shoal_bath
-    bottom = dshoal_bottom(params.Ly, σ, Hs)
-    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
+    GFB = GridFittedBottom(bottom)
+    ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
     ib_grid = grid
 end
+
+@info ib_grid
 
 if mass_flux
     v₀ = 0.10 # [m/s] mean flow velocity
@@ -358,9 +410,10 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=1e-4, maxiter=1000),
+        hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid), #; preconditioner=FFTBasedPoissonSolver(grid)),
         tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState()),
+        buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
         boundary_conditions=bcs,
         forcing=forcings
@@ -379,6 +432,8 @@ else
         forcing=forcings
     )
 end
+
+@info "" model
 
 # Check for existing checkpoint to determine if we should pickup or start fresh
 if checkpointing
@@ -492,26 +547,26 @@ simulation.output_writers[:yavg_fields] = NetCDFWriter(
     filename="time_yavg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-# KE = KineticEnergy(model)
-# # ε = KineticEnergyDissipationRate(model)
-# TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
-#              + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
-#              + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
+KE = KineticEnergy(model)
+# ε = KineticEnergyDissipationRate(model)
+TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
+             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
+             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
 
-# # # Domain-integrated quantities (scalar time series)
-# ∫KE = Integral(KE)
+# # Domain-integrated quantities (scalar time series)
+∫KE = Integral(KE)
 
-# # # Y-averages for spatial structure
-# KE_yavg = Average(KE, dims=2)
-# TKE_yavg = Average(TKE, dims=2)
+# # Y-averages for spatial structure
+KE_yavg = Average(KE, dims=2)
+TKE_yavg = Average(TKE, dims=2)
 
-# simulation.output_writers[:ke_yavg] = NetCDFWriter(
-#     model,
-#     (; KE_yavg, TKE_yavg,
-#         ∫KE),
-#     filename="KE_yavg_$(run_tag).nc",
-#     schedule=TimeInterval(output_interval),
-#     overwrite_existing=overwrite_existing)
+simulation.output_writers[:ke_yavg] = NetCDFWriter(
+    model,
+    (; KE_yavg, TKE_yavg,
+        ∫KE),
+    filename="KE_yavg_$(run_tag).nc",
+    schedule=TimeInterval(output_interval),
+    overwrite_existing=overwrite_existing)
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
@@ -555,5 +610,24 @@ if !pickup
 end
 
 # run simulation
-@info "time to run simulation!"
+@info """
+════════════════════════════════════════════════════════
+ SIMULATION CONFIGURATION: $(run_tag)
+════════════════════════════════════════════════════════
+ Run number:      $(run_number)
+ Runtime:         $(sim_runtime)
+ Architecture:    $(arch)
+
+ ── Switches ──
+ LES:             $(LES)
+ mass_flux:       $(mass_flux)
+ periodic_y:      $(periodic_y)
+ gradient_IC:     $(gradient_IC)
+ sigmoid_v_bc:    $(sigmoid_v_bc)
+ sigmoid_ic:      $(sigmoid_ic)
+ is_coriolis:     $(is_coriolis)
+ checkpointing:   $(checkpointing)
+ shoal_bath:      $(shoal_bath)
+ ════════════════════════════════════════════════════════
+"""
 run!(simulation, pickup=pickup)

@@ -1,103 +1,162 @@
-function dshoal_param(Lx, Ly, sigma, Hs, Nx, Ny;
-    shelf_length=30.0,       # length of the shelf
-    shelf_depth=-20.0,       # starting depth of the shelf
-    shoal_length=30.0,       # length of the top of the shoal
-    shoal_crest_depth=-5.0,  # shallowest depth of the shoal
-    deep_ocean_depth=-50.0)  # depth of the deep ocean
+"""
+GPU-compatible parameterized shoal bathymetry using @inline functions.
 
-    x = range(0, stop=Lx, length=Nx)
-    y = range(0, stop=Ly, length=Ny)
+All bathymetry parameters are configurable via keyword arguments.
+Returns a `bottom(x, y)` function for use with `GridFittedBottom`.
 
-    # --- BACKGROUND BATHYMETRY (HW) ---
-    # You asked to verify: Yes, the shelf is indeed the "background" bathymetry (hw).
+Usage:
+    bottom = dshoal_param_bottom(Ly;
+        shelf_length=30e3, shelf_depth=-20.0,
+        shoal_length=30e3, shoal_crest_depth=-5.0,
+        deep_ocean_depth=-50.0, sigma=8e3, Hs=15.0,
+        Ly_shoal=100e3)
+    ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
+"""
 
-    # along-shoal
-    hwx = zeros(length(x))
+# ── Background bathymetry: parameterized piecewise linear slope in x ────
 
-    # Scale the coordinates based on the kwarg sizes while keeping proportional shape
-    aw, h_aw = shelf_length * (15.0 / 30.0), shelf_depth
-    bw, h_bw = shelf_length, shelf_depth - 5.0
-    cw, h_cw = shelf_length + 20.0, deep_ocean_depth
+@inline function param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
+    # Breakpoints scaled from shelf_length
+    aw = shelf_length * 0.5
+    h_aw = shelf_depth
+    bw = shelf_length
+    h_bw = shelf_depth - 5.0
+    cw = shelf_length + 20e3
+    h_cw = deep_ocean_depth
 
-    m1w = h_aw / aw
-    m2w = (h_bw - h_aw) / (bw - aw)
-    m3w = (h_cw - h_bw) / (cw - bw)
+    m1 = h_aw / aw
+    m2 = (h_bw - h_aw) / (bw - aw)
+    m3 = (h_cw - h_bw) / (cw - bw)
 
-    for i in eachindex(x)
-        xi = x[i]
-        if xi < aw
-            hwx[i] = m1w * xi
-        elseif xi < bw
-            hwx[i] = h_aw + m2w * (xi - aw)
-        elseif xi < cw
-            hwx[i] = h_bw + m3w * (xi - bw)
+    if x < aw
+        return m1 * x
+    elseif x < bw
+        return h_aw + m2 * (x - aw)
+    elseif x < cw
+        return h_bw + m3 * (x - bw)
+    else
+        return h_cw
+    end
+end
+
+# ── Shoal x-profile: parameterized gentle slope ─────────────────────────
+
+@inline function param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
+    # Near-shore break at ~8% of shoal length
+    as = shoal_length * (2.5 / 30.0)
+    h_as = shoal_crest_depth
+
+    # Offshore end: stays shallow (above background)
+    ds = shoal_length * (36.0 / 30.0)
+    h_ds = shoal_crest_depth - 10.0  # only 10m deeper than crest
+
+    m1 = h_as / as
+    m2 = (h_ds - h_as) / (ds - as)
+
+    if x < as
+        return m1 * x
+    elseif x < ds
+        return h_as + m2 * (x - as)
+    else
+        return h_ds
+    end
+end
+
+# ── Shoal taper: smooth cosine ramp ─────────────────────────────────────
+
+@inline function param_shoal_taper(x, shoal_length)
+    x_start = shoal_length * (20.0 / 30.0)  # begin tapering at ~67% of shoal
+    x_end = shoal_length * (36.0 / 30.0)  # fully zero at ~120% of shoal
+    if x >= x_end
+        return 0.0
+    elseif x <= x_start
+        return 1.0
+    else
+        return 0.5 * (1.0 + cos(π * (x - x_start) / (x_end - x_start)))
+    end
+end
+
+# ── Along-shore compact window ──────────────────────────────────────────
+
+@inline function param_shoal_window(y, y0, half_extent)
+    # If shoal spans the full domain (Ly_shoal >= Ly), no taper needed
+    if half_extent >= y0
+        return 1.0
+    end
+    dy = abs(y - y0)
+    if dy >= half_extent
+        return 0.0
+    else
+        taper_start = 0.5 * half_extent  # taper in outer 50%
+        if dy <= taper_start
+            return 1.0
         else
-            hwx[i] = h_cw
+            return 0.5 * (1.0 + cos(π * (dy - taper_start) / (half_extent - taper_start)))
         end
     end
+end
 
-    # across-shoal (flat)
-    hwy = zeros(length(y))
+# ── Combined bottom function ────────────────────────────────────────────
 
-    # Combine background
-    hw = hwy .+ hwx'   # Outer addition (broadcast)
-    hw .-= maximum(hw)
+@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent,
+    shelf_length, shelf_depth,
+    shoal_length, shoal_crest_depth,
+    deep_ocean_depth)
+    # Compact-support window (shared by background slope and shoal)
+    window = param_shoal_window(y, y0, half_extent)
 
-    # --- SHOAL BATHYMETRY (HS) ---
-    # Width is defined by 'sigma', Height by 'Hs' cross-shore amplitude, & 'shoal_crest_depth'
+    # Background: blend between slope (inside window) and flat deep ocean (outside)
+    hw_slope = param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
+    hw = deep_ocean_depth + (hw_slope - deep_ocean_depth) * window
 
-    # along-shoal (hsx)
-    hsx = zeros(length(x))
+    # Shoal centerline profile (without taper)
+    hs_center = param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
 
-    # Scale shoal points proportionally
-    as, h_as = shoal_length * (2.5 / 30.0), shoal_crest_depth
-    bs, h_bs = shoal_length * (27.0 / 30.0), shoal_crest_depth - 10.0
-    cs, h_cs = shoal_length, shoal_crest_depth - 22.0
-    ds, h_ds = shoal_length * (36.0 / 30.0), deep_ocean_depth
+    # Bump above background (only positive)
+    bump = max(0.0, hs_center - hw_slope)
 
-    m1s = h_as / as
-    m2s = (h_bs - h_as) / (bs - as)
-    m3s = (h_cs - h_bs) / (cs - bs)
-    m4s = (h_ds - h_cs) / (ds - cs)
+    # Taper kills the bump offshore → no protrusion
+    taper = param_shoal_taper(x, shoal_length)
 
-    for i in eachindex(x)
-        xi = x[i]
-        if xi < as
-            hsx[i] = m1s * xi
-        elseif xi < bs
-            hsx[i] = h_as + m2s * (xi - as)
-        elseif xi < cs
-            hsx[i] = h_bs + m3s * (xi - bs)
-        elseif xi < ds
-            hsx[i] = h_cs + m4s * (xi - cs)
-        else
-            hsx[i] = h_ds
-        end
-    end
+    # Gaussian cross-section
+    gauss_norm = exp(-((y - y0)^2) / (2 * sigma^2))
 
-    # across-shoal (hsy)
-    y0 = Ly / 2
-    # sigma controls the shoal width
-    gauss = Hs .* exp.(-((y .- y0) .^ 2) ./ (2 * sigma^2))
-    hsy = gauss # centered Gaussian
+    return hw + bump * taper * gauss_norm * window
+end
 
-    # taper in x
-    taper = ones(length(x))
-    taper_len = max(1.0 * (shoal_length / 30.0), 0.1) # Scale the taper longitudinally
-    for i in eachindex(x)
-        if x[i] > cs
-            taper[i] = 0.0
-        elseif cs - taper_len <= x[i] <= cs
-            taper[i] = 0.5 * (1 + cos(pi * (x[i] - (cs - taper_len))))
-        end
-    end
+# ── Public constructor ──────────────────────────────────────────────────
 
-    # Combine shoal
-    hs = hsy .* taper' .+ hsx'  # Outer addition
-    hs .-= maximum(hs)
+"""
+    dshoal_param_bottom(Ly; kwargs...)
 
-    # Combine background and shoal bathymetry
-    h = max.(hw, hs)
+Returns a function `bottom(x, y)` (x, y in meters) for `GridFittedBottom`.
 
-    return x, y, h'
+Keyword arguments:
+- `shelf_length`:      length of the shelf [m], default 30e3
+- `shelf_depth`:       depth at inner shelf break [m], default -20.0
+- `shoal_length`:      along-shoal extent in x [m], default 30e3
+- `shoal_crest_depth`: shallowest depth of the shoal [m], default -5.0
+- `deep_ocean_depth`:  deep ocean floor depth [m], default -50.0
+- `sigma`:             Gaussian width of shoal cross-section [m], default 8e3
+- `Hs`:                shoal Gaussian amplitude [m], default 15.0
+- `Ly_shoal`:          along-shore extent of the shoal [m], default Ly
+"""
+function dshoal_param_bottom(Ly;
+    shelf_length=30e3,
+    shelf_depth=-20.0,
+    shoal_length=30e3,
+    shoal_crest_depth=-5.0,
+    deep_ocean_depth=-50.0,
+    sigma=8e3,
+    Hs=15.0,
+    Ly_shoal=Ly)
+
+    y0 = Ly / 2.0
+    half_extent = Ly_shoal / 2.0
+
+    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent,
+        shelf_length, shelf_depth,
+        shoal_length, shoal_crest_depth,
+        deep_ocean_depth)
+    return bottom
 end
