@@ -234,7 +234,7 @@ vᵢ = v₀
 @inline Tᵢ(x, y, z) = T_south_pwl(z)
 @inline Sᵢ(x, y, z) = S_south_pwl(z)
 
-set!(model, v=vᵢ)
-# set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
+# set!(model, v=vᵢ)
+set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
 
 run!(simulation)
