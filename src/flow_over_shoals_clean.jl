@@ -61,10 +61,10 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 30 # <-- change this for each new run
-sim_runtime = 20days
+run_number = 103 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = (periodic_y ? "periodic" : "bounded") * "_clean$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -72,7 +72,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -124,24 +124,43 @@ end
 
 # @inline bottom(x, y) = -H_hl + h_hl * exp(-(x / σx_hl)^2) * _hl_window(y, y₀_hl, σy_hl)
 
-# bathymetry — const globals + @inline (no closure)
-const _shelf_length = 30e3
-const _shelf_depth = -20.0
-const _shoal_length = 30e3
-const _shoal_crest_depth = -5.0
-const _deep_ocean_depth = -50.0
-const _sigma_shoal = 8e3
-const _Hs_shoal = 15.0
-const _Ly_shoal = 300e3
-const _y0_shoal = params.Ly / 2.0
-const _half_extent_shoal = _Ly_shoal / 2.0
+# # bathymetry — const globals + @inline (no closure)
+# const _shelf_length = 30e3
+# const _shelf_depth = -20.0
+# const _shoal_length = 30e3
+# const _shoal_crest_depth = -5.0
+# const _deep_ocean_depth = -50.0
+# const _sigma_shoal = 8e3
+# const _Hs_shoal = 15.0
+# const _Ly_shoal = 300e3
+# const _y0_shoal = params.Ly / 2.0
+# const _half_extent_shoal = _Ly_shoal / 2.0
 
-@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
-    _half_extent_shoal, _shelf_length, _shelf_depth,
-    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
+# @inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
+#     _half_extent_shoal, _shelf_length, _shelf_depth,
+#     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
+
+# @inline slope_bottom(x, y) = -params.Lz / 2
+# @inline slope_bottom(x, y) = -40.0 - 10.0 * (x / params.Lx)
+# @inline slope_bottom(x, y) = -30.0 - 20.0 * (x / params.Lx)
+# @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
+# @inline slope_bottom(x, y) = -20.0 - 30.0 * (x / params.Lx)
+# @inline slope_bottom(x, y) = -10.0 - 40.0 * (x / params.Lx)
+# @inline slope_bottom(x, y) = -20.0 - 30.0 * (x / 30e3)
+# @inline slope_bottom(x, y) = -20.0 - 30.0 * (x / 10e3)
+# @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3))
+@inline function slope_bottom(x, y)
+    δ = 3e3  # smoothing length scale [m]
+    w = 0.5 * (1.0 + tanh((x - 10e3) / δ))
+    v1 = -30.0 * (x / 10e3)             # steep segment: (0,0) → (10km,-30m)
+    v2 = -30.0 - 20.0 * ((x - 10e3) / 90e3)  # gentle segment: (10km,-30m) → (100km,-50m)
+    return v1 * (1.0 - w) + v2 * w
+end
 
 if shoal_bath
-    GFB = GridFittedBottom(bottom)
+    # GFB = GridFittedBottom(constant_bottom)
+    # GFB = GridFittedBottom(-params.Lz / 2)
+    GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
     ib_grid = grid
@@ -241,11 +260,18 @@ end
     w3 = smooth_step(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
+# testing constant north south T/S 
+# Tₙ_val = 20.5
+# Tₛ_val = 24.5
+# Sₙ_val = 32.6
+# Sₛ_val = 35.5
+
 
 # Eastern boundary T/S constants
 Tₑ_val = 23.11
 Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
+# params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val, Tₙ=Tₙ_val, Tₛ=Tₛ_val, Sₙ=Sₙ_val, Sₛ=Sₛ_val)
 
 # bottom drag parameters
 cᴰ = 2.5e-3 # dimensionless drag coefficient
@@ -376,14 +402,12 @@ if mass_flux
     Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
     Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
     F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    forcings = (u=Fᵤ, v=Fᵥ, w=F_w)
 else
-    forcings = (T=FT, S=FS)
+    forcings = ()
 end
 
 if periodic_y
-    T_bcs = FieldBoundaryConditions()
-    S_bcs = FieldBoundaryConditions()
     u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
     v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
@@ -397,7 +421,7 @@ else
     w_bcs = FieldBoundaryConditions()
 end
 
-bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
+bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
 if is_coriolis
     coriolis = FPlane(latitude=35.2480)
 else
@@ -409,14 +433,14 @@ if periodic_y
         #grid=ib_grid,
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid), #; preconditioner=FFTBasedPoissonSolver(grid)),
+        #closure=AnisotropicMinimumDissipation(),
+        #hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid), #; preconditioner=FFTBasedPoissonSolver(grid)),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        #coriolis=coriolis,
+        #boundary_conditions=bcs,
+        #forcing=forcings
     )
 else
     model = NonhydrostaticModel(ib_grid;
@@ -467,9 +491,20 @@ progress = TimedMessenger()
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
+# Log pressure solver iterations
+function print_solver_iterations(sim)
+    solver = sim.model.pressure_solver
+    if hasproperty(solver, :conjugate_gradient_solver)
+        cg = solver.conjugate_gradient_solver
+        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
+            cg.iteration, time(sim) / 86400)
+    end
+end
+simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
+
 u, v, w = model.velocities
-T = model.tracers.T
-S = model.tracers.S
+#T = model.tracers.T
+#S = model.tracers.S
 b = buoyancy_operation(model)
 
 u_c = @at (Center, Center, Center) u
@@ -480,9 +515,9 @@ w_c = @at (Center, Center, Center) w
 # ζ = @at (Center, Center, Center) Field(∂x(v_c) - ∂y(u_c))
 
 # PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
-Ro = @at (Center, Center, Center) RossbyNumber(model)
+# Ro = @at (Center, Center, Center) RossbyNumber(model)
 
-slice_fields = (; u_c, v_c, w_c, T, S, Ro)
+slice_fields = (; u_c, v_c, w_c)
 
 # Surface XY slice (top layer)
 simulation.output_writers[:surface_slice] =
@@ -507,65 +542,53 @@ ww = Field((@at (Center, Center, Center) w * w))
 uv = Field((@at (Center, Center, Center) u * v))
 uw = Field((@at (Center, Center, Center) u * w))
 vw = Field((@at (Center, Center, Center) v * w))
-uT = Field((@at (Center, Center, Center) u * T))
-vT = Field((@at (Center, Center, Center) v * T))
-wT = Field((@at (Center, Center, Center) w * T))
-uS = Field((@at (Center, Center, Center) u * S))
-vS = Field((@at (Center, Center, Center) v * S))
-wS = Field((@at (Center, Center, Center) w * S))
 
-# Y-averages of velocities and tracers
-u_yavg = Average(u, dims=2)
-v_yavg = Average(v, dims=2)
-w_yavg = Average(w, dims=2)
-uu_yavg = Average(uu, dims=2)
-vv_yavg = Average(vv, dims=2)
-ww_yavg = Average(ww, dims=2)
-T_yavg = Average(T, dims=2)
-S_yavg = Average(S, dims=2)
+# velocity and tracer slices at mid-y (for time-averaging)
+midy_idx = round(Int, params.Ny / 2)
 
-# Y-averages of cross-correlations
-uv_yavg = Average(uv, dims=2)
-uw_yavg = Average(uw, dims=2)
-vw_yavg = Average(vw, dims=2)
-uT_yavg = Average(uT, dims=2)
-vT_yavg = Average(vT, dims=2)
-wT_yavg = Average(wT, dims=2)
-uS_yavg = Average(uS, dims=2)
-vS_yavg = Average(vS, dims=2)
-wS_yavg = Average(wS, dims=2)
+# Point the names to the fields themselves; 
+# the NetCDFWriter with AveragedTimeInterval will handle the time-averaging.
+u_avg = u
+v_avg = v
+w_avg = w
+
+# Cross-correlations
+uu_avg = uu
+vv_avg = vv
+ww_avg = ww
+uv_avg = uv
+uw_avg = uw
+vw_avg = vw
+
 
 output_interval = callback_interval
 
-simulation.output_writers[:yavg_fields] = NetCDFWriter(
+simulation.output_writers[:avg_fields] = NetCDFWriter(
     model,
-    (; u_yavg, v_yavg, w_yavg, T_yavg, S_yavg,
-        uv_yavg, uw_yavg, vw_yavg,
-        uT_yavg, vT_yavg, wT_yavg,
-        uS_yavg, vS_yavg, wS_yavg),
+    (; u_avg, v_avg, w_avg,
+        uu_avg, vv_avg, ww_avg,
+        uv_avg, uw_avg, vw_avg),
     schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    filename="time_yavg_$(run_tag).nc",
+    indices=(:, midy_idx, :),
+    filename="time_avg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
+# Here we define KE for time-averaging.
 KE = KineticEnergy(model)
-# ε = KineticEnergyDissipationRate(model)
-TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
-             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
-             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
-
-# # Domain-integrated quantities (scalar time series)
+KE_avg = KE
+# Domain-integrated quantities (scalar time series)
 ∫KE = Integral(KE)
 
-# # Y-averages for spatial structure
-KE_yavg = Average(KE, dims=2)
-TKE_yavg = Average(TKE, dims=2)
+# EKE
+EKE = 0.5 * ((uu_avg - u_avg * u_avg) + (vv_avg - v_avg * v_avg) + (ww_avg - w_avg * w_avg))
+EKE_avg = EKE
 
-simulation.output_writers[:ke_yavg] = NetCDFWriter(
+simulation.output_writers[:ke_avg] = NetCDFWriter(
     model,
-    (; KE_yavg, TKE_yavg,
-        ∫KE),
-    filename="KE_yavg_$(run_tag).nc",
-    schedule=TimeInterval(output_interval),
+    (; KE_avg, ∫KE, EKE_avg),
+    filename="KE_avg_$(run_tag).nc",
+    schedule=AveragedTimeInterval(output_interval, window=output_interval),
+    indices=(:, midy_idx, :),
     overwrite_existing=overwrite_existing)
 
 if checkpointing
@@ -596,17 +619,7 @@ if !pickup
         vᵢ .+= v₀
     end
 
-    if gradient_IC
-        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-        @inline blend(a, b, α) = (1 - α) * a + α * b
-        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
-    else
-        @inline Tᵢ(x, y, z) = T_south_pwl(z)
-        @inline Sᵢ(x, y, z) = S_south_pwl(z)
-    end
-
-    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+    set!(model, u=uᵢ, v=vᵢ, w=wᵢ)
 end
 
 # run simulation
@@ -622,9 +635,7 @@ end
  LES:             $(LES)
  mass_flux:       $(mass_flux)
  periodic_y:      $(periodic_y)
- gradient_IC:     $(gradient_IC)
  sigmoid_v_bc:    $(sigmoid_v_bc)
- sigmoid_ic:      $(sigmoid_ic)
  is_coriolis:     $(is_coriolis)
  checkpointing:   $(checkpointing)
  shoal_bath:      $(shoal_bath)
