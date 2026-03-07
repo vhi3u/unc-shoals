@@ -221,15 +221,15 @@ simulation.output_writers[:midy_slice] =
 
 
 # initial conditions
-uᵢ = 0.005 * rand(size(u)...)
-vᵢ = 0.005 * rand(size(v)...)
-wᵢ = 0.005 * rand(size(w)...)
-uᵢ .-= mean(uᵢ)
-vᵢ .-= mean(vᵢ)
-wᵢ .-= mean(wᵢ)
-uᵢ .+= 0
-vᵢ .+= v₀
-# vᵢ = v₀
+# uᵢ = 0.005 * rand(size(u)...)
+# vᵢ = 0.005 * rand(size(v)...)
+# wᵢ = 0.005 * rand(size(w)...)
+# uᵢ .-= mean(uᵢ)
+# vᵢ .-= mean(vᵢ)
+# wᵢ .-= mean(wᵢ)
+# uᵢ .+= 0
+# vᵢ .+= v₀
+vᵢ = v₀
 
 @inline Tᵢ(x, y, z) = T_south_pwl(z)
 @inline Sᵢ(x, y, z) = S_south_pwl(z)
