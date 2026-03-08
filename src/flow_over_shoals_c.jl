@@ -162,15 +162,15 @@ params = (; params..., v₀=v₀)
 # drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 # drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 
-@inline T_south_pwl(z) = 24.5378 #+ (23.4116 - 24.5378) / (-50.0) * z
-@inline T_north_pwl(z) = 20.5389 #+ (14.3323 - 20.5389) / (-50.0) * z
-@inline S_south_pwl(z) = 35.5830 #+ (36.1776 - 35.5830) / (-50.0) * z
-@inline S_north_pwl(z) = 32.6264 #+ (33.2648 - 32.6264) / (-50.0) * z
+# @inline T_south_pwl(z) = 24.5378 #+ (23.4116 - 24.5378) / (-50.0) * z
+# @inline T_north_pwl(z) = 20.5389 #+ (14.3323 - 20.5389) / (-50.0) * z
+# @inline S_south_pwl(z) = 35.5830 #+ (36.1776 - 35.5830) / (-50.0) * z
+# @inline S_north_pwl(z) = 32.6264 #+ (33.2648 - 32.6264) / (-50.0) * z
 
-@inline tsbc(x, z, t) = T_south_pwl(z)
-@inline tnbc(x, z, t) = T_north_pwl(z)
-@inline ssbc(x, z, t) = S_south_pwl(z)
-@inline snbc(x, z, t) = S_north_pwl(z)
+# @inline tsbc(x, z, t) = T_south_pwl(z)
+# @inline tnbc(x, z, t) = T_north_pwl(z)
+# @inline ssbc(x, z, t) = S_south_pwl(z)
+# @inline snbc(x, z, t) = S_north_pwl(z)
 
 reltol = sqrt(eps(ib_grid))
 abstol = sqrt(eps(ib_grid))
@@ -216,7 +216,7 @@ end
 simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
-b = buoyancy_operation(model)
+# b = buoyancy_operation(model)
 
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
@@ -255,8 +255,8 @@ simulation.output_writers[:midy_slice] =
 # vᵢ .+= v₀
 vᵢ = v₀
 
-@inline Tᵢ(x, y, z) = T_south_pwl(z)
-@inline Sᵢ(x, y, z) = S_south_pwl(z)
+# @inline Tᵢ(x, y, z) = T_south_pwl(z)
+# @inline Sᵢ(x, y, z) = S_south_pwl(z)
 
 # set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
 set!(model, v=vᵢ)
