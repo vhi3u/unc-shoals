@@ -37,7 +37,7 @@ params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
 params = (; params..., Nx=200, Ny=600, Nz=50)
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
-grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # @inline slope_bottom(x, y) = ifelse(x < 10e3, -10.0 - 20.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3))
 
@@ -66,9 +66,34 @@ v₀ = 0.10
 
 params = (; params..., v₀=v₀)
 
+# @inline function T_north_pwl(z)
+#     # Linear from 20.5389 at z=-5 to 14.3323 at z=-35
+#     t = clamp((z - (-5.0)) / (-35.0 - (-5.0)), 0.0, 1.0)
+#     return 20.5389 + t * (14.3323 - 20.5389)
+# end
+
+# @inline function T_south_pwl(z)
+#     # Linear from 24.5378 at z=-5 to 23.4116 at z=-30
+#     t = clamp((z - (-5.0)) / (-30.0 - (-5.0)), 0.0, 1.0)
+#     return 24.5378 + t * (23.4116 - 24.5378)
+# end
+
+# @inline function S_north_pwl(z)
+#     # Linear from 32.6264 at z=-5 to 33.2648 at z=-35
+#     t = clamp((z - (-5.0)) / (-35.0 - (-5.0)), 0.0, 1.0)
+#     return 32.6264 + t * (33.2648 - 32.6264)
+# end
+
+# @inline function S_south_pwl(z)
+#     # Linear from 35.5830 at z=-5 to 36.1776 at z=-30
+#     t = clamp((z - (-5.0)) / (-30.0 - (-5.0)), 0.0, 1.0)
+#     return 35.5830 + t * (36.1776 - 35.5830)
+# end
+
 const δ_smooth = 2.5  # smoothing length scale in meters
 
 @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+
 @inline function T_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 20.5389, 17.8875, 14.3323
@@ -143,17 +168,6 @@ const Sₑ_val = 35.5
 @inline ssbc(x, z, t) = S_south_pwl(z)
 @inline snbc(x, z, t) = S_north_pwl(z)
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=ValueBoundaryCondition(Tₑ_val))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=ValueBoundaryCondition(Sₑ_val))
-
-Vₙ = OpenBoundaryCondition(v₀; scheme=PerturbationAdvection())
-Vₛ = OpenBoundaryCondition(v₀)
-
-v_bcs = FieldBoundaryConditions(south=Vₙ, north=Vₙ)
-
-bcs = (v=v_bcs, T=T_bcs, S=S_bcs)
-
-
 reltol = sqrt(eps(ib_grid))
 abstol = sqrt(eps(ib_grid))
 @info "reltol = $reltol, abstol = $abstol"
@@ -166,8 +180,11 @@ model = NonhydrostaticModel(ib_grid;
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
-    # boundary_conditions=bcs
+    coriolis=FPlane(latitude=35.2480),
+    #boundary_conditions=bcs
 )
+
+
 
 @info "" model
 
@@ -200,24 +217,27 @@ b = buoyancy_operation(model)
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
+T = model.tracers.T
+S = model.tracers.S
+# Ro = @at (Center, Center, Center) RossbyNumber(model)
 
-slice_fields = (; u_c, v_c, w_c)
+slice_fields = (; u_c, v_c, w_c, T, S)
 
-# Surface XY slice (top layer)
-simulation.output_writers[:surface_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="top_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, :, params.Nz),
-        overwrite_existing=true)
+# # Surface XY slice (top layer)
+# simulation.output_writers[:surface_slice] =
+#     NetCDFWriter(model, slice_fields,
+#         filename="top_$(run_tag).nc",
+#         schedule=TimeInterval(callback_interval),
+#         indices=(:, :, params.Nz),
+#         overwrite_existing=true)
 
-# Mid-y XZ slice (cross-shore transect at domain center)
-simulation.output_writers[:midy_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="midy_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, round(Int, params.Ny / 2), :),
-        overwrite_existing=true)
+# # Mid-y XZ slice (cross-shore transect at domain center)
+# simulation.output_writers[:midy_slice] =
+#     NetCDFWriter(model, slice_fields,
+#         filename="midy_$(run_tag).nc",
+#         schedule=TimeInterval(callback_interval),
+#         indices=(:, round(Int, params.Ny / 2), :),
+#         overwrite_existing=true)
 
 
 # initial conditions
@@ -234,7 +254,7 @@ vᵢ = v₀
 @inline Tᵢ(x, y, z) = T_south_pwl(z)
 @inline Sᵢ(x, y, z) = S_south_pwl(z)
 
-# set!(model, v=vᵢ)
 set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
+# set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
 
 run!(simulation)
