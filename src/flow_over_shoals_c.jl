@@ -90,78 +90,82 @@ params = (; params..., v₀=v₀)
 #     return 35.5830 + t * (36.1776 - 35.5830)
 # end
 
-const δ_smooth = 2.5  # smoothing length scale in meters
+# const δ_smooth = 2.5  # smoothing length scale in meters
 
-@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+# @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
-@inline function T_north_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -35.0
-    v1, v2, v3 = 20.5389, 17.8875, 14.3323
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
+# @inline function T_north_pwl(z)
+#     z1, z2, z3 = -5.0, -15.0, -35.0
+#     v1, v2, v3 = 20.5389, 17.8875, 14.3323
+#     m12 = (v2 - v1) / (z2 - z1)
+#     m23 = (v3 - v2) / (z3 - z2)
+#     val1 = v1
+#     val2 = v1 + m12 * (z - z1)
+#     val3 = v2 + m23 * (z - z2)
+#     val4 = v3
+#     w1 = smooth_step(z, z1)
+#     w2 = smooth_step(z, z2)
+#     w3 = smooth_step(z, z3)
+#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# end
 
-@inline function T_south_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -30.0
-    v1, v2, v3 = 24.5378, 24.3073, 23.4116
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
+# @inline function T_south_pwl(z)
+#     z1, z2, z3 = -5.0, -15.0, -30.0
+#     v1, v2, v3 = 24.5378, 24.3073, 23.4116
+#     m12 = (v2 - v1) / (z2 - z1)
+#     m23 = (v3 - v2) / (z3 - z2)
+#     val1 = v1
+#     val2 = v1 + m12 * (z - z1)
+#     val3 = v2 + m23 * (z - z2)
+#     val4 = v3
+#     w1 = smooth_step(z, z1)
+#     w2 = smooth_step(z, z2)
+#     w3 = smooth_step(z, z3)
+#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# end
 
-@inline function S_north_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -35.0
-    v1, v2, v3 = 32.6264, 33.7062, 33.2648
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
+# @inline function S_north_pwl(z)
+#     z1, z2, z3 = -5.0, -15.0, -35.0
+#     v1, v2, v3 = 32.6264, 33.7062, 33.2648
+#     m12 = (v2 - v1) / (z2 - z1)
+#     m23 = (v3 - v2) / (z3 - z2)
+#     val1 = v1
+#     val2 = v1 + m12 * (z - z1)
+#     val3 = v2 + m23 * (z - z2)
+#     val4 = v3
+#     w1 = smooth_step(z, z1)
+#     w2 = smooth_step(z, z2)
+#     w3 = smooth_step(z, z3)
+#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# end
 
-@inline function S_south_pwl(z)
-    z1, z2, z3 = -5.0, -15.0, -30.0
-    v1, v2, v3 = 35.5830, 35.9986, 36.1776
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
+# @inline function S_south_pwl(z)
+#     z1, z2, z3 = -5.0, -15.0, -30.0
+#     v1, v2, v3 = 35.5830, 35.9986, 36.1776
+#     m12 = (v2 - v1) / (z2 - z1)
+#     m23 = (v3 - v2) / (z3 - z2)
+#     val1 = v1
+#     val2 = v1 + m12 * (z - z1)
+#     val3 = v2 + m23 * (z - z2)
+#     val4 = v3
+#     w1 = smooth_step(z, z1)
+#     w2 = smooth_step(z, z2)
+#     w3 = smooth_step(z, z3)
+#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+# end
 
-const Tₑ_val = 23.11
-const Sₑ_val = 35.5
+# const Tₑ_val = 23.11
+# const Sₑ_val = 35.5
 
 # @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
 # @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
 # drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 # drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 
+@inline T_south_pwl(z) = 24.5378 + (23.4116 - 24.5378) / (-50.0) * z
+@inline T_north_pwl(z) = 20.5389 + (14.3323 - 20.5389) / (-50.0) * z
+@inline S_south_pwl(z) = 35.5830 + (36.1776 - 35.5830) / (-50.0) * z
+@inline S_north_pwl(z) = 32.6264 + (33.2648 - 32.6264) / (-50.0) * z
 
 @inline tsbc(x, z, t) = T_south_pwl(z)
 @inline tnbc(x, z, t) = T_north_pwl(z)
@@ -223,21 +227,21 @@ S = model.tracers.S
 
 slice_fields = (; u_c, v_c, w_c, T, S)
 
-# # Surface XY slice (top layer)
-# simulation.output_writers[:surface_slice] =
-#     NetCDFWriter(model, slice_fields,
-#         filename="top_$(run_tag).nc",
-#         schedule=TimeInterval(callback_interval),
-#         indices=(:, :, params.Nz),
-#         overwrite_existing=true)
+# Surface XY slice (top layer)
+simulation.output_writers[:surface_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="top_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, :, params.Nz),
+        overwrite_existing=true)
 
-# # Mid-y XZ slice (cross-shore transect at domain center)
-# simulation.output_writers[:midy_slice] =
-#     NetCDFWriter(model, slice_fields,
-#         filename="midy_$(run_tag).nc",
-#         schedule=TimeInterval(callback_interval),
-#         indices=(:, round(Int, params.Ny / 2), :),
-#         overwrite_existing=true)
+# Mid-y XZ slice (cross-shore transect at domain center)
+simulation.output_writers[:midy_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="midy_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, round(Int, params.Ny / 2), :),
+        overwrite_existing=true)
 
 
 # initial conditions
