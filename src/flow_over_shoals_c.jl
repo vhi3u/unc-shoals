@@ -27,6 +27,8 @@ end
 @info "architecture = $(arch)"
 include("dshoal_vn_param.jl")
 
+@info "Julia threads = $(nthreads())"
+
 
 run_number = 441 # <-- change this for each new run
 sim_runtime = 10days
@@ -52,15 +54,17 @@ const _Ly_shoal = 300e3
 const _y0_shoal = params.Ly / 2.0
 const _half_extent_shoal = _Ly_shoal / 2.0
 
-@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
-    _half_extent_shoal, _shelf_length, _shelf_depth,
-    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
+# @inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
+#     _half_extent_shoal, _shelf_length, _shelf_depth,
+#     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
-# GFB = GridFittedBottom(slope_bottom)
-GFB = GridFittedBottom(bottom)
-ib_grid = ImmersedBoundaryGrid(grid, GFB)
+# # GFB = GridFittedBottom(slope_bottom)
+# GFB = GridFittedBottom(bottom)
+# ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
-@info ib_grid
+# @info ib_grid
+
+ib_grid = grid
 
 v₀ = 0.10
 
@@ -182,9 +186,9 @@ model = NonhydrostaticModel(ib_grid;
     #closure=AnisotropicMinimumDissipation(),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
-    tracers=(:T, :S),
-    buoyancy=SeawaterBuoyancy(),
-    coriolis=FPlane(latitude=35.2480),
+    #tracers=(:T, :S),
+    #buoyancy=SeawaterBuoyancy(),
+    #coriolis=FPlane(latitude=35.2480),
     #boundary_conditions=bcs
 )
 
@@ -193,6 +197,10 @@ model = NonhydrostaticModel(ib_grid;
 @info "" model
 
 @info "creating output fields"
+
+@info "u storage = $(typeof(parent(model.velocities.u)))"
+@info "v storage = $(typeof(parent(model.velocities.v)))"
+@info "w storage = $(typeof(parent(model.velocities.w)))"
 
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
@@ -218,30 +226,30 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 # b = buoyancy_operation(model)
 
-u_c = @at (Center, Center, Center) u
-v_c = @at (Center, Center, Center) v
-w_c = @at (Center, Center, Center) w
-T = model.tracers.T
-S = model.tracers.S
+# u_c = @at (Center, Center, Center) u
+# v_c = @at (Center, Center, Center) v
+# w_c = @at (Center, Center, Center) w
+# T = model.tracers.T
+# S = model.tracers.S
 # Ro = @at (Center, Center, Center) RossbyNumber(model)
 
-slice_fields = (; u_c, v_c, w_c, T, S)
+# slice_fields = (; u_c, v_c, w_c, T, S)
 
-# Surface XY slice (top layer)
-simulation.output_writers[:surface_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="top_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, :, params.Nz),
-        overwrite_existing=true)
+# # Surface XY slice (top layer)
+# simulation.output_writers[:surface_slice] =
+#     NetCDFWriter(model, slice_fields,
+#         filename="top_$(run_tag).nc",
+#         schedule=TimeInterval(callback_interval),
+#         indices=(:, :, params.Nz),
+#         overwrite_existing=true)
 
-# Mid-y XZ slice (cross-shore transect at domain center)
-simulation.output_writers[:midy_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="midy_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, round(Int, params.Ny / 2), :),
-        overwrite_existing=true)
+# # Mid-y XZ slice (cross-shore transect at domain center)
+# simulation.output_writers[:midy_slice] =
+#     NetCDFWriter(model, slice_fields,
+#         filename="midy_$(run_tag).nc",
+#         schedule=TimeInterval(callback_interval),
+#         indices=(:, round(Int, params.Ny / 2), :),
+#         overwrite_existing=true)
 
 
 # initial conditions
