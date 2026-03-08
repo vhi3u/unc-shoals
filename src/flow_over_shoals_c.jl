@@ -162,10 +162,10 @@ params = (; params..., v₀=v₀)
 # drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 # drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
 
-@inline T_south_pwl(z) = 24.5378 + (23.4116 - 24.5378) / (-50.0) * z
-@inline T_north_pwl(z) = 20.5389 + (14.3323 - 20.5389) / (-50.0) * z
-@inline S_south_pwl(z) = 35.5830 + (36.1776 - 35.5830) / (-50.0) * z
-@inline S_north_pwl(z) = 32.6264 + (33.2648 - 32.6264) / (-50.0) * z
+@inline T_south_pwl(z) = 24.5378 #+ (23.4116 - 24.5378) / (-50.0) * z
+@inline T_north_pwl(z) = 20.5389 #+ (14.3323 - 20.5389) / (-50.0) * z
+@inline S_south_pwl(z) = 35.5830 #+ (36.1776 - 35.5830) / (-50.0) * z
+@inline S_north_pwl(z) = 32.6264 #+ (33.2648 - 32.6264) / (-50.0) * z
 
 @inline tsbc(x, z, t) = T_south_pwl(z)
 @inline tnbc(x, z, t) = T_north_pwl(z)
