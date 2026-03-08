@@ -54,17 +54,15 @@ const _Ly_shoal = 300e3
 const _y0_shoal = params.Ly / 2.0
 const _half_extent_shoal = _Ly_shoal / 2.0
 
-# @inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
-#     _half_extent_shoal, _shelf_length, _shelf_depth,
-#     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
+@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
+    _half_extent_shoal, _shelf_length, _shelf_depth,
+    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
-# # GFB = GridFittedBottom(slope_bottom)
-# GFB = GridFittedBottom(bottom)
-# ib_grid = ImmersedBoundaryGrid(grid, GFB)
+# GFB = GridFittedBottom(slope_bottom)
+GFB = GridFittedBottom(bottom)
+ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
-# @info ib_grid
-
-ib_grid = grid
+@info ib_grid
 
 v₀ = 0.10
 
