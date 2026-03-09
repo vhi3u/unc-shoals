@@ -59,7 +59,7 @@ model = NonhydrostaticModel(ib_grid;
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
-    #coriolis=FPlane(latitude=35.2480),
+    coriolis=FPlane(latitude=35.2480),
     #boundary_conditions=bcs
 )
 
