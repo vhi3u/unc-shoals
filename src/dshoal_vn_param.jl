@@ -28,24 +28,15 @@ Usage:
     m2 = (h_bw - h_aw) / (bw - aw)
     m3 = (h_cw - h_bw) / (cw - bw)
 
-    # Base linear segments for the background bathymetry
-    y1 = m1 * x
-    y2 = h_aw + m2 * (x - aw)
-    y3 = h_bw + m3 * (x - bw)
-    y4 = h_cw
-
-    # Smooth the background bathymetry using tanh transitions at the breakpoints
-    Δ = 2000.0  # smoothing width scale (meters)
-    w1 = 0.5 * (1.0 + tanh((x - aw) / Δ))
-    w2 = 0.5 * (1.0 + tanh((x - bw) / Δ))
-    w3 = 0.5 * (1.0 + tanh((x - cw) / Δ))
-
-    depth = y1 +
-            (y2 - y1) * w1 +
-            (y3 - y2) * w2 +
-            (y4 - y3) * w3
-
-    return depth
+    if x < aw
+        return m1 * x
+    elseif x < bw
+        return h_aw + m2 * (x - aw)
+    elseif x < cw
+        return h_bw + m3 * (x - bw)
+    else
+        return h_cw
+    end
 end
 
 # ── Shoal x-profile: parameterized gentle slope ─────────────────────────
