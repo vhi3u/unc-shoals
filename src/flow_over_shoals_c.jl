@@ -37,8 +37,7 @@ params = (; params..., Nx=200, Ny=600, Nz=50)
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
-slope_bottom = dshoal_param_bottom(params.Ly)   # uses defaults from dshoal_vn_param.jl
-
+slope_bottom = dshoal_param_bottom(params.Ly) # testing defaults. 
 GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
