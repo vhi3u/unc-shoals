@@ -59,8 +59,8 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     _half_extent_shoal, _shelf_length, _shelf_depth,
     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
-@inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
-
+# @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
+@inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
 
 # GFB = GridFittedBottom(slope_bottom)
 GFB = GridFittedBottom(slope_bottom)
