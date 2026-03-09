@@ -16,7 +16,7 @@ using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu, allowscalar
+using CUDA: CUDA, has_cuda_gpu, allowscalar
 using Base.Threads
 
 if has_cuda_gpu()
