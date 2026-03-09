@@ -62,7 +62,7 @@ const _half_extent_shoal = _Ly_shoal / 2.0
 # @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
 # @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
 
-@inline gauss_cross_section(y) = exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
+@inline gauss_cross_section(y) = exp(-((y - _y0_shoal) * (y - _y0_shoal)) / (2.0 * _sigma_shoal * _sigma_shoal))
 
 @inline function slope_bottom(x, y)
     # Along-shore compact window
