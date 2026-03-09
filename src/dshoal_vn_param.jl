@@ -13,11 +13,7 @@ Usage:
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
 """
 
-# ── Smooth transition helper ────────────────────────────────────────────
-
-@inline smooth_relu(z, w) = 0.5 * (z + sqrt(z^2 + w^2))
-
-# ── Background bathymetry: parameterized smoothed piecewise slope in x ──
+# ── Background bathymetry: parameterized piecewise linear slope in x ────
 
 @inline function param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
     # Breakpoints scaled from shelf_length
@@ -32,16 +28,27 @@ Usage:
     m2 = (h_bw - h_aw) / (bw - aw)
     m3 = (h_cw - h_bw) / (cw - bw)
 
-    # Smoothing width (2.0 km gives a nice smooth transition)
-    w = 2000.0
+    # Base linear segments for the background bathymetry
+    y1 = m1 * x
+    y2 = h_aw + m2 * (x - aw)
+    y3 = h_bw + m3 * (x - bw)
+    y4 = h_cw
 
-    return m1 * x +
-           (m2 - m1) * smooth_relu(x - aw, w) +
-           (m3 - m2) * smooth_relu(x - bw, w) -
-           m3 * smooth_relu(x - cw, w)
+    # Smooth the background bathymetry using tanh transitions at the breakpoints
+    Δ = 2000.0  # smoothing width scale (meters)
+    w1 = 0.5 * (1.0 + tanh((x - aw) / Δ))
+    w2 = 0.5 * (1.0 + tanh((x - bw) / Δ))
+    w3 = 0.5 * (1.0 + tanh((x - cw) / Δ))
+
+    depth = y1 +
+            (y2 - y1) * w1 +
+            (y3 - y2) * w2 +
+            (y4 - y3) * w3
+
+    return depth
 end
 
-# ── Shoal x-profile: parameterized smoothed gentle slope ────────────────
+# ── Shoal x-profile: parameterized gentle slope ─────────────────────────
 
 @inline function param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
     # Near-shore break at ~8% of shoal length
@@ -55,12 +62,13 @@ end
     m1 = h_as / as
     m2 = (h_ds - h_as) / (ds - as)
 
-    # Smoothing width (same scale as background for consistency)
-    w = 2000.0
-
-    return m1 * x +
-           (m2 - m1) * smooth_relu(x - as, w) -
-           m2 * smooth_relu(x - ds, w)
+    if x < as
+        return m1 * x
+    elseif x < ds
+        return h_as + m2 * (x - as)
+    else
+        return h_ds
+    end
 end
 
 # ── Shoal taper: smooth cosine ramp ─────────────────────────────────────
