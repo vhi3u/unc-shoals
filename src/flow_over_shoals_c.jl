@@ -36,8 +36,8 @@ sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "TEST_clean$(run_number)"  # e.g. "periodic_run1"
 
-params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
-params = (; params..., Nx=200, Ny=600, Nz=50)
+params = (; Lx=100e3, Ly=100e3, Lz=50, Nx=30, Ny=30, Nz=10)
+params = (; params..., Nx=200, Ny=200, Nz=50)
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
@@ -49,7 +49,7 @@ const _shelf_depth = -20.0
 const _shoal_length = 30e3
 const _shoal_crest_depth = -5.0
 const _deep_ocean_depth = -50.0
-const _sigma_shoal = 20e3
+const _sigma_shoal = 8e3
 const _Hs_shoal = 15.0
 const _Ly_shoal = 300e3
 const _y0_shoal = params.Ly / 2.0
