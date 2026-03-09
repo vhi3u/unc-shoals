@@ -93,7 +93,7 @@ end
 simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
-# b = buoyancy_operation(model)
+b = buoyancy_operation(model)
 
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
