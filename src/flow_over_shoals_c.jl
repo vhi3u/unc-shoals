@@ -51,7 +51,7 @@ const _shoal_crest_depth = -5.0
 const _deep_ocean_depth = -50.0
 const _sigma_shoal = 8e3
 const _Hs_shoal = 15.0
-const _Ly_shoal = 300e3
+const _Ly_shoal = 100e3
 const _y0_shoal = params.Ly / 2.0
 const _half_extent_shoal = _Ly_shoal / 2.0
 
