@@ -72,7 +72,7 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     hw_slope = param_background_depth(x, _shelf_length, _shelf_depth, _deep_ocean_depth)
     hw = _deep_ocean_depth + (hw_slope - _deep_ocean_depth) * window
 
-    return hw
+    return max(hw, -50.0)
 end
 
 # GFB = GridFittedBottom(slope_bottom)
