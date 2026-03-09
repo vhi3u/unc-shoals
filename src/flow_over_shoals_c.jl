@@ -65,28 +65,29 @@ const _half_extent_shoal = _Ly_shoal / 2.0
 
 
 @inline function slope_bottom(x, y)
-    # 3-piece piecewise linear matching param_background_depth in dshoal_vn_param.jl
-    aw = _shelf_length * 0.5          # 15 km  — end of coastal ramp
-    bw = _shelf_length                # 30 km  — end of flat/gentle segment
-    cw = _shelf_length + 20e3         # 50 km  — end of steep slope
+    # Along-shore compact window
+    window = param_shoal_window(y, _y0_shoal, _half_extent_shoal)
 
-    h_aw = _shelf_depth               # -20 m
-    h_bw = _shelf_depth - 5.0         # -25 m
-    h_cw = _deep_ocean_depth          # -50 m
+    # Background depth (3-piece piecewise linear)
+    hw_slope = param_background_depth(x, _shelf_length, _shelf_depth, _deep_ocean_depth)
+    hw = _deep_ocean_depth + (hw_slope - _deep_ocean_depth) * window
 
-    m1 = h_aw / aw                    # coastal ramp slope
-    m2 = (h_bw - h_aw) / (bw - aw)   # gentle segment slope
-    m3 = (h_cw - h_bw) / (cw - bw)   # steep offshore slope
+    # Shoal centerline x-profile
+    hs_center = param_shoal_xprofile(x, _shoal_length, _shoal_crest_depth)
 
-    if x < aw
-        return m1 * x
-    elseif x < bw
-        return h_aw + m2 * (x - aw)
-    elseif x < cw
-        return h_bw + m3 * (x - bw)
-    else
-        return h_cw
-    end
+    # Bump above background (only positive)
+    bump = max(0.0, hs_center - hw_slope)
+
+    # Offshore taper kills the bump past the shoal
+    taper = param_shoal_taper(x, _shoal_length)
+
+    # Gaussian cross-section in y
+    gauss_norm = exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
+
+    raw = hw + bump * taper * gauss_norm * window
+
+    # Shift entire bathymetry down by 5 m, clamp at deep_ocean_depth
+    return max(raw - 5.0, _deep_ocean_depth)
 end
 
 # GFB = GridFittedBottom(slope_bottom)
