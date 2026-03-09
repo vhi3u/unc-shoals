@@ -13,7 +13,11 @@ Usage:
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
 """
 
-# ── Background bathymetry: parameterized piecewise linear slope in x ────
+# ── Smooth transition helper ────────────────────────────────────────────
+
+@inline smooth_relu(z, w) = 0.5 * (z + sqrt(z^2 + w^2))
+
+# ── Background bathymetry: parameterized smoothed piecewise slope in x ──
 
 @inline function param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
     # Breakpoints scaled from shelf_length
@@ -28,18 +32,16 @@ Usage:
     m2 = (h_bw - h_aw) / (bw - aw)
     m3 = (h_cw - h_bw) / (cw - bw)
 
-    if x < aw
-        return m1 * x
-    elseif x < bw
-        return h_aw + m2 * (x - aw)
-    elseif x < cw
-        return h_bw + m3 * (x - bw)
-    else
-        return h_cw
-    end
+    # Smoothing width (2.0 km gives a nice smooth transition)
+    w = 2000.0
+
+    return m1 * x +
+           (m2 - m1) * smooth_relu(x - aw, w) +
+           (m3 - m2) * smooth_relu(x - bw, w) -
+           m3 * smooth_relu(x - cw, w)
 end
 
-# ── Shoal x-profile: parameterized gentle slope ─────────────────────────
+# ── Shoal x-profile: parameterized smoothed gentle slope ────────────────
 
 @inline function param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
     # Near-shore break at ~8% of shoal length
@@ -53,13 +55,12 @@ end
     m1 = h_as / as
     m2 = (h_ds - h_as) / (ds - as)
 
-    if x < as
-        return m1 * x
-    elseif x < ds
-        return h_as + m2 * (x - as)
-    else
-        return h_ds
-    end
+    # Smoothing width (same scale as background for consistency)
+    w = 2000.0
+
+    return m1 * x +
+           (m2 - m1) * smooth_relu(x - as, w) -
+           m2 * smooth_relu(x - ds, w)
 end
 
 # ── Shoal taper: smooth cosine ramp ─────────────────────────────────────
