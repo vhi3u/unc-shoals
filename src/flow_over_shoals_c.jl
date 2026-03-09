@@ -72,22 +72,7 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     hw_slope = param_background_depth(x, _shelf_length, _shelf_depth, _deep_ocean_depth)
     hw = _deep_ocean_depth + (hw_slope - _deep_ocean_depth) * window
 
-    # Shoal centerline x-profile
-    hs_center = param_shoal_xprofile(x, _shoal_length, _shoal_crest_depth)
-
-    # Bump above background (only positive)
-    bump = max(0.0, hs_center - hw_slope)
-
-    # Offshore taper kills the bump past the shoal
-    taper = param_shoal_taper(x, _shoal_length)
-
-    # Gaussian cross-section in y
-    gauss_norm = exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
-
-    raw = hw + bump * taper * gauss_norm * window
-
-    # Shift entire bathymetry down by 5 m, clamp at deep_ocean_depth
-    return max(raw - 5.0, _deep_ocean_depth)
+    return hw
 end
 
 # GFB = GridFittedBottom(slope_bottom)
