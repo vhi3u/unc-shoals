@@ -215,7 +215,7 @@ model = NonhydrostaticModel(ib_grid;
     #closure=AnisotropicMinimumDissipation(),
     #hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
-    #tracers=(:T, :S),
+    tracers=(:T, :S),
     #buoyancy=SeawaterBuoyancy(),
     #coriolis=FPlane(latitude=35.2480),
     #boundary_conditions=bcs
@@ -255,30 +255,30 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 # b = buoyancy_operation(model)
 
-# u_c = @at (Center, Center, Center) u
-# v_c = @at (Center, Center, Center) v
-# w_c = @at (Center, Center, Center) w
-# T = model.tracers.T
-# S = model.tracers.S
+u_c = @at (Center, Center, Center) u
+v_c = @at (Center, Center, Center) v
+w_c = @at (Center, Center, Center) w
+T = model.tracers.T
+S = model.tracers.S
 # Ro = @at (Center, Center, Center) RossbyNumber(model)
 
-# slice_fields = (; u_c, v_c, w_c, T, S)
+slice_fields = (; u_c, v_c, w_c, T, S)
 
-# # Surface XY slice (top layer)
-# simulation.output_writers[:surface_slice] =
-#     NetCDFWriter(model, slice_fields,
-#         filename="top_$(run_tag).nc",
-#         schedule=TimeInterval(callback_interval),
-#         indices=(:, :, params.Nz),
-#         overwrite_existing=true)
+# Surface XY slice (top layer)
+simulation.output_writers[:surface_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="top_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, :, params.Nz),
+        overwrite_existing=true)
 
-# # Mid-y XZ slice (cross-shore transect at domain center)
-# simulation.output_writers[:midy_slice] =
-#     NetCDFWriter(model, slice_fields,
-#         filename="midy_$(run_tag).nc",
-#         schedule=TimeInterval(callback_interval),
-#         indices=(:, round(Int, params.Ny / 2), :),
-#         overwrite_existing=true)
+# Mid-y XZ slice (cross-shore transect at domain center)
+simulation.output_writers[:midy_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="midy_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, round(Int, params.Ny / 2), :),
+        overwrite_existing=true)
 
 
 # initial conditions
