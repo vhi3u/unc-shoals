@@ -59,8 +59,11 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     _half_extent_shoal, _shelf_length, _shelf_depth,
     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
+@inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
+
+
 # GFB = GridFittedBottom(slope_bottom)
-GFB = GridFittedBottom(-params.Lz / 2)
+GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 @info ib_grid
