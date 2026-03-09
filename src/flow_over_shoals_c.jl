@@ -43,6 +43,28 @@ ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 @info ib_grid
 
+@info "Saving bottom_height to NetCDF"
+let
+    dx = params.Lx / params.Nx
+    dy = params.Ly / params.Ny
+    xc = collect(range(dx / 2, step=dx, length=params.Nx))
+    yc = collect(range(dy / 2, step=dy, length=params.Ny))
+
+    bathy = zeros(params.Nx, params.Ny)
+    for i in 1:params.Nx, j in 1:params.Ny
+        bathy[i, j] = slope_bottom(xc[i], yc[j])
+    end
+
+    ds_bathy = NCDataset("bottom_height_$(run_tag).nc", "c")
+    defDim(ds_bathy, "xC", params.Nx)
+    defDim(ds_bathy, "yC", params.Ny)
+    defVar(ds_bathy, "xC", xc, ("xC",))
+    defVar(ds_bathy, "yC", yc, ("yC",))
+    defVar(ds_bathy, "bottom_height", bathy, ("xC", "yC"), attrib=Dict("units" => "m"))
+    close(ds_bathy)
+end
+@info "Finished saving bottom_height to NetCDF"
+
 v₀ = 0.10
 
 params = (; params..., v₀=v₀)
