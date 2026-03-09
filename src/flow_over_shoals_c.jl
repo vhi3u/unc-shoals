@@ -60,7 +60,7 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
 # GFB = GridFittedBottom(slope_bottom)
-GFB = GridFittedBottom(bottom)
+GFB = GridFittedBottom(-params.Lz / 2)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 @info ib_grid
@@ -183,7 +183,7 @@ model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
     #closure=AnisotropicMinimumDissipation(),
-    hydrostatic_pressure_anomaly=CenterField(ib_grid),
+    #hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
     #tracers=(:T, :S),
     #buoyancy=SeawaterBuoyancy(),
