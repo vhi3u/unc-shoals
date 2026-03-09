@@ -56,7 +56,7 @@ model = NonhydrostaticModel(ib_grid;
     advection=WENO(order=5),
     closure=AnisotropicMinimumDissipation(),
     #hydrostatic_pressure_anomaly=CenterField(ib_grid),
-    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol; preconditioner=FFTBasedPoissonSolver(grid)),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
     coriolis=FPlane(latitude=35.2480),
@@ -118,6 +118,15 @@ simulation.output_writers[:midy_slice] =
         filename="midy_$(run_tag).nc",
         schedule=TimeInterval(callback_interval),
         indices=(:, round(Int, params.Ny / 2), :),
+        overwrite_existing=true)
+
+# YZ slice at x = 25 km
+x25_idx = round(Int, 25e3 / (params.Lx / params.Nx))
+simulation.output_writers[:yz_slice_25km] =
+    NetCDFWriter(model, slice_fields,
+        filename="yz25km_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(x25_idx, :, :),
         overwrite_existing=true)
 
 
