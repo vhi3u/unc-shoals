@@ -62,12 +62,31 @@ const _half_extent_shoal = _Ly_shoal / 2.0
 # @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
 # @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
 
+
+
 @inline function slope_bottom(x, y)
-    δ = 3e3  # smoothing length scale [m]
-    w = 0.5 * (1.0 + tanh((x - 10e3) / δ))
-    v1 = -30.0 * (x / 10e3)             # steep segment: (0,0) → (10km,-30m)
-    v2 = -30.0 - 20.0 * ((x - 10e3) / 90e3)  # gentle segment: (10km,-30m) → (100km,-50m)
-    return v1 * (1.0 - w) + v2 * w
+    # 3-piece piecewise linear matching param_background_depth in dshoal_vn_param.jl
+    aw = _shelf_length * 0.5          # 15 km  — end of coastal ramp
+    bw = _shelf_length                # 30 km  — end of flat/gentle segment
+    cw = _shelf_length + 20e3         # 50 km  — end of steep slope
+
+    h_aw = _shelf_depth               # -20 m
+    h_bw = _shelf_depth - 5.0         # -25 m
+    h_cw = _deep_ocean_depth          # -50 m
+
+    m1 = h_aw / aw                    # coastal ramp slope
+    m2 = (h_bw - h_aw) / (bw - aw)   # gentle segment slope
+    m3 = (h_cw - h_bw) / (cw - bw)   # steep offshore slope
+
+    if x < aw
+        return m1 * x
+    elseif x < bw
+        return h_aw + m2 * (x - aw)
+    elseif x < cw
+        return h_bw + m3 * (x - bw)
+    else
+        return h_cw
+    end
 end
 
 # GFB = GridFittedBottom(slope_bottom)
