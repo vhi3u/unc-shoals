@@ -7,10 +7,6 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver, FFTBasedPoissonSolve
 using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
-using Statistics: mean
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
-    KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
-    XShearProductionRate, YShearProductionRate, ZShearProductionRate
 using Oceanostics.ProgressMessengers: TimedMessenger
 using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
@@ -29,7 +25,6 @@ end
 include("dshoal_vn_param.jl")
 
 @info "Julia threads = $(nthreads())"
-
 
 run_number = 441 # <-- change this for each new run
 sim_runtime = 10days
@@ -101,112 +96,6 @@ v₀ = 0.10
 
 params = (; params..., v₀=v₀)
 
-# @inline function T_north_pwl(z)
-#     # Linear from 20.5389 at z=-5 to 14.3323 at z=-35
-#     t = clamp((z - (-5.0)) / (-35.0 - (-5.0)), 0.0, 1.0)
-#     return 20.5389 + t * (14.3323 - 20.5389)
-# end
-
-# @inline function T_south_pwl(z)
-#     # Linear from 24.5378 at z=-5 to 23.4116 at z=-30
-#     t = clamp((z - (-5.0)) / (-30.0 - (-5.0)), 0.0, 1.0)
-#     return 24.5378 + t * (23.4116 - 24.5378)
-# end
-
-# @inline function S_north_pwl(z)
-#     # Linear from 32.6264 at z=-5 to 33.2648 at z=-35
-#     t = clamp((z - (-5.0)) / (-35.0 - (-5.0)), 0.0, 1.0)
-#     return 32.6264 + t * (33.2648 - 32.6264)
-# end
-
-# @inline function S_south_pwl(z)
-#     # Linear from 35.5830 at z=-5 to 36.1776 at z=-30
-#     t = clamp((z - (-5.0)) / (-30.0 - (-5.0)), 0.0, 1.0)
-#     return 35.5830 + t * (36.1776 - 35.5830)
-# end
-
-# const δ_smooth = 2.5  # smoothing length scale in meters
-
-# @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
-
-# @inline function T_north_pwl(z)
-#     z1, z2, z3 = -5.0, -15.0, -35.0
-#     v1, v2, v3 = 20.5389, 17.8875, 14.3323
-#     m12 = (v2 - v1) / (z2 - z1)
-#     m23 = (v3 - v2) / (z3 - z2)
-#     val1 = v1
-#     val2 = v1 + m12 * (z - z1)
-#     val3 = v2 + m23 * (z - z2)
-#     val4 = v3
-#     w1 = smooth_step(z, z1)
-#     w2 = smooth_step(z, z2)
-#     w3 = smooth_step(z, z3)
-#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-# end
-
-# @inline function T_south_pwl(z)
-#     z1, z2, z3 = -5.0, -15.0, -30.0
-#     v1, v2, v3 = 24.5378, 24.3073, 23.4116
-#     m12 = (v2 - v1) / (z2 - z1)
-#     m23 = (v3 - v2) / (z3 - z2)
-#     val1 = v1
-#     val2 = v1 + m12 * (z - z1)
-#     val3 = v2 + m23 * (z - z2)
-#     val4 = v3
-#     w1 = smooth_step(z, z1)
-#     w2 = smooth_step(z, z2)
-#     w3 = smooth_step(z, z3)
-#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-# end
-
-# @inline function S_north_pwl(z)
-#     z1, z2, z3 = -5.0, -15.0, -35.0
-#     v1, v2, v3 = 32.6264, 33.7062, 33.2648
-#     m12 = (v2 - v1) / (z2 - z1)
-#     m23 = (v3 - v2) / (z3 - z2)
-#     val1 = v1
-#     val2 = v1 + m12 * (z - z1)
-#     val3 = v2 + m23 * (z - z2)
-#     val4 = v3
-#     w1 = smooth_step(z, z1)
-#     w2 = smooth_step(z, z2)
-#     w3 = smooth_step(z, z3)
-#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-# end
-
-# @inline function S_south_pwl(z)
-#     z1, z2, z3 = -5.0, -15.0, -30.0
-#     v1, v2, v3 = 35.5830, 35.9986, 36.1776
-#     m12 = (v2 - v1) / (z2 - z1)
-#     m23 = (v3 - v2) / (z3 - z2)
-#     val1 = v1
-#     val2 = v1 + m12 * (z - z1)
-#     val3 = v2 + m23 * (z - z2)
-#     val4 = v3
-#     w1 = smooth_step(z, z1)
-#     w2 = smooth_step(z, z2)
-#     w3 = smooth_step(z, z3)
-#     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-# end
-
-# const Tₑ_val = 23.11
-# const Sₑ_val = 35.5
-
-# @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-# @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-# drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-# drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-
-# @inline T_south_pwl(z) = 24.5378 #+ (23.4116 - 24.5378) / (-50.0) * z
-# @inline T_north_pwl(z) = 20.5389 #+ (14.3323 - 20.5389) / (-50.0) * z
-# @inline S_south_pwl(z) = 35.5830 #+ (36.1776 - 35.5830) / (-50.0) * z
-# @inline S_north_pwl(z) = 32.6264 #+ (33.2648 - 32.6264) / (-50.0) * z
-
-# @inline tsbc(x, z, t) = T_south_pwl(z)
-# @inline tnbc(x, z, t) = T_north_pwl(z)
-# @inline ssbc(x, z, t) = S_south_pwl(z)
-# @inline snbc(x, z, t) = S_north_pwl(z)
-
 reltol = sqrt(eps(ib_grid))
 abstol = sqrt(eps(ib_grid))
 @info "reltol = $reltol, abstol = $abstol"
@@ -222,8 +111,6 @@ model = NonhydrostaticModel(ib_grid;
     #coriolis=FPlane(latitude=35.2480),
     #boundary_conditions=bcs
 )
-
-
 
 @info "" model
 
@@ -283,21 +170,8 @@ simulation.output_writers[:midy_slice] =
         overwrite_existing=true)
 
 
-# initial conditions
-# uᵢ = 0.005 * rand(size(u)...)
-# vᵢ = 0.005 * rand(size(v)...)
-# wᵢ = 0.005 * rand(size(w)...)
-# uᵢ .-= mean(uᵢ)
-# vᵢ .-= mean(vᵢ)
-# wᵢ .-= mean(wᵢ)
-# uᵢ .+= 0
-# vᵢ .+= v₀
 vᵢ = v₀
 
-# @inline Tᵢ(x, y, z) = T_south_pwl(z)
-# @inline Sᵢ(x, y, z) = S_south_pwl(z)
-
-# set!(model, v=vᵢ, T=Tᵢ, S=Sᵢ)
 set!(model, v=vᵢ)
 
 run!(simulation)
