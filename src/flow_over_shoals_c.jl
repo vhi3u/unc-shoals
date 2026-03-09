@@ -56,7 +56,7 @@ model = NonhydrostaticModel(ib_grid;
     advection=WENO(order=5),
     closure=AnisotropicMinimumDissipation(),
     #hydrostatic_pressure_anomaly=CenterField(ib_grid),
-    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol), #; preconditioner=FFTBasedPoissonSolver(grid)),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol; preconditioner=FFTBasedPoissonSolver(grid)),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
     coriolis=FPlane(latitude=35.2480),
