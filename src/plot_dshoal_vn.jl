@@ -65,7 +65,25 @@ savefig(p3, "dshoal_param_xsection_bg.png")
 p4 = surface(x_range ./ 1e3, y_range ./ 1e3, Z',
     xlabel="x [km]", ylabel="y [km]", zlabel="z [m]",
     title="Parameterized Shoal — 3D",
-    color=:deep, camera=(30, 60))
+    color=:deep, camera=(45, 45))
 display(p4)
 savefig(p4, "dshoal_param_3d.png")
 @info "Saved dshoal_param_3d.png"
+
+# ── Stacked y-z cross-sections at intervals of x ──
+p5 = plot(
+    xlabel="y [km]", ylabel="Depth [m]",
+    title="y-z cross-sections along various x",
+    legend=:outerright,
+    ylims=(minimum(Z) - 2, 2),
+    size=(700, 400)
+)
+x_intervals = range(0, Lx, length=11)
+for x_val in x_intervals
+    z_ysec = [bottom_fn(x_val, yi) for yi in y_range]
+    plot!(p5, y_range ./ 1e3, z_ysec, lw=2, label="x = $(round(x_val/1e3, digits=1)) km")
+end
+hline!(p5, [0.0], ls=:dash, color=:black, label="Sea surface")
+display(p5)
+savefig(p5, "dshoal_param_stacked_yz.png")
+@info "Saved dshoal_param_stacked_yz.png"
