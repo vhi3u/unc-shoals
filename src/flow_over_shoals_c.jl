@@ -16,7 +16,7 @@ using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: CUDA, has_cuda_gpu, allowscalar
+using CUDA: has_cuda_gpu, allowscalar
 using Base.Threads
 
 if has_cuda_gpu()
@@ -49,7 +49,7 @@ const _shelf_depth = -20.0
 const _shoal_length = 30e3
 const _shoal_crest_depth = -5.0
 const _deep_ocean_depth = -50.0
-const _sigma_shoal = 8e3
+const _sigma_shoal = 20e3
 const _Hs_shoal = 15.0
 const _Ly_shoal = 300e3
 const _y0_shoal = params.Ly / 2.0
@@ -62,7 +62,7 @@ const _half_extent_shoal = _Ly_shoal / 2.0
 # @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
 # @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
 
-@inline gauss_cross_section(y) = CUDA.exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
+@inline gauss_cross_section(y) = exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
 
 @inline function slope_bottom(x, y)
     # Along-shore compact window
