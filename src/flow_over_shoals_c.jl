@@ -31,62 +31,14 @@ sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "TEST_clean$(run_number)"  # e.g. "periodic_run1"
 
-params = (; Lx=100e3, Ly=100e3, Lz=50, Nx=30, Ny=30, Nz=10)
-params = (; params..., Nx=200, Ny=200, Nz=50)
+params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
+params = (; params..., Nx=200, Ny=600, Nz=50)
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
-# @inline slope_bottom(x, y) = ifelse(x < 10e3, -10.0 - 20.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3))
+slope_bottom = dshoal_param_bottom(params.Ly)   # uses defaults from dshoal_vn_param.jl
 
-const _shelf_length = 30e3
-const _shelf_depth = -20.0
-const _shoal_length = 30e3
-const _shoal_crest_depth = -5.0
-const _deep_ocean_depth = -50.0
-const _sigma_shoal = 8e3
-const _Hs_shoal = 15.0
-const _Ly_shoal = 100e3
-const _y0_shoal = params.Ly / 2.0
-const _half_extent_shoal = _Ly_shoal / 2.0
-
-@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
-    _half_extent_shoal, _shelf_length, _shelf_depth,
-    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
-
-# @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
-# @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
-
-@inline gauss_cross_section(y) = exp(-((y - _y0_shoal)^2) / (2.0 * _sigma_shoal^2))
-
-@inline function slope_bottom(x, y)
-    # Along-shore compact window
-    window = param_shoal_window(y, _y0_shoal, _half_extent_shoal)
-
-    # Background depth (3-piece piecewise linear)
-    hw_slope = param_background_depth(x, _shelf_length, _shelf_depth, _deep_ocean_depth)
-    hw = _deep_ocean_depth + (hw_slope - _deep_ocean_depth) * window
-
-    # Shoal centerline x-profile
-    hs_center = param_shoal_xprofile(x, _shoal_length, _shoal_crest_depth)
-
-    # Bump above background (only positive)
-    bump = max(0.0, hs_center - hw_slope)
-
-    # Offshore taper kills the bump past the shoal
-    taper = param_shoal_taper(x, _shoal_length)
-
-    # # Gaussian cross-section in y
-    gauss_norm = gauss_cross_section(y)
-
-    raw = hw + bump * taper * gauss_norm * window
-    # raw = hw + bump * taper * window
-
-    # Shift entire bathymetry down by 5 m, clamp at deep_ocean_depth
-    return max(raw - 5.0, _deep_ocean_depth)
-end
-
-# GFB = GridFittedBottom(slope_bottom)
 GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
