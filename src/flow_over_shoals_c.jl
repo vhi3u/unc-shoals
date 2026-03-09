@@ -121,12 +121,12 @@ simulation.output_writers[:midy_slice] =
         overwrite_existing=true)
 
 # YZ slice at x = 25 km
-x25_idx = round(Int, 25e3 / (params.Lx / params.Nx))
-simulation.output_writers[:yz_slice_25km] =
+x_idx = round(Int, 25e3 / (params.Lx / params.Nx))
+simulation.output_writers[:yz_slice] =
     NetCDFWriter(model, slice_fields,
-        filename="yz25km_$(run_tag).nc",
+        filename="yz_$(run_tag).nc",
         schedule=TimeInterval(callback_interval),
-        indices=(x25_idx, :, :),
+        indices=(x_idx, :, :),
         overwrite_existing=true)
 
 
