@@ -60,7 +60,15 @@ const _half_extent_shoal = _Ly_shoal / 2.0
     _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
 
 # @inline slope_bottom(x, y) = -params.Lz * (x / params.Lx)
-@inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
+# @inline slope_bottom(x, y) = ifelse(x < 10e3, -30.0 * (x / 10e3), -30.0 - 20.0 * ((x - 10e3) / 90e3)) # piecewise slope 
+
+@inline function slope_bottom(x, y)
+    δ = 3e3  # smoothing length scale [m]
+    w = 0.5 * (1.0 + tanh((x - 10e3) / δ))
+    v1 = -30.0 * (x / 10e3)             # steep segment: (0,0) → (10km,-30m)
+    v2 = -30.0 - 20.0 * ((x - 10e3) / 90e3)  # gentle segment: (10km,-30m) → (100km,-50m)
+    return v1 * (1.0 - w) + v2 * w
+end
 
 # GFB = GridFittedBottom(slope_bottom)
 GFB = GridFittedBottom(slope_bottom)
