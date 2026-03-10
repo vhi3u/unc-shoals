@@ -65,8 +65,8 @@ v₀ = 0.10
 
 params = (; params..., v₀=v₀)
 
-reltol = 1000 * sqrt(eps(ib_grid))
-abstol = 1000 * sqrt(eps(ib_grid))
+reltol = sqrt(eps(ib_grid))
+abstol = sqrt(eps(ib_grid))
 @info "reltol = $reltol, abstol = $abstol"
 
 cᴰ = 2.5e-3 # dimensionless drag coefficient
