@@ -1,65 +1,79 @@
 """
-GPU-compatible parameterized shoal bathymetry using @inline functions.
+GPU-compatible parameterized shoal bathymetry using smooth sigmoidal transitions.
 
 All bathymetry parameters are configurable via keyword arguments.
 Returns a `bottom(x, y)` function for use with `GridFittedBottom`.
+
+Optimization Note:
+This version replaces piecewise linear segments with smooth sigmoids (tanh) and 
+ensures a minimum background depth to avoid the H -> 0 singularity at the shore,
+which significantly improves the convergence of Conjugate Gradient pressure solvers.
 
 Usage:
     bottom = dshoal_param_bottom(Ly;
         shelf_length=30e3, shelf_depth=-20.0,
         shoal_length=30e3, shoal_crest_depth=-5.0,
         deep_ocean_depth=-50.0, sigma=8e3, Hs=15.0,
-        Ly_shoal=100e3)
+        Ly_shoal=100e3, min_depth=-5.0)
     ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
 """
 
-# ── Background bathymetry: parameterized piecewise linear slope in x ────
+# ── Helper functions for smoothness ─────────────────────────────────────
 
-@inline function param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
-    # Breakpoints scaled from shelf_length
-    aw = shelf_length * 0.5
-    h_aw = shelf_depth
-    bw = shelf_length
-    h_bw = shelf_depth - 5.0
-    cw = shelf_length + 20e3
-    h_cw = deep_ocean_depth
+@inline smooth_step(x, x0, w) = 0.5 * (1.0 + tanh((x - x0) / w))
+@inline smooth_max(a, b, k=0.5) = 0.5 * (a + b + sqrt((a - b)^2 + k^2))
 
-    m1 = h_aw / aw
-    m2 = (h_bw - h_aw) / (bw - aw)
-    m3 = (h_cw - h_bw) / (cw - bw)
+# ── Background bathymetry: smooth parameterized slope in x ───────────────
 
-    if x < aw
-        return m1 * x
-    elseif x < bw
-        return h_aw + m2 * (x - aw)
-    elseif x < cw
-        return h_bw + m3 * (x - bw)
-    else
-        return h_cw
-    end
+@inline function param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth, min_depth)
+    # Background levels derived from the visual profile
+    h_shore = min_depth
+    h_shelf_top = shelf_depth
+    h_shelf_bottom = deep_ocean_depth + 12.0
+    h_deep = deep_ocean_depth
+
+    # Transition points scaled by shelf_length
+    # 1. Shore drop
+    t1 = shelf_length * 0.25
+    w1 = shelf_length * 0.10
+
+    # 2. Middle shelf slope (spread out to match the black curve)
+    t2 = shelf_length * 0.85
+    w2 = shelf_length * 0.40
+
+    # 3. Final drop to deep ocean
+    t3 = shelf_length * 1.30
+    w3 = shelf_length * 0.10
+
+    # Smooth transition sum
+    h = h_shore
+    h += (h_shelf_top - h_shore) * smooth_step(x, t1, w1)
+    h += (h_shelf_bottom - h_shelf_top) * smooth_step(x, t2, w2)
+    h += (h_deep - h_shelf_bottom) * smooth_step(x, t3, w3)
+
+    return h
 end
 
-# ── Shoal x-profile: parameterized gentle slope ─────────────────────────
+# ── Shoal x-profile: smooth parameterized slope ─────────────────────────
 
-@inline function param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
-    # Near-shore break at ~8% of shoal length
-    as = shoal_length * (2.5 / 30.0)
-    h_as = shoal_crest_depth
+@inline function param_shoal_xprofile(x, shoal_length, shoal_crest_depth, min_depth)
+    # Levels
+    h1 = min_depth
+    h2 = shoal_crest_depth
+    h3 = shoal_crest_depth - 10.0
 
-    # Offshore end: stays shallow (above background)
-    ds = shoal_length * (36.0 / 30.0)
-    h_ds = shoal_crest_depth - 10.0  # only 10m deeper than crest
+    # Transitions
+    t12 = shoal_length * (2.5 / 30.0) * 0.5
+    w12 = shoal_length * 0.05
 
-    m1 = h_as / as
-    m2 = (h_ds - h_as) / (ds - as)
+    t23 = shoal_length * (20.0 / 30.0)
+    w23 = shoal_length * 0.1
 
-    if x < as
-        return m1 * x
-    elseif x < ds
-        return h_as + m2 * (x - as)
-    else
-        return h_ds
-    end
+    h = h1
+    h += (h2 - h1) * smooth_step(x, t12, w12)
+    h += (h3 - h2) * smooth_step(x, t23, w23)
+
+    return h
 end
 
 # ── Shoal taper: smooth cosine ramp ─────────────────────────────────────
@@ -101,19 +115,21 @@ end
 @inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent,
     shelf_length, shelf_depth,
     shoal_length, shoal_crest_depth,
-    deep_ocean_depth)
+    deep_ocean_depth, min_depth)
+
     # Compact-support window (shared by background slope and shoal)
     window = param_shoal_window(y, y0, half_extent)
 
     # Background: blend between slope (inside window) and flat deep ocean (outside)
-    hw_slope = param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth)
+    hw_slope = param_background_depth(x, shelf_length, shelf_depth, deep_ocean_depth, min_depth)
     hw = deep_ocean_depth + (hw_slope - deep_ocean_depth) * window
 
     # Shoal centerline profile (without taper)
-    hs_center = param_shoal_xprofile(x, shoal_length, shoal_crest_depth)
+    hs_center = param_shoal_xprofile(x, shoal_length, shoal_crest_depth, min_depth)
 
-    # Bump above background (only positive)
-    bump = max(0.0, hs_center - hw_slope)
+    # Bump above background (smoothed max to avoid sharp corners)
+    # We want max(0.0, hs_center - hw_slope)
+    bump = smooth_max(0.0, hs_center - hw_slope, 0.1)
 
     # Taper kills the bump offshore → no protrusion
     taper = param_shoal_taper(x, shoal_length)
@@ -140,6 +156,7 @@ Keyword arguments:
 - `sigma`:             Gaussian width of shoal cross-section [m], default 8e3
 - `Hs`:                shoal Gaussian amplitude [m], default 15.0
 - `Ly_shoal`:          along-shore extent of the shoal [m], default Ly
+- `min_depth`:         minimum depth at the shore (x=0) [m], default -5.0
 """
 function dshoal_param_bottom(Ly;
     shelf_length=30e3,
@@ -149,7 +166,8 @@ function dshoal_param_bottom(Ly;
     deep_ocean_depth=-50.0,
     sigma=8e3,
     Hs=15.0,
-    Ly_shoal=Ly)
+    Ly_shoal=Ly,
+    min_depth=-5.0)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
@@ -157,6 +175,6 @@ function dshoal_param_bottom(Ly;
     bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent,
         shelf_length, shelf_depth,
         shoal_length, shoal_crest_depth,
-        deep_ocean_depth)
+        deep_ocean_depth, min_depth)
     return bottom
 end

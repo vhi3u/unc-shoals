@@ -65,9 +65,18 @@ v₀ = 0.10
 
 params = (; params..., v₀=v₀)
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
+reltol = 1000 * sqrt(eps(ib_grid))
+abstol = 1000 * sqrt(eps(ib_grid))
 @info "reltol = $reltol, abstol = $abstol"
+
+cᴰ = 2.5e-3 # dimensionless drag coefficient
+@inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+@inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
+bcs = (u=u_bcs, v=v_bcs)
 
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
@@ -78,7 +87,7 @@ model = NonhydrostaticModel(ib_grid;
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
     coriolis=FPlane(latitude=35.2480),
-    #boundary_conditions=bcs
+    boundary_conditions=bcs
 )
 
 @info "" model
