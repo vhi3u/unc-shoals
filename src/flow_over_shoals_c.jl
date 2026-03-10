@@ -12,19 +12,15 @@ using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
 using DataFrames
-using CUDA: has_cuda_gpu, allowscalar
+using CUDA: has_cuda_gpu
 using Base.Threads
 
 if has_cuda_gpu()
     arch = GPU()
-    allowscalar(false)
 else
     arch = CPU()
 end
-@info "architecture = $(arch)"
 include("dshoal_vn_param.jl")
-
-@info "Julia threads = $(nthreads())"
 
 run_number = 441 # <-- change this for each new run
 sim_runtime = 10days
@@ -77,7 +73,7 @@ model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
     closure=AnisotropicMinimumDissipation(),
-    #hydrostatic_pressure_anomaly=CenterField(ib_grid),
+    hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
@@ -88,13 +84,6 @@ model = NonhydrostaticModel(ib_grid;
 @info "" model
 
 @info "creating output fields"
-
-@info "u storage = $(typeof(parent(model.velocities.u)))"
-@info "v storage = $(typeof(parent(model.velocities.v)))"
-@info "w storage = $(typeof(parent(model.velocities.w)))"
-
-cfl_values = Float64[]       # Stores CFL at each step
-cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
@@ -152,7 +141,21 @@ simulation.output_writers[:yz_slice] =
         overwrite_existing=true)
 
 
-vᵢ = v₀
+@inline function v∞(x, z, t, p)
+    xC = 3e3
+    xS = 60e3
+    Lw = p.Lx
+    k1 = 80 / Lw
+    k2 = 40 / Lw
+
+    s1 = 1 / (1 + exp(-k1 * (x - xC)))
+    s2 = 1 / (1 + exp(k2 * (x - xS)))
+    s = (s1 - 1) + s2
+    sc = clamp(s, 0.0, 1.0)
+    return p.v₀ * sc
+end
+
+vᵢ = v∞
 
 set!(model, v=vᵢ)
 
