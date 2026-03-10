@@ -155,8 +155,8 @@ simulation.output_writers[:yz_slice] =
     return p.v₀ * sc
 end
 
-vᵢ = v∞
+# vᵢ = v∞
 
-set!(model, v=vᵢ)
+set!(model, v=(x, y, z) -> v∞(x, y, z, params))
 
 run!(simulation)
