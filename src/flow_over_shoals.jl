@@ -378,7 +378,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
