@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 1 # <-- change this for each new run
+run_number = 2 # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -290,14 +290,12 @@ if mass_flux
 
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts
+        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
     )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts
+        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
     )
 end
 
@@ -313,8 +311,8 @@ forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=24hours, outflow_timescale=Inf))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
 u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=OpenBoundaryCondition(0.0, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)))
 v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0))
 w_bcs = FieldBoundaryConditions()
