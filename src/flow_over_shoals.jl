@@ -464,6 +464,15 @@ simulation.output_writers[:midy_slice] =
         indices=(:, round(Int, params.Ny / 2), :),
         overwrite_existing=overwrite_existing)
 
+# YZ slice at x = 25 km
+x_idx = round(Int, 25e3 / (params.Lx / params.Nx))
+simulation.output_writers[:yz_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="yz_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(x_idx, :, :),
+        overwrite_existing=overwrite_existing)
+
 
 # Cross-correlation fields (Reynolds stresses & tracer fluxes)
 uu = Field((@at (Center, Center, Center) u * u))
