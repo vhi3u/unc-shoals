@@ -9,10 +9,7 @@ Lx = 100e3   # 100 km
 
 # Create shoal with parameterized bathymetry
 bottom_fn = dshoal_param_bottom(Ly;
-    shelf_length=50e3,
-    shelf_depth=-30.0,
-    shoal_length=40e3,
-    deep_ocean_depth=-50.0,
+    shoal_length=20e3,
     sigma=8e3,
     Hs=15.0,
     Ly_shoal=100e3)
@@ -27,7 +24,7 @@ p1 = heatmap(x_range ./ 1e3, y_range ./ 1e3, Z',
     xlabel="x [km]", ylabel="y [km]",
     title="Parameterized Shoal — Top View",
     color=:deep, aspect_ratio=:equal,
-    clims=(minimum(Z), maximum(Z)),
+    clims=(minimum(Z), 0),
     colorbar_title="Depth [m]")
 display(p1)
 savefig(p1, "dshoal_param_topview.png")
@@ -40,8 +37,8 @@ p2 = plot(x_range ./ 1e3, z_xsec,
     xlabel="x [km]", ylabel="Depth [m]",
     title="Cross-section at y = $(y_center/1e3) km (through shoal)",
     lw=2, color=:dodgerblue, label="Seafloor",
-    fill=(minimum(Z) - 2, 0.2, :dodgerblue),
-    ylims=(minimum(Z) - 2, 2))
+    fill=(minimum(Z), 0.2, :dodgerblue),
+    ylims=(minimum(Z), 0))
 hline!(p2, [0.0], ls=:dash, color=:black, label="Sea surface")
 display(p2)
 savefig(p2, "dshoal_param_xsection_center.png")
@@ -54,8 +51,8 @@ p3 = plot(x_range ./ 1e3, z_xsec_bg,
     xlabel="x [km]", ylabel="Depth [m]",
     title="Cross-section at y = $(y_off/1e3) km (background slope)",
     lw=2, color=:coral, label="Seafloor",
-    fill=(minimum(Z) - 2, 0.2, :coral),
-    ylims=(minimum(Z) - 2, 2))
+    fill=(minimum(Z), 0.2, :coral),
+    ylims=(minimum(Z), 0))
 hline!(p3, [0.0], ls=:dash, color=:black, label="Sea surface")
 display(p3)
 savefig(p3, "dshoal_param_xsection_bg.png")
@@ -65,7 +62,8 @@ savefig(p3, "dshoal_param_xsection_bg.png")
 p4 = surface(x_range ./ 1e3, y_range ./ 1e3, Z',
     xlabel="x [km]", ylabel="y [km]", zlabel="z [m]",
     title="Parameterized Shoal — 3D",
-    color=:deep, camera=(45, 45))
+    color=:deep, camera=(45, 45),
+    zlims=(minimum(Z), 0))
 display(p4)
 savefig(p4, "dshoal_param_3d.png")
 @info "Saved dshoal_param_3d.png"
@@ -75,7 +73,7 @@ p5 = plot(
     xlabel="y [km]", ylabel="Depth [m]",
     title="y-z cross-sections along various x",
     legend=:outerright,
-    ylims=(minimum(Z) - 2, 2),
+    ylims=(minimum(Z), 0),
     size=(700, 400)
 )
 x_intervals = range(0, Lx, length=11)

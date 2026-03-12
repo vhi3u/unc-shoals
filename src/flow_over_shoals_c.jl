@@ -33,10 +33,16 @@ params = (; params..., Nx=200, Ny=600, Nz=50)
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
-slope_bottom = dshoal_param_bottom(params.Ly) # testing defaults. 
+# Define shoal parameters (align with the new sigmoidal setup)
+Hs = 15.0         # Height of shoal above -25m shelf
+sigma = 8e3       # Gaussian width of shoal (half crossover)
+shoal_length = 20e3 # Horizontal span of the shoal ridge
+
+slope_bottom = dshoal_param_bottom(params.Ly; Hs=Hs, sigma=sigma, shoal_length=shoal_length)
 GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
+@info "Immersed boundary grid created with parameterized shoal."
 @info ib_grid
 
 @info "Saving bottom_height to NetCDF"
