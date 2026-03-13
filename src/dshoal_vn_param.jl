@@ -26,21 +26,33 @@ Shoal Geometry:
 
 # ── Background bathymetry ───────────────────────────────────────────────
 
-@inline function param_background_depth(x)
-    h0, h1, h2, h3, h4 = -3.0, -5.0, -25.0, -30.0, -50.0
+@inline function param_background_depth(x; shelf_depth=-25.0, shelf_break_end=12e3, shelf_length=50e3)
+    h0, h1 = -3.0, -5.0
+    h2 = shelf_depth              # depth of the shelf plateau
+    h3 = shelf_depth - 5.0        # maintain 5m drop from shelf to slope
+    h4 = -50.0
+
+    # Derived positions from shelf geometry
+    shelf_end = shelf_break_end + shelf_length  # where the shelf plateau ends (default: 62km)
+    ramp_end = shelf_end + 3e3                 # offshore ramp is 3km wide (default: 65km)
 
     # Transitions midpoint and width
     # 1. Coastal ramp (0-5km)
     h = h0 + (h1 - h0) * smooth_step(x, 2.5e3, 1.5e3)
 
-    # 2. Shelf break (5-12km)
-    h += (h2 - h1) * smooth_step(x, 8.5e3, 2.5e3)
+    # 2. Shelf break (5km to shelf_break_end)
+    break_mid = (5e3 + shelf_break_end) / 2.0
+    break_w = (shelf_break_end - 5e3) / 3.0
+    h += (h2 - h1) * smooth_step(x, break_mid, break_w)
 
-    # 3. Shelf slope (12-62km)
-    h += (h3 - h2) * smooth_step(x, 37.0e3, 15.0e3)
+    # 3. Shelf slope (shelf_break_end to shelf_end)
+    slope_mid = (shelf_break_end + shelf_end) / 2.0
+    slope_w = shelf_length / 4.0
+    h += (h3 - h2) * smooth_step(x, slope_mid, slope_w)
 
-    # 4. Offshore ramp (62-65km)
-    h += (h4 - h3) * smooth_step(x, 63.5e3, 5.0e3)
+    # 4. Offshore ramp (shelf_end to shelf_end + 3km)
+    ramp_mid = (shelf_end + ramp_end) / 2.0
+    h += (h4 - h3) * smooth_step(x, ramp_mid, 5.0e3)
 
     return h
 end
@@ -90,9 +102,9 @@ end
 
 # ── Combined bottom function ────────────────────────────────────────────
 
-@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length)
+@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, shelf_depth, shelf_break_end, shelf_length)
     # 1. Background depth
-    hw = param_background_depth(x)
+    hw = param_background_depth(x; shelf_depth=shelf_depth, shelf_break_end=shelf_break_end, shelf_length=shelf_length)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
@@ -117,8 +129,8 @@ end
     factor = taper * gauss_y * window
 
     # 5. Connection logic: 
-    # Hs is the height above the -25m reference (target elevation = -10m if Hs=15).
-    elevation_target = -25.0 + Hs
+    # Hs is the height above the shelf reference.
+    elevation_target = shelf_depth + Hs
 
     # Increased k from 0.2 to 2.0 to significantly round the connection to the shelf break.
     potential_height = smooth_max(0.0, elevation_target - hw, 2.0)
@@ -140,11 +152,14 @@ function dshoal_param_bottom(Ly;
     sigma=8e3,
     Hs=15.0,
     shoal_length=40e3,
-    Ly_shoal=Ly)
+    Ly_shoal=Ly,
+    shelf_depth=-25.0,
+    shelf_break_end=12e3,
+    shelf_length=50e3)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
-    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length)
+    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, shelf_depth, shelf_break_end, shelf_length)
     return bottom
 end

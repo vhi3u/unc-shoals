@@ -1,20 +1,11 @@
-# using Pkg
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# Pkg.add("NCDatasets");
-# Pkg.add("DataFrames");
-# Pkg.add("Interpolations");
-# Pkg.add("CUDA");
-# Pkg.add("Oceanostics");
-# Pkg.add("CSV");
-# Pkg.add("Statistics");
-# Pkg.add("SeawaterPolynomials");
-# import Pkg;
-# # Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
+# ═══════════════════════════════════════════════════════════════════════════
+# flow_over_shoals_sweep.jl
+# ═══════════════════════════════════════════════════════════════════════════
+# Modified version of flow_over_shoals.jl for parameter sweeps.
+# Reads sweep parameters from environment variables set by sweep_driver.jl:
+#   SWEEP_Hs, SWEEP_SHOAL_LENGTH, SWEEP_SHELF_DEPTH, SWEEP_SHELF_BREAK_END,
+#   SWEEP_RUN_LABEL, SWEEP_RUN_INDEX
+# ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
@@ -36,6 +27,19 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Read sweep parameters from environment (set by sweep_driver.jl)
+# Falls back to defaults so script can also be run standalone.
+# ═══════════════════════════════════════════════════════════════════════════
+sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "15.0"))
+sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "20000.0"))
+sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
+sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
+sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
+sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
+
+@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end"
+
 # build
 @info "building domain"
 
@@ -55,13 +59,19 @@ else
     arch = CPU()
 end
 @info "architecture = $(arch)"
-include("dshoal_vn_param.jl")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Bathymetry (shared with flow_over_shoals.jl)
+# ═══════════════════════════════════════════════════════════════════════════
+include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+
+# ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
-run_number = 34 # <-- change this for each new run
-sim_runtime = 100days
+# ═══════════════════════════════════════════════════════════════════════════
+run_number = sweep_run_index
+sim_runtime = 20days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = "sweep_$(sweep_run_label)"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -69,7 +79,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=30, Ny=60, Nz=10)
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -77,7 +87,6 @@ end
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # grid  
-
 if periodic_y
     grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 else
@@ -85,14 +94,12 @@ else
 end
 
 # model parameters
-
 if shoal_bath
-    # Define shoal parameters (align with the new sigmoidal setup)
-    Hs = 15.0         # Height of shoal above -25m shelf
-    sigma = 8e3       # Gaussian width of shoal (half crossover)
-    shoal_length = 20e3 # Horizontal span of the shoal ridge
-
-    slope_bottom = dshoal_param_bottom(params.Ly; Hs=Hs, sigma=sigma, shoal_length=shoal_length)
+    slope_bottom = dshoal_param_bottom(params.Ly;
+        Hs=sweep_Hs,
+        shoal_length=sweep_shoal_length,
+        shelf_depth=sweep_shelf_depth,
+        shelf_break_end=sweep_shelf_break_end)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -102,51 +109,41 @@ end
 @info ib_grid
 
 if mass_flux
-    v₀ = 0.10 # [m/s] mean flow velocity
+    v₀ = 0.10
 else
     v₀ = 0.0
 end
 
 # store parameters for sponge setup
 params = (; params...,
-    v₀=v₀, # add v₀ to params for GPU compatibility
-    Ls=50e3, # sponge layer size (north and south)
-    Le=60e3, # sponge layer size (east)
-    τₙ=24hours, # relaxation timescale for north sponge
-    τₛ=24hours, # relaxation timescale for south sponge
-    τₑ=5days, # relaxation timescale for east sponge
-    τ_ts=24hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    v₀=v₀,
+    Ls=50e3,
+    Le=60e3,
+    τₙ=24hours,
+    τₛ=24hours,
+    τₑ=5days,
+    τ_ts=24hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
-# B1 = North, B2 = South
-# Uses tanh blending for smooth transitions (equivalent to MATLAB smoothdata)
-# δ = smoothing length scale (meters), set to ~2.5m for 5m effective smoothing
+const δ_smooth = 2.5
 
-const δ_smooth = 2.5  # smoothing length scale in meters
-
-# Smooth transition function: 0 when z >> z0, 1 when z << z0
 @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
-# Temperature at North boundary (B1) - SMOOTHED
 @inline function T_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 20.5389, 17.8875, 14.3323
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    # Piecewise linear values
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    # Smooth blending between segments
-    w1 = smooth_step(z, z1)  # 0 above z1, 1 below z1
-    w2 = smooth_step(z, z2)  # 0 above z2, 1 below z2
-    w3 = smooth_step(z, z3)  # 0 above z3, 1 below z3
-    # Blend: start with val1, transition to val2 at z1, to val3 at z2, to val4 at z3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Temperature at South boundary (B2) - SMOOTHED
 @inline function T_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 24.5378, 24.3073, 23.4116
@@ -162,7 +159,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at North boundary (B1) - SMOOTHED
 @inline function S_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 32.6264, 33.7062, 33.2648
@@ -178,7 +174,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at South boundary (B2) - SMOOTHED
 @inline function S_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 35.5830, 35.9986, 36.1776
@@ -200,7 +195,7 @@ Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
 # bottom drag parameters
-cᴰ = 2.5e-3 # dimensionless drag coefficient
+cᴰ = 2.5e-3
 if LES
     @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
@@ -389,36 +384,13 @@ end
 
 @info "" model
 
-# Check for existing checkpoint to determine if we should pickup or start fresh
-if checkpointing
-    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
-    checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2"), readdir("."))
-    if !isempty(checkpoint_files)
-        @info "Found checkpoint file(s) - will restore when simulation runs"
-        pickup = true
-    else
-        pickup = false
-    end
-else
-    pickup = false
-end
-
-# output
-
-@info "creating output fields"
-
-# Don't overwrite the NetCDF file when picking up from a checkpoint
+pickup = false
 overwrite_existing = !pickup
 
-cfl_values = Float64[]       # Stores CFL at each step
-cfl_times = Float64[]       # Stores model time
-
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 progress = TimedMessenger()
-
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 function print_solver_iterations(sim)
@@ -440,10 +412,6 @@ u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
-# # vorticity, potential vorticity, rossby number calculations
-# ζ = @at (Center, Center, Center) Field(∂x(v_c) - ∂y(u_c))
-
-# PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 # KE for slice outputs (instantaneous, not time-averaged)
@@ -476,7 +444,6 @@ simulation.output_writers[:yz_slice] =
         indices=(x_idx, :, :),
         overwrite_existing=overwrite_existing)
 
-
 # Cross-correlation fields (Reynolds stresses & tracer fluxes)
 uu = Field((@at (Center, Center, Center) u * u))
 vv = Field((@at (Center, Center, Center) v * v))
@@ -491,18 +458,14 @@ uS = Field((@at (Center, Center, Center) u * S))
 vS = Field((@at (Center, Center, Center) v * S))
 wS = Field((@at (Center, Center, Center) w * S))
 
-# velocity and tracer slices at mid-y (for time-averaging)
 midy_idx = round(Int, params.Ny / 2)
 
-# Point the names to the fields themselves; 
-# the NetCDFWriter with AveragedTimeInterval will handle the time-averaging.
 u_avg = u
 v_avg = v
 w_avg = w
 T_avg = T
 S_avg = S
 
-# Cross-correlations
 uu_avg = uu
 vv_avg = vv
 ww_avg = ww
@@ -574,53 +537,60 @@ simulation.output_writers[:ke_avg] = NetCDFWriter(
     indices=(:, midy_idx, :),
     overwrite_existing=overwrite_existing)
 
-if checkpointing
-    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
-    simulation.output_writers[:checkpointer] = Checkpointer(model,
-        schedule=TimeInterval(5days),
-        prefix=checkpoint_prefix,
-        overwrite_existing=true,
-        cleanup=true)
+# ── Save sweep metadata to a small NetCDF file for postprocessing ──────
+using NCDatasets
+NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
+    ds.attrib["run_label"] = sweep_run_label
+    ds.attrib["run_index"] = sweep_run_index
+    ds.attrib["Hs"] = sweep_Hs
+    ds.attrib["shoal_length"] = sweep_shoal_length
+    ds.attrib["shelf_depth"] = sweep_shelf_depth
+    ds.attrib["shelf_break_end"] = sweep_shelf_break_end
 end
 
-if !pickup
-    @info "No checkpoint found, setting initial conditions"
-    # initial conditions
-    uᵢ = 0.005 * rand(size(u)...)
-    vᵢ = 0.005 * rand(size(v)...)
-    wᵢ = 0.005 * rand(size(w)...)
-    uᵢ .-= mean(uᵢ)
-    vᵢ .-= mean(vᵢ)
-    wᵢ .-= mean(wᵢ)
-    uᵢ .+= 0
-    if sigmoid_ic
-        xv, yv, zv = nodes(v, reshape=true)
-        vᵢ .+= v∞.(xv, zv, 0, Ref(params))
-    else
-        vᵢ .+= v₀
-    end
-
-    if gradient_IC
-        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-        @inline blend(a, b, α) = (1 - α) * a + α * b
-        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
-    else
-        @inline Tᵢ(x, y, z) = T_south_pwl(z)
-        @inline Sᵢ(x, y, z) = S_south_pwl(z)
-    end
-
-    set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
+# initial conditions
+@info "Setting initial conditions"
+uᵢ = 0.005 * rand(size(u)...)
+vᵢ = 0.005 * rand(size(v)...)
+wᵢ = 0.005 * rand(size(w)...)
+uᵢ .-= mean(uᵢ)
+vᵢ .-= mean(vᵢ)
+wᵢ .-= mean(wᵢ)
+uᵢ .+= 0
+if sigmoid_ic
+    xv, yv, zv = nodes(v, reshape=true)
+    vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+else
+    vᵢ .+= v₀
 end
+
+if gradient_IC
+    @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+    @inline blend(a, b, α) = (1 - α) * a + α * b
+    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
+    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
+else
+    @inline Tᵢ(x, y, z) = T_south_pwl(z)
+    @inline Sᵢ(x, y, z) = S_south_pwl(z)
+end
+
+set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
 ════════════════════════════════════════════════════════
- SIMULATION CONFIGURATION: $(run_tag)
+ SWEEP SIMULATION: $(run_tag)
 ════════════════════════════════════════════════════════
- Run number:      $(run_number)
+ Run label:       $(sweep_run_label)
+ Run index:       $(sweep_run_index)
  Runtime:         $(sim_runtime)
  Architecture:    $(arch)
+
+ ── Sweep Parameters ──
+ Hs:              $(sweep_Hs) m
+ shoal_length:    $(sweep_shoal_length) m
+ shelf_depth:     $(sweep_shelf_depth) m
+ shelf_break_end: $(sweep_shelf_break_end) m
 
  ── Switches ──
  LES:             $(LES)
@@ -630,8 +600,7 @@ end
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)
  is_coriolis:     $(is_coriolis)
- checkpointing:   $(checkpointing)
  shoal_bath:      $(shoal_bath)
- ════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)

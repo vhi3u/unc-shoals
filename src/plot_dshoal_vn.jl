@@ -9,10 +9,13 @@ Lx = 100e3   # 100 km
 
 # Create shoal with parameterized bathymetry
 bottom_fn = dshoal_param_bottom(Ly;
+    Hs=5.0,
     shoal_length=20e3,
     sigma=8e3,
-    Hs=15.0,
-    Ly_shoal=100e3)
+    Ly_shoal=100e3,
+    shelf_depth=-25.0,
+    shelf_break_end=12e3,
+    shelf_length=50e3)
 
 # Sample the bathymetry
 x_range = range(0, Lx, length=300)
