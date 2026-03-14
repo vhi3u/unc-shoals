@@ -369,6 +369,15 @@ conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 progress = TimedMessenger()
 
+function print_solver_iterations(sim)
+    solver = sim.model.pressure_solver
+    if hasproperty(solver, :conjugate_gradient_solver)
+        cg = solver.conjugate_gradient_solver
+        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
+            cg.iteration, time(sim) / 86400)
+    end
+end
+
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
