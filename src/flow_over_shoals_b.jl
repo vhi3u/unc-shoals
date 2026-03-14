@@ -355,7 +355,7 @@ model = NonhydrostaticModel(ib_grid;
     buoyancy=SeawaterBuoyancy(),
     coriolis=coriolis,
     boundary_conditions=bcs,
-    forcing=forcings
+    #forcing=forcings
 )
 
 @info "" model
