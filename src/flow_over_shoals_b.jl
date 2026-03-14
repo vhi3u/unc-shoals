@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 1 # <-- change this for each new run
+run_number = 4 # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -314,10 +314,10 @@ forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=24hours, outflow_timescale=Inf))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=OpenBoundaryCondition(0.0, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)))
-v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc))
+u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0), east=GradientBoundaryCondition(0.0))
 w_bcs = FieldBoundaryConditions()
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -340,7 +340,7 @@ model = NonhydrostaticModel(ib_grid;
     buoyancy=SeawaterBuoyancy(),
     coriolis=coriolis,
     boundary_conditions=bcs,
-    forcing=forcings
+    #forcing=forcings
 )
 
 @info "" model
