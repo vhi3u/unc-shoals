@@ -17,7 +17,7 @@
 # Pkg.resolve()
 
 using Oceananigans
-using Oceananigans.Grids: Bounded
+using Oceananigans.Grids: Bounded, minimum_zspacing
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 4 # <-- change this for each new run
+run_number = 3 # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -196,12 +196,30 @@ Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
 # bottom drag parameters
-cᴰ = 2.5e-3 # dimensionless drag coefficient
+z₀ = 2.5e-4 * params.Lz # roughness length
+z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
+@info "Using z₁ =" z₁
+const κᵛᵏ = 0.4 # von Karman constant
+cᴰ = (κᵛᵏ / log(z₁ / z₀))^2 # quadratic drag coefficient
+@info "Defining momentum BCs with cᴰ =" cᴰ
+
+# wind stress parameters
+# τ_wind = 0.14 N/m² southward (from observational data)
+# Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
+# ρ₀ = 1025.0            # reference seawater density [kg/m³]
+# τ_wind = -0.14          # wind stress magnitude [N/m²]
+# τ_kinematic_v = τ_wind / ρ₀   # negative = southward (−y direction)
+
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+    @inline drag_u(x, y, z, t, u, v, w, p) = -p.cᴰ * u * √(u^2 + v^2 + w^2)
+    @inline drag_v(x, y, z, t, u, v, w, p) = -p.cᴰ * v * √(u^2 + v^2 + w^2)
+    @inline drag_w(x, y, z, t, u, v, w, p) = -p.cᴰ * w * √(u^2 + v^2 + w^2)
+
+    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v, :w), parameters=(; cᴰ=cᴰ,))
+    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v, :w), parameters=(; cᴰ=cᴰ,))
+    drag_bc_w = FluxBoundaryCondition(drag_w, field_dependencies=(:u, :v, :w), parameters=(; cᴰ=cᴰ,))
+
+    # wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform wind stress on v at surface
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -274,32 +292,29 @@ if mass_flux
     @inline sponge_u(x, y, z, t, u, p) = -(
         south_mask(x, y, z, p) * u / p.τₛ +
         north_mask(x, y, z, p) * u / p.τₙ +
-        east_mask(x, y, z, p) * u / p.τₑ +
-        west_mask(x, y, z, p) * u / p.τ_w)
+        east_mask(x, y, z, p) * u / p.τₑ
+    )
 
     @inline sponge_v(x, y, z, t, v, p) = -(
         south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
         north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-        east_mask(x, y, z, p) * v / p.τₑ +
-        west_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τ_w)
-
+        east_mask(x, y, z, p) * v / p.τₑ
+    )
     @inline sponge_w(x, y, z, t, w, p) = -(
         south_mask(x, y, z, p) * w / p.τₛ +
         north_mask(x, y, z, p) * w / p.τₙ +
-        east_mask(x, y, z, p) * w / p.τₑ +
-        west_mask(x, y, z, p) * w / p.τ_w)
+        east_mask(x, y, z, p) * w / p.τₑ
+    )
 
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts +
-        west_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts)
+        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
+    )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts +
-        west_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts)
+        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
+    )
 end
 
 # forcing functions
@@ -314,11 +329,11 @@ forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=24hours, outflow_timescale=Inf))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc))
-u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0), east=GradientBoundaryCondition(0.0))
-w_bcs = FieldBoundaryConditions()
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
+u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, east=OpenBoundaryCondition(0.0, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)))
+v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0))
+w_bcs = FieldBoundaryConditions(immersed=drag_bc_w)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 if is_coriolis
@@ -340,7 +355,7 @@ model = NonhydrostaticModel(ib_grid;
     buoyancy=SeawaterBuoyancy(),
     coriolis=coriolis,
     boundary_conditions=bcs,
-    #forcing=forcings
+    forcing=forcings
 )
 
 @info "" model
