@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 3 # <-- change this for each new run
+run_number = 7 # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -198,19 +198,19 @@ params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 # bottom drag parameters
 cᴰ = 2.5e-3 # dimensionless drag coefficient
 
-# wind stress parameters
-# τ_wind = 0.14 N/m² southward (from observational data)
-# Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
-ρ₀ = 1020.0            # reference seawater density [kg/m³]
-τ_wind = -0.14          # wind stress magnitude [N/m²]
-τ_kinematic_v = τ_wind / ρ₀   # negative = southward (−y direction)
+# # wind stress parameters
+# # τ_wind = 0.14 N/m² southward (from observational data)
+# # Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
+# ρ₀ = 1020.0            # reference seawater density [kg/m³]
+# τ_wind = -0.14          # wind stress magnitude [N/m²]
+# τ_kinematic_v = τ_wind / ρ₀   # negative = southward (−y direction)
 
 if LES
     @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform wind stress on v at surface
+    # wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform wind stress on v at surface
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -318,12 +318,12 @@ forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 
 # boundary conditions (bounded setup)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
-v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=24hours, outflow_timescale=Inf))
+v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
-u_bcs = FieldBoundaryConditions(bottom=drag_bc_u, east=OpenBoundaryCondition(0.0, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)))
-v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, top=wind_bc_v, north=v_north, south=v_south, west=FluxBoundaryCondition(0.0))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc))
+u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
+v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south)
 w_bcs = FieldBoundaryConditions()
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -346,7 +346,7 @@ model = NonhydrostaticModel(ib_grid;
     buoyancy=SeawaterBuoyancy(),
     coriolis=coriolis,
     boundary_conditions=bcs,
-    forcing=forcings
+    #forcing=forcings
 )
 
 @info "" model
@@ -368,6 +368,15 @@ simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 progress = TimedMessenger()
+
+function print_solver_iterations(sim)
+    solver = sim.model.pressure_solver
+    if hasproperty(solver, :conjugate_gradient_solver)
+        cg = solver.conjugate_gradient_solver
+        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
+            cg.iteration, time(sim) / 86400)
+    end
+end
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
