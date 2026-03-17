@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 19 # <-- change this for each new run
+run_number = 20 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -196,8 +196,19 @@ Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
 # bottom drag parameters
-cᴰ = 2.5e-3 # dimensionless drag coefficient
+# cᴰ = 2.5e-3 # dimensionless drag coefficient
 
+# quadratic drag:
+const κᵛᵏ = 0.4 # von Karman constant
+const Rz = 2.5e-4
+z_0 = Rz * params.Lz
+z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
+c_dz = (κᵛᵏ / log(z₁ / z_0))^2
+
+@info "Using z₁ = $z₁"
+@info "Quadratic drag coefficient c_dz = $c_dz"
+
+drag = BulkDrag(coefficient=c_dz)
 # # wind stress parameters
 # # τ_wind = 0.14 N/m² southward (from observational data)
 # # Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
@@ -206,10 +217,10 @@ cᴰ = 2.5e-3 # dimensionless drag coefficient
 # τ_kinematic_v = τ_wind / ρ₀   # negative = southward (−y direction)
 
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+    # @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    # @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+    # drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+    # drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     # wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform wind stress on v at surface
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
@@ -323,9 +334,9 @@ v_east = OpenBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescal
 
 T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=GradientBoundaryCondition(0.0))
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=GradientBoundaryCondition(0.0))
-u_bcs = FieldBoundaryConditions(east=v_east)
-v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, east=v_east)
-w_bcs = FieldBoundaryConditions()
+u_bcs = FieldBoundaryConditions(immersed=drag, east=v_east)
+v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east)
+w_bcs = FieldBoundaryConditions(immersed=drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 if is_coriolis
@@ -334,15 +345,15 @@ else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
-@info "reltol = $reltol, abstol = $abstol"
+# reltol = sqrt(eps(ib_grid))
+# abstol = sqrt(eps(ib_grid))
+# @info "reltol = $reltol, abstol = $abstol"
 
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5, minimum_buffer_upwind_order=1),
     closure=DynamicSmagorinsky(),
-    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
     coriolis=coriolis,
