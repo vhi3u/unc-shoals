@@ -57,8 +57,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 8 # <-- change this for each new run
-sim_runtime = 20days
+run_number = 9 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
 
@@ -323,7 +323,7 @@ v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdve
 T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
 u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south)
+v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=v_north, south=v_south, east=ValueBoundaryCondition(0.0))
 w_bcs = FieldBoundaryConditions()
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
