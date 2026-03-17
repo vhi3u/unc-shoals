@@ -63,9 +63,9 @@ callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
 
 if LES
-    params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=50, Ny=150, Nz=10)
 else
-    params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=300000, Lz=50, Nx=50, Ny=150, Nz=10)
 end
 if arch == CPU()
     params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
