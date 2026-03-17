@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 17 # <-- change this for each new run
+run_number = 18 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -341,7 +341,7 @@ abstol = sqrt(eps(ib_grid))
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5, minimum_buffer_upwind_order=1),
-    closure=AnisotropicMinimumDissipation(),
+    closure=DynamicSmagorinsky(),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
