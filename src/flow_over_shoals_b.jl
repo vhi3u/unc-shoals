@@ -45,7 +45,7 @@ mass_flux = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
-is_coriolis = true
+is_coriolis = false
 checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 24 # <-- change this for each new run
+run_number = 25 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
