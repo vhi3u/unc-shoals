@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 29 # <-- change this for each new run
+run_number = 30 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -107,10 +107,10 @@ params = (; params...,
     Ls=50e3, # sponge layer size (north and south)
     Le=10e3, # sponge layer size (east)
     Lw=10e3, # sponge layer size (west)
-    τₙ=6hours, # relaxation timescale for north sponge
-    τₛ=6hours, # relaxation timescale for south sponge
+    τₙ=12hours, # relaxation timescale for north sponge
+    τₛ=12hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=12hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
