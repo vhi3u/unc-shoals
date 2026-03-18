@@ -58,7 +58,7 @@ include("dshoal_vn_param.jl")
 
 # simulation knobs
 run_number = 30 # <-- change this for each new run
-sim_runtime = 10days
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
 
@@ -396,6 +396,7 @@ function print_solver_iterations(sim)
 end
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
+simulation.callbacks[:solver_info] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
 T = model.tracers.T
@@ -506,6 +507,20 @@ simulation.output_writers[:midy_slice] =
 #         cleanup=true)
 # end
 
+uᵢ = 0.005 * rand(size(u)...)
+vᵢ = 0.005 * rand(size(v)...)
+wᵢ = 0.005 * rand(size(w)...)
+uᵢ .-= mean(uᵢ)
+vᵢ .-= mean(vᵢ)
+wᵢ .-= mean(wᵢ)
+uᵢ .+= 0
+if sigmoid_ic
+    xv, yv, zv = nodes(v, reshape=true)
+    vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+else
+    vᵢ .+= v₀
+end
+
 if gradient_IC
     @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
     @inline blend(a, b, α) = (1 - α) * a + α * b
@@ -516,7 +531,7 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z)
 end
 
-set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
+set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
