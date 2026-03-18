@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 27 # <-- change this for each new run
+run_number = 28 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -289,49 +289,49 @@ else
     end
 end
 
-# add geostrophy
-f = 2 * 7.292115e-5 * sin(deg2rad(35.2480))
-@inline geostrophy(x, y, z, t, p) = -p.f * p.v∞(x, z, t, p)
-Fᵤ = Forcing(geostrophy, parameters=(; f=f, v∞=v∞, Lx=params.Lx, v₀=params.v₀))
-forcings = (; u=Fᵤ)
+# # add geostrophy
+# f = 2 * 7.292115e-5 * sin(deg2rad(35.2480))
+# @inline geostrophy(x, y, z, t, p) = -p.f * p.v∞(x, z, t, p)
+# Fᵤ = Forcing(geostrophy, parameters=(; f=f, v∞=v∞, Lx=params.Lx, v₀=params.v₀))
+# forcings = (; u=Fᵤ)
 
-# # sponge functions (bounded setup — additive sponge layers)
-# if mass_flux
-#     @inline sponge_u(x, y, z, t, u, p) = -(
-#         south_mask(x, y, z, p) * u / p.τₛ +
-#         north_mask(x, y, z, p) * u / p.τₙ +
-#         east_mask(x, y, z, p) * u / p.τₑ
-#     )
+# sponge functions (bounded setup — additive sponge layers)
+if mass_flux
+    @inline sponge_u(x, y, z, t, u, p) = -(
+        south_mask(x, y, z, p) * u / p.τₛ +
+        north_mask(x, y, z, p) * u / p.τₙ +
+        east_mask(x, y, z, p) * u / p.τₑ
+    )
 
-#     @inline sponge_v(x, y, z, t, v, p) = -(
-#         south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
-#         north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-#         east_mask(x, y, z, p) * v / p.τₑ
-#     )
-#     @inline sponge_w(x, y, z, t, w, p) = -(
-#         south_mask(x, y, z, p) * w / p.τₛ +
-#         north_mask(x, y, z, p) * w / p.τₙ +
-#         east_mask(x, y, z, p) * w / p.τₑ
-#     )
+    @inline sponge_v(x, y, z, t, v, p) = -(
+        south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
+        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+        east_mask(x, y, z, p) * v / p.τₑ
+    )
+    @inline sponge_w(x, y, z, t, w, p) = -(
+        south_mask(x, y, z, p) * w / p.τₛ +
+        north_mask(x, y, z, p) * w / p.τₙ +
+        east_mask(x, y, z, p) * w / p.τₑ
+    )
 
-#     @inline sponge_T(x, y, z, t, T, p) = -(
-#         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-#         north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
-#     )
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
+    )
 
-#     @inline sponge_S(x, y, z, t, S, p) = -(
-#         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-#         north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
-#     )
-# end
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
+    )
+end
 
-# # forcing functions
-# FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-# FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
-# Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-# Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-# F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-# forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+# forcing functions
+FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
+forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 
 # boundary conditions (bounded setup)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
