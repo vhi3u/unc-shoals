@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 34 # <-- change this for each new run
+run_number = 35 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -107,8 +107,8 @@ params = (; params...,
     Ls=50e3, # sponge layer size (north and south)
     Le=25e3, # sponge layer size (east)
     Lw=10e3, # sponge layer size (west)
-    τₙ=1hours, # relaxation timescale for north sponge
-    τₛ=1hours, # relaxation timescale for south sponge
+    τₙ=6hours, # relaxation timescale for north sponge
+    τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
     τ_ts=1hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
@@ -318,12 +318,14 @@ if mass_flux
 
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
+        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (T - Tₑ_val) / p.τ_ts
     )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
+        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (S - Sₑ_val) / p.τ_ts
     )
 end
 
