@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 35 # <-- change this for each new run
+run_number = 36 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -189,10 +189,41 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Eastern boundary T/S constants
-Tₑ_val = 23.11
-Sₑ_val = 35.5
-params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
+# Temperature at East boundary - SMOOTHED (from CTD data)
+@inline function T_east_pwl(z)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v1, v2, v3 = 23.0953, 23.1206, 22.848
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Salinity at East boundary - SMOOTHED (from CTD data)
+@inline function S_east_pwl(z)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v1, v2, v3 = 35.4108, 36.429, 36.4063
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Eastern boundary helper functions (for BCs)
+@inline tebc(y, z, t) = T_east_pwl(z)
+@inline sebc(y, z, t) = S_east_pwl(z)
 
 # bottom drag parameters
 # cᴰ = 2.5e-3 # dimensionless drag coefficient
@@ -319,13 +350,13 @@ if mass_flux
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
         north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - Tₑ_val) / p.τ_ts
+        east_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts
     )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
         north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - Sₑ_val) / p.τ_ts
+        east_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts
     )
 end
 
@@ -342,8 +373,8 @@ v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdve
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 v_east = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=ValueBoundaryCondition(Tₑ_val))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=ValueBoundaryCondition(Sₑ_val))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=ValueBoundaryCondition(tebc))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=ValueBoundaryCondition(sebc))
 u_bcs = FieldBoundaryConditions(immersed=drag, east=OpenBoundaryCondition(0.0))
 v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east)
 w_bcs = FieldBoundaryConditions(immersed=drag)
