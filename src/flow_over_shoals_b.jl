@@ -57,8 +57,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 32 # <-- change this for each new run
-sim_runtime = 20days
+run_number = 34 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
 
@@ -105,12 +105,12 @@ end
 params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
-    Le=10e3, # sponge layer size (east)
+    Le=25e3, # sponge layer size (east)
     Lw=10e3, # sponge layer size (west)
-    τₙ=12hours, # relaxation timescale for north sponge
-    τₛ=12hours, # relaxation timescale for south sponge
+    τₙ=1hours, # relaxation timescale for north sponge
+    τₛ=1hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=12hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=1hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -212,11 +212,11 @@ drag = BulkDrag(coefficient=c_dz)
 # wind stress parameters
 # τ_wind = 0.14 N/m² southward (from observational data)
 # Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
-ρ₀ = 1025.0            # reference seawater density [kg/m³]
-τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
-τ_kinematic_v = τ_wind / ρ₀   # kinematic wind stress on v
-wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform southward wind stress at surface
-@info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v = $τ_kinematic_v m²/s²"
+# ρ₀ = 1025.0            # reference seawater density [kg/m³]
+# τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
+# τ_kinematic_v = τ_wind / ρ₀   # kinematic wind stress on v
+# wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform southward wind stress at surface
+# @info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v = $τ_kinematic_v m²/s²"
 
 if LES
     # @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
@@ -340,10 +340,10 @@ v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdve
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 v_east = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=ValueBoundaryCondition(Tₑ_val))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=ValueBoundaryCondition(Sₑ_val))
 u_bcs = FieldBoundaryConditions(immersed=drag, east=OpenBoundaryCondition(0.0))
-v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east, top=wind_bc_v)
+v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east)
 w_bcs = FieldBoundaryConditions(immersed=drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
