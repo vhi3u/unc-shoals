@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 30 # <-- change this for each new run
+run_number = 32 # <-- change this for each new run
 sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -208,12 +208,15 @@ c_dz = (κᵛᵏ / log(z₁ / z_0))^2
 @info "Quadratic drag coefficient c_dz = $c_dz"
 
 drag = BulkDrag(coefficient=c_dz)
-# # wind stress parameters
-# # τ_wind = 0.14 N/m² southward (from observational data)
-# # Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
-# ρ₀ = 1020.0            # reference seawater density [kg/m³]
-# τ_wind = -0.14          # wind stress magnitude [N/m²]
-# τ_kinematic_v = τ_wind / ρ₀   # negative = southward (−y direction)
+
+# wind stress parameters
+# τ_wind = 0.14 N/m² southward (from observational data)
+# Convert to kinematic stress: τ_kinematic = τ_wind / ρ₀  [m²/s²]
+ρ₀ = 1025.0            # reference seawater density [kg/m³]
+τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
+τ_kinematic_v = τ_wind / ρ₀   # kinematic wind stress on v
+wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform southward wind stress at surface
+@info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v = $τ_kinematic_v m²/s²"
 
 if LES
     # @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
@@ -340,7 +343,7 @@ v_east = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvec
 T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tsbc), east=ValueBoundaryCondition(Tₑ_val))
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(ssbc), east=ValueBoundaryCondition(Sₑ_val))
 u_bcs = FieldBoundaryConditions(immersed=drag, east=OpenBoundaryCondition(0.0))
-v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east)
+v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east, top=wind_bc_v)
 w_bcs = FieldBoundaryConditions(immersed=drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
