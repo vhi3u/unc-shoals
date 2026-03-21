@@ -51,18 +51,15 @@ checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
-    allowscalar(false)
 else
     arch = CPU()
 end
 @info "architecture = $(arch)"
-# shoal bathymetry (architecture-agnostic, uses @inline functions)
-# include("dshoal_vn_new.jl")
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 30 # <-- change this for each new run
-sim_runtime = 20days
+run_number = 33 # <-- change this for each new run
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -89,59 +86,14 @@ end
 
 # model parameters
 
-
-# # Gaussian seamount parameters
-# const H_sea = 50        # domain depth [m]
-# const h_sea = 30        # seamount height [m]
-# const x₀_sea = 50e3     # center x [m]
-# const y₀_sea = 150e3    # center y [m]
-# const σ_sea = 10e3      # width [m]
-# @inline bottom(x, y) = -H_sea + h_sea * exp(-((x - x₀_sea)^2 + (y - y₀_sea)^2) / (2 * σ_sea^2))
-
-# # Headland bathymetry parameters
-# # Headland juts from western wall (x≈0) into the domain, centered at y₀
-# const H_hl = 50        # domain depth [m]
-# const h_hl = 40        # headland height [m] (rises from -50m to -10m)
-# const y₀_hl = 150e3     # along-shore center [m]
-# const σx_hl = 20e3       # cross-shore decay width [m] (narrow → steep headland)
-# const σy_hl = 100e3      # along-shore half-width [m] (zero beyond ±σy_hl from center)
-
-# # Compact-support window: 1 inside, smooth taper to 0 at edges, 0 outside
-# @inline function _hl_window(y, y₀, σy)
-#     dy = abs(y - y₀)
-#     if dy >= σy
-#         return 0.0
-#     else
-#         # cosine taper in the outer 10% for smoothness
-#         taper_start = 0.9 * σy
-#         if dy <= taper_start
-#             return 1.0
-#         else
-#             return 0.5 * (1.0 + cos(π * (dy - taper_start) / (σy - taper_start)))
-#         end
-#     end
-# end
-
-# @inline bottom(x, y) = -H_hl + h_hl * exp(-(x / σx_hl)^2) * _hl_window(y, y₀_hl, σy_hl)
-
-# bathymetry — const globals + @inline (no closure)
-const _shelf_length = 30e3
-const _shelf_depth = -20.0
-const _shoal_length = 30e3
-const _shoal_crest_depth = -5.0
-const _deep_ocean_depth = -50.0
-const _sigma_shoal = 8e3
-const _Hs_shoal = 15.0
-const _Ly_shoal = 300e3
-const _y0_shoal = params.Ly / 2.0
-const _half_extent_shoal = _Ly_shoal / 2.0
-
-@inline bottom(x, y) = _param_shoal_bottom(x, y, _y0_shoal, _sigma_shoal, _Hs_shoal,
-    _half_extent_shoal, _shelf_length, _shelf_depth,
-    _shoal_length, _shoal_crest_depth, _deep_ocean_depth)
-
 if shoal_bath
-    GFB = GridFittedBottom(bottom)
+    # Define shoal parameters (align with the new sigmoidal setup)
+    Hs = 15.0         # Height of shoal above -25m shelf
+    sigma = 8e3       # Gaussian width of shoal (half crossover)
+    shoal_length = 20e3 # Horizontal span of the shoal ridge
+
+    slope_bottom = dshoal_param_bottom(params.Ly; Hs=Hs, sigma=sigma, shoal_length=shoal_length)
+    GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
     ib_grid = grid
@@ -160,10 +112,10 @@ params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
-    τₙ=6hours, # relaxation timescale for north sponge
-    τₛ=6hours, # relaxation timescale for south sponge
-    τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τₙ=24hours, # relaxation timescale for north sponge
+    τₛ=24hours, # relaxation timescale for south sponge
+    τₑ=5days, # relaxation timescale for east sponge
+    τ_ts=24hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -404,14 +356,17 @@ else
     coriolis = nothing
 end
 
+reltol = sqrt(eps(ib_grid))
+abstol = sqrt(eps(ib_grid))
+@info "reltol = $reltol, abstol = $abstol"
+
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
-        #grid=ib_grid,
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid), #; preconditioner=FFTBasedPoissonSolver(grid)),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -420,11 +375,10 @@ if periodic_y
     )
 else
     model = NonhydrostaticModel(ib_grid;
-        #grid=ib_grid,
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -467,6 +421,16 @@ progress = TimedMessenger()
 
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
+function print_solver_iterations(sim)
+    solver = sim.model.pressure_solver
+    if hasproperty(solver, :conjugate_gradient_solver)
+        cg = solver.conjugate_gradient_solver
+        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
+            cg.iteration, time(sim) / 86400)
+    end
+end
+simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
+
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
@@ -500,6 +464,16 @@ simulation.output_writers[:midy_slice] =
         indices=(:, round(Int, params.Ny / 2), :),
         overwrite_existing=overwrite_existing)
 
+# YZ slice at x = 25 km
+x_idx = round(Int, 25e3 / (params.Lx / params.Nx))
+simulation.output_writers[:yz_slice] =
+    NetCDFWriter(model, slice_fields,
+        filename="yz_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(x_idx, :, :),
+        overwrite_existing=overwrite_existing)
+
+
 # Cross-correlation fields (Reynolds stresses & tracer fluxes)
 uu = Field((@at (Center, Center, Center) u * u))
 vv = Field((@at (Center, Center, Center) v * v))
@@ -514,58 +488,59 @@ uS = Field((@at (Center, Center, Center) u * S))
 vS = Field((@at (Center, Center, Center) v * S))
 wS = Field((@at (Center, Center, Center) w * S))
 
-# Y-averages of velocities and tracers
-u_yavg = Average(u, dims=2)
-v_yavg = Average(v, dims=2)
-w_yavg = Average(w, dims=2)
-uu_yavg = Average(uu, dims=2)
-vv_yavg = Average(vv, dims=2)
-ww_yavg = Average(ww, dims=2)
-T_yavg = Average(T, dims=2)
-S_yavg = Average(S, dims=2)
+# velocity and tracer slices at mid-y (for time-averaging)
+midy_idx = round(Int, params.Ny / 2)
 
-# Y-averages of cross-correlations
-uv_yavg = Average(uv, dims=2)
-uw_yavg = Average(uw, dims=2)
-vw_yavg = Average(vw, dims=2)
-uT_yavg = Average(uT, dims=2)
-vT_yavg = Average(vT, dims=2)
-wT_yavg = Average(wT, dims=2)
-uS_yavg = Average(uS, dims=2)
-vS_yavg = Average(vS, dims=2)
-wS_yavg = Average(wS, dims=2)
+# Point the names to the fields themselves; 
+# the NetCDFWriter with AveragedTimeInterval will handle the time-averaging.
+u_avg = u
+v_avg = v
+w_avg = w
+T_avg = T
+S_avg = S
+
+# Cross-correlations
+uu_avg = uu
+vv_avg = vv
+ww_avg = ww
+uv_avg = uv
+uw_avg = uw
+vw_avg = vw
+uT_avg = uT
+vT_avg = vT
+wT_avg = wT
+uS_avg = uS
+vS_avg = vS
+wS_avg = wS
 
 output_interval = callback_interval
 
-simulation.output_writers[:yavg_fields] = NetCDFWriter(
+simulation.output_writers[:avg_fields] = NetCDFWriter(
     model,
-    (; u_yavg, v_yavg, w_yavg, T_yavg, S_yavg,
-        uv_yavg, uw_yavg, vw_yavg,
-        uT_yavg, vT_yavg, wT_yavg,
-        uS_yavg, vS_yavg, wS_yavg),
+    (; u_avg, v_avg, w_avg, T_avg, S_avg,
+        uu_avg, vv_avg, ww_avg,
+        uv_avg, uw_avg, vw_avg,
+        uT_avg, vT_avg, wT_avg,
+        uS_avg, vS_avg, wS_avg),
     schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    filename="time_yavg_$(run_tag).nc",
+    indices=(:, midy_idx, :),
+    filename="time_avg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
+# energy stuff
 KE = KineticEnergy(model)
-# ε = KineticEnergyDissipationRate(model)
-TKE = 0.5 * ((Field(uu_yavg) - Field(u_yavg) * Field(u_yavg))
-             + (Field(vv_yavg) - Field(v_yavg) * Field(v_yavg))
-             + (Field(ww_yavg) - Field(w_yavg) * Field(w_yavg)))
-
-# # Domain-integrated quantities (scalar time series)
+KE_avg = KE
 ∫KE = Integral(KE)
 
-# # Y-averages for spatial structure
-KE_yavg = Average(KE, dims=2)
-TKE_yavg = Average(TKE, dims=2)
+EKE = 0.5 * ((uu_avg - u_avg * u_avg) + (vv_avg - v_avg * v_avg) + (ww_avg - w_avg * w_avg))
+EKE_avg = EKE
 
-simulation.output_writers[:ke_yavg] = NetCDFWriter(
+simulation.output_writers[:ke_avg] = NetCDFWriter(
     model,
-    (; KE_yavg, TKE_yavg,
-        ∫KE),
-    filename="KE_yavg_$(run_tag).nc",
-    schedule=TimeInterval(output_interval),
+    (; KE_avg, ∫KE, EKE_avg),
+    filename="KE_avg_$(run_tag).nc",
+    schedule=AveragedTimeInterval(output_interval, window=output_interval),
+    indices=(:, midy_idx, :),
     overwrite_existing=overwrite_existing)
 
 if checkpointing
@@ -576,8 +551,6 @@ if checkpointing
         overwrite_existing=true,
         cleanup=true)
 end
-
-# (checkpoint detection moved above NetCDF writer setup)
 
 if !pickup
     @info "No checkpoint found, setting initial conditions"
@@ -606,7 +579,7 @@ if !pickup
         @inline Sᵢ(x, y, z) = S_south_pwl(z)
     end
 
-    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+    set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
 end
 
 # run simulation
