@@ -445,8 +445,9 @@ w_c = @at (Center, Center, Center) w
 
 # PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
 Ro = @at (Center, Center, Center) RossbyNumber(model)
+KE = KineticEnergy(model)
 
-slice_fields = (; u_c, v_c, w_c, T, S, Ro)
+slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
 
 # Surface XY slice (top layer)
 simulation.output_writers[:surface_slice] =
@@ -464,83 +465,39 @@ simulation.output_writers[:midy_slice] =
         indices=(:, round(Int, params.Ny / 2), :),
         overwrite_existing=overwrite_existing)
 
-# YZ slice at x = 25 km
-x_idx = round(Int, 25e3 / (params.Lx / params.Nx))
-simulation.output_writers[:yz_slice] =
+# Mid-x YZ slice (along-shore transect at domain center)
+midx_idx = round(Int, params.Nx / 2)
+simulation.output_writers[:midx_slice] =
     NetCDFWriter(model, slice_fields,
-        filename="yz_$(run_tag).nc",
+        filename="midx_$(run_tag).nc",
         schedule=TimeInterval(callback_interval),
-        indices=(x_idx, :, :),
+        indices=(midx_idx, :, :),
         overwrite_existing=overwrite_existing)
 
 
-# Cross-correlation fields (Reynolds stresses & tracer fluxes)
+# Cross-correlation fields for time-averaging
 uu = Field((@at (Center, Center, Center) u * u))
 vv = Field((@at (Center, Center, Center) v * v))
 ww = Field((@at (Center, Center, Center) w * w))
-uv = Field((@at (Center, Center, Center) u * v))
-uw = Field((@at (Center, Center, Center) u * w))
-vw = Field((@at (Center, Center, Center) v * w))
 uT = Field((@at (Center, Center, Center) u * T))
-vT = Field((@at (Center, Center, Center) v * T))
-wT = Field((@at (Center, Center, Center) w * T))
 uS = Field((@at (Center, Center, Center) u * S))
-vS = Field((@at (Center, Center, Center) v * S))
-wS = Field((@at (Center, Center, Center) w * S))
 
-# velocity and tracer slices at mid-y (for time-averaging)
-midy_idx = round(Int, params.Ny / 2)
-
-# Point the names to the fields themselves; 
-# the NetCDFWriter with AveragedTimeInterval will handle the time-averaging.
-u_avg = u
-v_avg = v
-w_avg = w
-T_avg = T
-S_avg = S
-
-# Cross-correlations
-uu_avg = uu
-vv_avg = vv
-ww_avg = ww
-uv_avg = uv
-uw_avg = uw
-vw_avg = vw
-uT_avg = uT
-vT_avg = vT
-wT_avg = wT
-uS_avg = uS
-vS_avg = vS
-wS_avg = wS
-
-output_interval = callback_interval
-
+# 3D time averages (10-day window)
+avg_interval = 10days
 simulation.output_writers[:avg_fields] = NetCDFWriter(
     model,
-    (; u_avg, v_avg, w_avg, T_avg, S_avg,
-        uu_avg, vv_avg, ww_avg,
-        uv_avg, uw_avg, vw_avg,
-        uT_avg, vT_avg, wT_avg,
-        uS_avg, vS_avg, wS_avg),
-    schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    indices=(:, midy_idx, :),
+    (; u, v, w, T, S, uu, vv, ww, uT, uS),
+    schedule=AveragedTimeInterval(avg_interval, window=avg_interval),
     filename="time_avg_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-# energy stuff
-KE = KineticEnergy(model)
-KE_avg = KE
-∫KE = Integral(KE)
-
-EKE = 0.5 * ((uu_avg - u_avg * u_avg) + (vv_avg - v_avg * v_avg) + (ww_avg - w_avg * w_avg))
-EKE_avg = EKE
-
-simulation.output_writers[:ke_avg] = NetCDFWriter(
+# 3D snapshots (every 20 days)
+full3d_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+simulation.output_writers[:full_3d] = NetCDFWriter(
     model,
-    (; KE_avg, ∫KE, EKE_avg),
-    filename="KE_avg_$(run_tag).nc",
-    schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    indices=(:, midy_idx, :),
+    full3d_fields,
+    filename="full3d_$(run_tag).nc",
+    schedule=TimeInterval(20days),
     overwrite_existing=overwrite_existing)
 
 if checkpointing
