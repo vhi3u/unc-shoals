@@ -119,10 +119,10 @@ params = (; params...,
     v₀=v₀,
     Ls=50e3,
     Le=60e3,
-    τₙ=24hours,
-    τₛ=24hours,
-    τₑ=5days,
-    τ_ts=24hours)
+    τₙ=6hours,
+    τₛ=6hours,
+    τₑ=24days,
+    τ_ts=6hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
