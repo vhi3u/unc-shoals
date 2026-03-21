@@ -17,7 +17,7 @@
 # Pkg.resolve()
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded
+using Oceananigans.Grids: Periodic, Bounded, minimum_zspacing
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
@@ -58,8 +58,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 33 # <-- change this for each new run
-sim_runtime = 100days
+run_number = 300 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -85,6 +85,18 @@ else
 end
 
 # model parameters
+
+# quadratic drag (log-law)
+const κᵛᵏ = 0.4    # von Kármán constant
+const Rz = 2.5e-4 # roughness fraction of domain depth
+z_0 = Rz * params.Lz
+z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
+c_dz = (κᵛᵏ / log(z₁ / z_0))^2
+
+@info "Using z₁ = $z₁"
+@info "Quadratic drag coefficient c_dz = $c_dz"
+
+drag = BulkDrag(coefficient=c_dz)
 
 if shoal_bath
     # Define shoal parameters (align with the new sigmoidal setup)
@@ -199,13 +211,8 @@ Tₑ_val = 23.11
 Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
-# bottom drag parameters
-cᴰ = 2.5e-3 # dimensionless drag coefficient
+# T/S boundary condition helpers
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
@@ -336,16 +343,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag)
+    v_bcs = FieldBoundaryConditions(immersed=drag)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc)
+    u_bcs = FieldBoundaryConditions(immersed=drag)
+    v_bcs = FieldBoundaryConditions(immersed=drag, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
