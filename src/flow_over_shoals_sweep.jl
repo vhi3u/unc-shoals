@@ -197,8 +197,8 @@ params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 # bottom drag parameters
 cᴰ = 2.5e-3
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+    @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
@@ -331,16 +331,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -406,11 +406,6 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-b = buoyancy_operation(model)
-
-u, v, w = model.velocities
-T = model.tracers.T
-S = model.tracers.S
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
 
@@ -420,6 +415,7 @@ v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
 # Cross-correlations for EKE and Fluxes
+# EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
 uu = Field(u_c * u_c)
 vv = Field(v_c * v_c)
 ww = Field(w_c * w_c)
@@ -427,9 +423,11 @@ uT = Field(u_c * T)
 uS = Field(u_c * S)
 vT = Field(v_c * T)
 vS = Field(v_c * S)
+wT = Field(w_c * T)
+wS = Field(w_c * S)
 
-slice_fields = (; u=u_c, v=v_c, w=w_c, T, S, Ro, KE)
-tavg_fields = (; u=u_c, v=v_c, w=w_c, uu, vv, ww, T, S, uT, uS, vT, vS)
+slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 
 # (1) 2D snapshots (every 1 day)
 # Surface XY slice (top layer)
