@@ -58,8 +58,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 302 # <-- change this for each new run
-sim_runtime = 50days
+run_number = 1 # <-- change this for each new run
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -462,9 +462,11 @@ uT = Field(u_c * T)
 uS = Field(u_c * S)
 vT = Field(v_c * T)
 vS = Field(v_c * S)
+wT = Field(w_c * T)
+wS = Field(w_c * S)
 
 slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
-tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS)
+tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 
 # (1) 2D snapshots (every 1 day)
 # Surface XY slice (top layer)
