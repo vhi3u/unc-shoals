@@ -17,7 +17,7 @@
 # Pkg.resolve()
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded
+using Oceananigans.Grids: Periodic, Bounded, minimum_zspacing
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
@@ -58,7 +58,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 33 # <-- change this for each new run
+run_number = 1 # <-- change this for each new run
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -69,7 +69,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -85,6 +85,18 @@ else
 end
 
 # model parameters
+
+# # quadratic drag (log-law)
+# const κᵛᵏ = 0.4    # von Kármán constant
+# const Rz = 2.5e-4 # roughness fraction of domain depth
+# z_0 = Rz * params.Lz
+# z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
+# c_dz = (κᵛᵏ / log(z₁ / z_0))^2
+
+# @info "Using z₁ = $z₁"
+# @info "Quadratic drag coefficient c_dz = $c_dz"
+
+# drag = BulkDrag(coefficient=c_dz)
 
 if shoal_bath
     # Define shoal parameters (align with the new sigmoidal setup)
@@ -112,10 +124,10 @@ params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
-    τₙ=24hours, # relaxation timescale for north sponge
-    τₛ=24hours, # relaxation timescale for south sponge
-    τₑ=5days, # relaxation timescale for east sponge
-    τ_ts=24hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τₙ=6hours, # relaxation timescale for north sponge
+    τₛ=6hours, # relaxation timescale for south sponge
+    τₑ=24hours, # relaxation timescale for east sponge
+    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -199,11 +211,11 @@ Tₑ_val = 23.11
 Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
-# bottom drag parameters
-cᴰ = 2.5e-3 # dimensionless drag coefficient
+# T/S boundary condition helpers
+cᴰ = 2.5e-3
 if LES
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+    @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
@@ -336,16 +348,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v, north=open_bc, south=open_bc)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -356,17 +368,16 @@ else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
-@info "reltol = $reltol, abstol = $abstol"
+# reltol = 1e-5
+# maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=DynamicSmagorinsky(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -377,8 +388,8 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        closure=DynamicSmagorinsky(),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=reltol, maxiter=maxiter),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -434,113 +445,68 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-b = buoyancy_operation(model)
+Ro = @at (Center, Center, Center) RossbyNumber(model)
+KE = @at (Center, Center, Center) KineticEnergy(model)
 
+# Centered velocities for consistency
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
-# # vorticity, potential vorticity, rossby number calculations
-# ζ = @at (Center, Center, Center) Field(∂x(v_c) - ∂y(u_c))
+# Cross-correlations for EKE and Fluxes
+# EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
+uu = Field(u_c * u_c)
+vv = Field(v_c * v_c)
+ww = Field(w_c * w_c)
+uT = Field(u_c * T)
+uS = Field(u_c * S)
+vT = Field(v_c * T)
+vS = Field(v_c * S)
+wT = Field(w_c * T)
+wS = Field(w_c * S)
 
-# PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b, model.coriolis)
-Ro = @at (Center, Center, Center) RossbyNumber(model)
+slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 
-slice_fields = (; u_c, v_c, w_c, T, S, Ro)
-
+# (1) 2D snapshots (every 1 day)
 # Surface XY slice (top layer)
-simulation.output_writers[:surface_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="top_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, :, params.Nz),
-        overwrite_existing=overwrite_existing)
-
-# Mid-y XZ slice (cross-shore transect at domain center)
-simulation.output_writers[:midy_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="midy_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(:, round(Int, params.Ny / 2), :),
-        overwrite_existing=overwrite_existing)
-
-# YZ slice at x = 25 km
-x_idx = round(Int, 25e3 / (params.Lx / params.Nx))
-simulation.output_writers[:yz_slice] =
-    NetCDFWriter(model, slice_fields,
-        filename="yz_$(run_tag).nc",
-        schedule=TimeInterval(callback_interval),
-        indices=(x_idx, :, :),
-        overwrite_existing=overwrite_existing)
-
-
-# Cross-correlation fields (Reynolds stresses & tracer fluxes)
-uu = Field((@at (Center, Center, Center) u * u))
-vv = Field((@at (Center, Center, Center) v * v))
-ww = Field((@at (Center, Center, Center) w * w))
-uv = Field((@at (Center, Center, Center) u * v))
-uw = Field((@at (Center, Center, Center) u * w))
-vw = Field((@at (Center, Center, Center) v * w))
-uT = Field((@at (Center, Center, Center) u * T))
-vT = Field((@at (Center, Center, Center) v * T))
-wT = Field((@at (Center, Center, Center) w * T))
-uS = Field((@at (Center, Center, Center) u * S))
-vS = Field((@at (Center, Center, Center) v * S))
-wS = Field((@at (Center, Center, Center) w * S))
-
-# velocity and tracer slices at mid-y (for time-averaging)
-midy_idx = round(Int, params.Ny / 2)
-
-# Point the names to the fields themselves; 
-# the NetCDFWriter with AveragedTimeInterval will handle the time-averaging.
-u_avg = u
-v_avg = v
-w_avg = w
-T_avg = T
-S_avg = S
-
-# Cross-correlations
-uu_avg = uu
-vv_avg = vv
-ww_avg = ww
-uv_avg = uv
-uw_avg = uw
-vw_avg = vw
-uT_avg = uT
-vT_avg = vT
-wT_avg = wT
-uS_avg = uS
-vS_avg = vS
-wS_avg = wS
-
-output_interval = callback_interval
-
-simulation.output_writers[:avg_fields] = NetCDFWriter(
-    model,
-    (; u_avg, v_avg, w_avg, T_avg, S_avg,
-        uu_avg, vv_avg, ww_avg,
-        uv_avg, uw_avg, vw_avg,
-        uT_avg, vT_avg, wT_avg,
-        uS_avg, vS_avg, wS_avg),
-    schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    indices=(:, midy_idx, :),
-    filename="time_avg_$(run_tag).nc",
+simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
+    filename="top_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, :, params.Nz),
     overwrite_existing=overwrite_existing)
 
-# energy stuff
-KE = KineticEnergy(model)
-KE_avg = KE
+# Mid-y XZ slice (cross-shore transect at domain center)
+simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
+    filename="midy_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, round(Int, params.Ny / 2), :),
+    overwrite_existing=overwrite_existing)
+
+# Mid-x YZ slice (along-shore transect at domain center)
+simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
+    filename="midx_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(round(Int, params.Nx / 2), :, :),
+    overwrite_existing=overwrite_existing)
+
+# (2) 3D snapshots (every 20 days)
+simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
+    filename="snapshots_3d_$(run_tag).nc",
+    schedule=TimeInterval(20days),
+    overwrite_existing=overwrite_existing)
+
+# (3) 3D Time Averages (10 day window)
+simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
+    filename="time_avg_3d_$(run_tag).nc",
+    schedule=AveragedTimeInterval(10days, window=10days),
+    overwrite_existing=overwrite_existing)
+
+# Domain-integrated KE time series
 ∫KE = Integral(KE)
-
-EKE = 0.5 * ((uu_avg - u_avg * u_avg) + (vv_avg - v_avg * v_avg) + (ww_avg - w_avg * w_avg))
-EKE_avg = EKE
-
-simulation.output_writers[:ke_avg] = NetCDFWriter(
-    model,
-    (; KE_avg, ∫KE, EKE_avg),
-    filename="KE_avg_$(run_tag).nc",
-    schedule=AveragedTimeInterval(output_interval, window=output_interval),
-    indices=(:, midy_idx, :),
+simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
+    schedule=TimeInterval(callback_interval),
+    filename="KE_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
 if checkpointing
@@ -579,7 +545,8 @@ if !pickup
         @inline Sᵢ(x, y, z) = S_south_pwl(z)
     end
 
-    set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
+    # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
+    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 end
 
 # run simulation

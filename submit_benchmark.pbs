@@ -1,0 +1,25 @@
+#!/bin/bash -l
+#PBS -A uosc0035
+#PBS -N benchmark_shoals
+#PBS -k eod
+#PBS -o logs/benchmark_shoals.out
+#PBS -e logs/benchmark_shoals.err
+#PBS -l walltime=02:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=8:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -M vhieu@unc.edu
+#PBS -m abe
+
+# Clear the environment from any previously loaded modules
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+
+module load peak-memusage
+module li
+
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
+
+# Run benchmark: GPU, full resolution (200x600x50), 50 steps per level
+peak_memusage julia --project src/benchmark_shoals.jl --gpu --full --steps 50 2>&1 | tee out/benchmark_shoals
