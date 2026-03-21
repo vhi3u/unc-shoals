@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#PBS -A uosc0035
+#PBS -A <NAME>
 #PBS -N benchmark_shoals
 #PBS -k eod
 #PBS -o logs/benchmark_shoals.out
@@ -7,7 +7,7 @@
 #PBS -l walltime=02:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=8:ngpus=1:gpu_type=a100:mem=200gb
-#PBS -M vhieu@unc.edu
+#PBS -M <EMAIL>
 #PBS -m abe
 
 # Clear the environment from any previously loaded modules
