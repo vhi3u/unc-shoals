@@ -69,7 +69,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -124,10 +124,10 @@ params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
     Le=60e3, # sponge layer size (east)
-    τₙ=24hours, # relaxation timescale for north sponge
-    τₛ=24hours, # relaxation timescale for south sponge
-    τₑ=5days, # relaxation timescale for east sponge
-    τ_ts=24hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τₙ=6hours, # relaxation timescale for north sponge
+    τₛ=6hours, # relaxation timescale for south sponge
+    τₑ=24hours, # relaxation timescale for east sponge
+    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -345,7 +345,7 @@ if periodic_y
     S_bcs = FieldBoundaryConditions()
     u_bcs = FieldBoundaryConditions(immersed=drag)
     v_bcs = FieldBoundaryConditions(immersed=drag)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=drag)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
@@ -353,7 +353,7 @@ else
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
     u_bcs = FieldBoundaryConditions(immersed=drag)
     v_bcs = FieldBoundaryConditions(immersed=drag, north=open_bc, south=open_bc)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=drag)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -363,17 +363,13 @@ else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
-@info "reltol = $reltol, abstol = $abstol"
-
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
