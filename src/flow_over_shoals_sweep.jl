@@ -69,7 +69,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 20days
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "sweep_$(sweep_run_label)"
 
@@ -351,17 +351,13 @@ else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
-@info "reltol = $reltol, abstol = $abstol"
-
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -373,7 +369,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
