@@ -121,7 +121,7 @@ params = (; params...,
     Le=60e3,
     τₙ=6hours,
     τₛ=6hours,
-    τₑ=24hours,
+    τₑ=10days,
     τ_ts=6hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
