@@ -1,0 +1,55 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# PBS Job Array Script for NCAR Casper GPU Parameter Sweep
+#═══════════════════════════════════════════════════════════════════════════
+#
+# Submit with:  qsub sweep/submit_sweep.pbs
+#
+# The array range should match the number of [[runs]] entries in params.toml.
+# Currently 14 runs → 1-14. Update if you add/remove entries.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N shoal_sweep
+#PBS -k eod
+#PBS -o sweep/logs/sweep.out
+#PBS -e sweep/logs/sweep.err
+#PBS -l walltime=08:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -M vhieu@unc.edu
+#PBS -m abe
+#PBS -J 1-5
+
+# ── Modules ────────────────────────────────────────────────────────────
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+
+module load peak-memusage
+module li
+
+# ── Environment ────────────────────────────────────────────────────────
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
+
+# Project root (update this to your Casper path)
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+# Create output and log directories
+mkdir -p sweep/logs
+mkdir -p output
+mkdir -p out
+
+# ── Launch ─────────────────────────────────────────────────────────────
+echo "════════════════════════════════════════════════════════"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/sweep_${PBS_ARRAY_INDEX}
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"
