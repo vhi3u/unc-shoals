@@ -57,7 +57,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 36 # <-- change this for each new run
+run_number = 38 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
@@ -105,12 +105,12 @@ end
 params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
-    Le=25e3, # sponge layer size (east)
+    Le=60e3, # sponge layer size (east)
     Lw=10e3, # sponge layer size (west)
     τₙ=6hours, # relaxation timescale for north sponge
     τₛ=6hours, # relaxation timescale for south sponge
     τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=1hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -228,17 +228,18 @@ end
 # bottom drag parameters
 # cᴰ = 2.5e-3 # dimensionless drag coefficient
 
-# quadratic drag:
-const κᵛᵏ = 0.4 # von Karman constant
-const Rz = 2.5e-4
-z_0 = Rz * params.Lz
-z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
-c_dz = (κᵛᵏ / log(z₁ / z_0))^2
+# # quadratic drag:
+# const κᵛᵏ = 0.4 # von Karman constant
+# const Rz = 2.5e-4
+# z_0 = Rz * params.Lz
+# z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
+# c_dz = (κᵛᵏ / log(z₁ / z_0))^2
 
-@info "Using z₁ = $z₁"
-@info "Quadratic drag coefficient c_dz = $c_dz"
+# @info "Using z₁ = $z₁"
+# @info "Quadratic drag coefficient c_dz = $c_dz"
 
-drag = BulkDrag(coefficient=c_dz)
+# drag = BulkDrag(coefficient=c_dz)
+
 
 # wind stress parameters
 # τ_wind = 0.14 N/m² southward (from observational data)
@@ -249,11 +250,16 @@ drag = BulkDrag(coefficient=c_dz)
 # wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform southward wind stress at surface
 # @info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v = $τ_kinematic_v m²/s²"
 
+Tₑ_val = 23.11
+Sₑ_val = 35.5
+params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
+
+cᴰ = 2.5e-3
 if LES
-    # @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    # @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    # drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    # drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+    @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
+    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     # wind_bc_v = FluxBoundaryCondition(τ_kinematic_v)  # uniform wind stress on v at surface
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
@@ -350,13 +356,13 @@ if mass_flux
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
         north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts
+        east_mask(x, y, z, p) * (T - Tₑ_val) / p.τ_ts
     )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
         north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts
+        east_mask(x, y, z, p) * (S - Sₑ_val) / p.τ_ts
     )
 end
 
@@ -373,11 +379,11 @@ v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdve
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 v_east = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=ValueBoundaryCondition(tebc))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=ValueBoundaryCondition(sebc))
-u_bcs = FieldBoundaryConditions(immersed=drag, east=OpenBoundaryCondition(0.0))
-v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag, east=v_east)
-w_bcs = FieldBoundaryConditions(immersed=drag)
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=OpenBoundaryCondition(tebc))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=OpenBoundaryCondition(sebc))
+u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag_bc_v)
+w_bcs = FieldBoundaryConditions()
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 if is_coriolis
