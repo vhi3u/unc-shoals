@@ -29,9 +29,10 @@ end
 
 this_run = runs[run_index]
 
-# ── Extract sweep parameters (shelf_depth & shelf_break_end are optional) ─
+# ── Extract sweep parameters (optional parameters use defaults) ──────────
 sweep_Hs = Float64(this_run["Hs"])
 sweep_shoal_length = Float64(this_run["shoal_length"])
+sweep_sigma = Float64(get(this_run, "sigma", 8000.0))
 sweep_shelf_depth = Float64(get(this_run, "shelf_depth", -25.0))
 sweep_shelf_break_end = Float64(get(this_run, "shelf_break_end", 12000.0))
 sweep_run_label = String(this_run["run_label"])
@@ -43,6 +44,7 @@ sweep_run_label = String(this_run["run_label"])
  Label:           $sweep_run_label
  Hs:              $sweep_Hs m
  shoal_length:    $sweep_shoal_length m
+ sigma:           $sweep_sigma m
  shelf_depth:     $sweep_shelf_depth m
  shelf_break_end: $sweep_shelf_break_end m
 ════════════════════════════════════════════════════════
@@ -58,6 +60,7 @@ cd(output_dir)
 # This avoids modifying the simulation script's argument parsing.
 ENV["SWEEP_Hs"] = string(sweep_Hs)
 ENV["SWEEP_SHOAL_LENGTH"] = string(sweep_shoal_length)
+ENV["SWEEP_SIGMA"] = string(sweep_sigma)
 ENV["SWEEP_SHELF_DEPTH"] = string(sweep_shelf_depth)
 ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label

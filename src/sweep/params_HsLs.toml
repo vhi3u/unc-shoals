@@ -8,41 +8,34 @@
 # Parameters:
 #   Hs            - Shoal height above shelf [m]
 #   shoal_length  - Horizontal extent of the shoal ridge [m]
-#   sigma         - Along-shore Gaussian width [m] (default: 8000)
-#   shelf_depth   - Background shelf depth [m] (default: -25.0)
 #   run_label     - A short label for output directory naming
 # ═══════════════════════════════════════════════════════════════════════════
 
-# ── Along-shore Width (Sigma) Sweep ────────────────────────────────────
+# ── Shoal Height Sweep (Ls = 20 km fixed) ──────────────────────────────
 [[runs]]
-run_label     = "Sigma08k"
-Hs            = 15.0
+run_label     = "Hs05_Ls20k"
+Hs            = 5.0
 shoal_length  = 20000.0
-sigma         = 8000.0
 
 [[runs]]
-run_label     = "Sigma16k"
-Hs            = 15.0
+run_label     = "Hs10_Ls20k"
+Hs            = 10.0
 shoal_length  = 20000.0
-sigma         = 16000.0
 
 [[runs]]
-run_label     = "Sigma24k"
+run_label     = "Hs15_Ls20k"
 Hs            = 15.0
 shoal_length  = 20000.0
-sigma         = 24000.0
 
-# ── Shelf Height (Depth) Sweep ─────────────────────────────────────────
-[[runs]]
-run_label     = "ShelfH_m20"
-Hs            = 15.0
-shoal_length  = 20000.0
-sigma         = 8000.0
-shelf_depth   = -20.0
+# ── Shoal Length Sweep (Hs = 15 m fixed) ───────────────────────────────
+# Note: Hs15_Ls20k already covered above
 
 [[runs]]
-run_label     = "ShelfH_m30"
+run_label     = "Hs15_Ls30k"
 Hs            = 15.0
-shoal_length  = 20000.0
-sigma         = 8000.0
-shelf_depth   = -30.0
+shoal_length  = 30000.0
+
+[[runs]]
+run_label     = "Hs15_Ls40k"
+Hs            = 15.0
+shoal_length  = 40000.0
