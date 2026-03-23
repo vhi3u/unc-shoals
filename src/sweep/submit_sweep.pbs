@@ -9,7 +9,7 @@
 # Currently 14 runs → 1-14. Update if you add/remove entries.
 #═══════════════════════════════════════════════════════════════════════════
 
-#PBS -A UOSC0035
+#PBS -A ...
 #PBS -N shoal_sweep
 #PBS -k eod
 #PBS -o sweep/logs/sweep.out
@@ -17,7 +17,7 @@
 #PBS -l walltime=08:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
-#PBS -M vhieu@unc.edu
+#PBS -M ...
 #PBS -m abe
 #PBS -J 1-5
 
