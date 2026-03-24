@@ -214,6 +214,20 @@ params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 # T/S boundary condition helpers
 cᴰ = 2.5e-3
 if LES
+    ρ₀ = 1025.0            # reference seawater density [kg/m³]
+    τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
+    τ_kinematic_v0 = τ_wind / ρ₀   # peak kinematic wind stress on v [m²/s²]
+
+    # Store wind parameters in a NamedTuple to pass to GPU kernels safely
+    wind_stress_params = (; τ₀=τ_kinematic_v0, x₀=50e3, Δx=5e3)
+
+    # Use function with parameters (p) to avoid closure capture issues on GPU
+    @inline wind_stress_v(x, y, t, p) = p.τ₀ * 0.5 * (1.0 - tanh((x - p.x₀) / p.Δx))
+    @inline wind_stress_u(x, y, t, p) = 0.0
+
+    wind_bc_v = FluxBoundaryCondition(wind_stress_v, parameters=wind_stress_params)
+    wind_bc_u = FluxBoundaryCondition(wind_stress_u, parameters=wind_stress_params)
+    @info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v0 = $τ_kinematic_v0 m²/s², transition at x = $(wind_stress_params.x₀ / 1e3) km"
     @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
@@ -348,16 +362,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -375,7 +389,7 @@ if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=DynamicSmagorinsky(),
+        closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
@@ -388,7 +402,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=DynamicSmagorinsky(),
+        closure=AnisotropicMinimumDissipation(),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=reltol, maxiter=maxiter),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),

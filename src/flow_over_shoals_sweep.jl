@@ -123,7 +123,7 @@ params = (; params...,
     Le=60e3,
     τₙ=6hours,
     τₛ=6hours,
-    τₑ=20days,
+    τₑ=24days,
     τ_ts=6hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
@@ -199,11 +199,8 @@ params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 # bottom drag parameters
 cᴰ = 2.5e-3
 if LES
-    # @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    # @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    # testing old bottom drag bcs
-    @inline drag_u(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
+    @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
+    @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
@@ -336,10 +333,8 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    # u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
-    # v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
-    u_bcs = FieldBoundaryConditions(bottom=drag_bc_u)
-    v_bcs = FieldBoundaryConditions(bottom=drag_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
