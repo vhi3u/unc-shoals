@@ -121,9 +121,11 @@ params = (; params...,
     v₀=v₀,
     Ls=50e3,
     Le=60e3,
+    Lw=10e3,
     τₙ=6hours,
     τₛ=6hours,
     τₑ=24days,
+    τw=1hour,
     τ_ts=6hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
@@ -242,6 +244,17 @@ end
     end
 end
 
+@inline function west_mask(x, y, z, p)
+    x0 = 0
+    x1 = p.Lw
+
+    if x0 <= x <= x1
+        return 1 - (x - x0) / (x1 - x0)
+    else
+        return 0.0
+    end
+end
+
 # velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
@@ -274,7 +287,8 @@ if mass_flux
         @inline sponge_v(x, y, z, t, v, p) = -min(
             south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
             north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
+            east_mask(x, y, z, p) * v / p.τₑ,
+            west_mask(x, y, z, p) * v / p.τw)
 
         @inline sponge_w(x, y, z, t, w, p) = -min(
             south_mask(x, y, z, p) * w / p.τₛ,
@@ -299,7 +313,8 @@ if mass_flux
         @inline sponge_v(x, y, z, t, v, p) = -(
             south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
             north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            east_mask(x, y, z, p) * v / p.τₑ)
+            east_mask(x, y, z, p) * v / p.τₑ +
+            west_mask(x, y, z, p) * v / p.τw)
 
         @inline sponge_w(x, y, z, t, w, p) = -(
             south_mask(x, y, z, p) * w / p.τₛ +
