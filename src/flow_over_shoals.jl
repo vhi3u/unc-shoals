@@ -58,8 +58,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 34 # <-- change this for each new run
-sim_runtime = 100days
+run_number = 405 # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -69,7 +69,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10) # keep the same for now
+    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -110,12 +110,8 @@ end
 # store parameters for sponge setup
 params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
-    Ls=50e3, # sponge layer size (north and south)
-    Le=60e3, # sponge layer size (east)
-    τₙ=24hours, # relaxation timescale for north sponge
-    τₛ=24hours, # relaxation timescale for south sponge
-    τₑ=5days, # relaxation timescale for east sponge
-    τ_ts=24hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    Lw=10e3, # western sponge layer size (coast)
+    τw=24hours) # relaxation timescale for western sponge
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -213,33 +209,10 @@ if LES
 end
 
 # mask functions
-@inline function south_mask(x, y, z, p)
-    y0 = 0
-    y1 = p.Ls
-    if y0 <= y <= y1
-        return 1 - y / y1
-    else
-        return 0.0
-    end
-end
-
-@inline function north_mask(x, y, z, p)
-    y0 = p.Ly - p.Ls
-    y1 = p.Ly
-
-    if y0 <= y <= y1
-        return (y - y0) / (y1 - y0)
-    else
-        return 0.0
-    end
-end
-
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Le
-    x1 = p.Lx
-
-    if x0 <= x <= x1
-        return (x - x0) / (x1 - x0)
+@inline function west_mask(x, y, z, p)
+    x1 = p.Lw
+    if x <= x1
+        return 1.0 - x / x1
     else
         return 0.0
     end
@@ -267,70 +240,13 @@ else
 end
 
 # sponge functions
+# sponge functions (ONLY western mask nudging v to 0)
 if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -min(
-            south_mask(x, y, z, p) * u / p.τₛ,
-            north_mask(x, y, z, p) * u / p.τₙ,
-            east_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -min(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₛ,
-            north_mask(x, y, z, p) * w / p.τₙ,
-            east_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
-    else
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            south_mask(x, y, z, p) * u / p.τₛ +
-            north_mask(x, y, z, p) * u / p.τₙ +
-            east_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            east_mask(x, y, z, p) * v / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            south_mask(x, y, z, p) * w / p.τₛ +
-            north_mask(x, y, z, p) * w / p.τₙ +
-            east_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
-    end
-end
-
-# forcing functions
-FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
-if mass_flux
-    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+    @inline sponge_v(x, y, z, t, v, p) = -(west_mask(x, y, z, p) * v / p.τw)
     Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    forcings = (v=Fᵥ,)
 else
-    forcings = (T=FT, S=FS)
+    forcings = NamedTuple()
 end
 
 if periodic_y
@@ -356,17 +272,13 @@ else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(ib_grid))
-abstol = sqrt(eps(ib_grid))
-@info "reltol = $reltol, abstol = $abstol"
-
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -378,7 +290,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,

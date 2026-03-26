@@ -57,8 +57,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 38 # <-- change this for each new run
-sim_runtime = 10days
+run_number = 42 # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
 run_tag = "bdd_shoals$(run_number)"
 
@@ -105,12 +105,12 @@ end
 params = (; params...,
     v₀=v₀, # add v₀ to params for GPU compatibility
     Ls=50e3, # sponge layer size (north and south)
-    Le=60e3, # sponge layer size (east)
+    Le=35e3, # sponge layer starts at x = 65km (after shelf break)
     Lw=10e3, # sponge layer size (west)
-    τₙ=6hours, # relaxation timescale for north sponge
-    τₛ=6hours, # relaxation timescale for south sponge
-    τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+    τₙ=24hours, # relaxation timescale for north sponge
+    τₛ=24hours, # relaxation timescale for south sponge
+    τₑ=4hours,  # aggressive relaxation for east sponge (sink)
+    τ_ts=24hours) # relaxation timescale for temperature and salinity sponges
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -311,7 +311,7 @@ end
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        xS = 60e3
+        xS = 65e3  # background jet exists only on the shelf
         Lw = p.Lx
         k1 = 80 / Lw
         k2 = 40 / Lw
@@ -339,30 +339,36 @@ if mass_flux
     @inline sponge_u(x, y, z, t, u, p) = -(
         south_mask(x, y, z, p) * u / p.τₛ +
         north_mask(x, y, z, p) * u / p.τₙ +
-        east_mask(x, y, z, p) * u / p.τₑ
+        east_mask(x, y, z, p) * u / p.τₑ +
+        west_mask(x, y, z, p) * u / p.τₑ
     )
 
     @inline sponge_v(x, y, z, t, v, p) = -(
         south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
         north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-        east_mask(x, y, z, p) * v / p.τₑ
+        east_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ +
+        west_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ
     )
+
     @inline sponge_w(x, y, z, t, w, p) = -(
         south_mask(x, y, z, p) * w / p.τₛ +
         north_mask(x, y, z, p) * w / p.τₙ +
-        east_mask(x, y, z, p) * w / p.τₑ
+        east_mask(x, y, z, p) * w / p.τₑ +
+        west_mask(x, y, z, p) * w / p.τₑ
     )
 
     @inline sponge_T(x, y, z, t, T, p) = -(
         south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (T - Tₑ_val) / p.τ_ts
+        north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts +
+        west_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts
     )
 
     @inline sponge_S(x, y, z, t, S, p) = -(
         south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-        east_mask(x, y, z, p) * (S - Sₑ_val) / p.τ_ts
+        north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+        east_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts +
+        west_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts
     )
 end
 
@@ -378,11 +384,12 @@ forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
 v_north = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 v_south = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 v_east = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
+u_east = OpenBoundaryCondition(0.0)
 
 T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc), east=OpenBoundaryCondition(tebc))
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc), east=OpenBoundaryCondition(sebc))
-u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
-v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, immersed=drag_bc_v)
+u_bcs = FieldBoundaryConditions(east=u_east, immersed=drag_bc_u)
+v_bcs = FieldBoundaryConditions(north=v_north, south=v_south, east=v_east, immersed=drag_bc_v)
 w_bcs = FieldBoundaryConditions()
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
