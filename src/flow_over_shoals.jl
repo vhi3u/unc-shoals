@@ -58,8 +58,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 1 # <-- change this for each new run
-sim_runtime = 100days
+run_number = 705 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -119,15 +119,8 @@ else
     v₀ = 0.0
 end
 
-# store parameters for sponge setup
-params = (; params...,
-    v₀=v₀, # add v₀ to params for GPU compatibility
-    Ls=50e3, # sponge layer size (north and south)
-    Le=60e3, # sponge layer size (east)
-    τₙ=6hours, # relaxation timescale for north sponge
-    τₛ=6hours, # relaxation timescale for south sponge
-    τₑ=24hours, # relaxation timescale for east sponge
-    τ_ts=6hours) # relaxation timescale for temperature and salinity at the north and south boundaries
+# store parameters
+params = (; params..., v₀=v₀)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -238,38 +231,6 @@ if LES
     @inline snbc(x, z, t) = S_north_pwl(z)
 end
 
-# mask functions
-@inline function south_mask(x, y, z, p)
-    y0 = 0
-    y1 = p.Ls
-    if y0 <= y <= y1
-        return 1 - y / y1
-    else
-        return 0.0
-    end
-end
-
-@inline function north_mask(x, y, z, p)
-    y0 = p.Ly - p.Ls
-    y1 = p.Ly
-
-    if y0 <= y <= y1
-        return (y - y0) / (y1 - y0)
-    else
-        return 0.0
-    end
-end
-
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Le
-    x1 = p.Lx
-
-    if x0 <= x <= x1
-        return (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
-end
 
 # velocity function
 if sigmoid_v_bc
@@ -292,72 +253,6 @@ else
     end
 end
 
-# sponge functions
-if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -min(
-            south_mask(x, y, z, p) * u / p.τₛ,
-            north_mask(x, y, z, p) * u / p.τₙ,
-            east_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -min(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ,
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ,
-            east_mask(x, y, z, p) * v / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -min(
-            south_mask(x, y, z, p) * w / p.τₛ,
-            north_mask(x, y, z, p) * w / p.τₙ,
-            east_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -min(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -min(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts,
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts,
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
-    else
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            south_mask(x, y, z, p) * u / p.τₛ +
-            north_mask(x, y, z, p) * u / p.τₙ +
-            east_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            south_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₛ +
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            east_mask(x, y, z, p) * v / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            south_mask(x, y, z, p) * w / p.τₛ +
-            north_mask(x, y, z, p) * w / p.τₙ +
-            east_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            south_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (T - p.Tₑ) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            south_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
-            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
-            east_mask(x, y, z, p) * (S - p.Sₑ) / p.τ_ts)
-    end
-end
-
-# forcing functions
-FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
-if mass_flux
-    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
-else
-    forcings = (T=FT, S=FS)
-end
 
 if periodic_y
     T_bcs = FieldBoundaryConditions()
@@ -395,8 +290,7 @@ if periodic_y
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
     )
 else
     model = NonhydrostaticModel(ib_grid;
@@ -407,8 +301,7 @@ else
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
     )
 end
 
@@ -534,33 +427,9 @@ end
 
 if !pickup
     @info "No checkpoint found, setting initial conditions"
-    # initial conditions
-    uᵢ = 0.005 * rand(size(u)...)
-    vᵢ = 0.005 * rand(size(v)...)
-    wᵢ = 0.005 * rand(size(w)...)
-    uᵢ .-= mean(uᵢ)
-    vᵢ .-= mean(vᵢ)
-    wᵢ .-= mean(wᵢ)
-    uᵢ .+= 0
-    if sigmoid_ic
-        xv, yv, zv = nodes(v, reshape=true)
-        vᵢ .+= v∞.(xv, zv, 0, Ref(params))
-    else
-        vᵢ .+= v₀
-    end
-
-    if gradient_IC
-        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-        @inline blend(a, b, α) = (1 - α) * a + α * b
-        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
-    else
-        @inline Tᵢ(x, y, z) = T_south_pwl(z)
-        @inline Sᵢ(x, y, z) = S_south_pwl(z)
-    end
-
-    # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
-    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+    T_I(x, y, z) = T_south_pwl(z)
+    S_i(x, y, z) = S_south_pwl(z)
+    set!(model, v=(x, y, z) -> v∞(x, z, 0, params), T=T_I, S=S_i)
 end
 
 # run simulation
