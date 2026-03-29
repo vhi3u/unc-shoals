@@ -1,0 +1,48 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Parameter Sweep Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Each [[runs]] entry defines one simulation.
+# The PBS job array index (1-based) maps to the order of entries here.
+#
+# Parameters:
+#   Hs            - Shoal height above shelf [m]
+#   shoal_length  - Horizontal extent of the shoal ridge [m]
+#   sigma         - Along-shore Gaussian width [m] (default: 8000)
+#   shelf_depth   - Background shelf depth [m] (default: -25.0)
+#   run_label     - A short label for output directory naming
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Along-shore Width (Sigma) Sweep ────────────────────────────────────
+[[runs]]
+run_label     = "Sigma08k"
+Hs            = 15.0
+shoal_length  = 20000.0
+sigma         = 8000.0
+
+[[runs]]
+run_label     = "Sigma16k"
+Hs            = 15.0
+shoal_length  = 20000.0
+sigma         = 16000.0
+
+[[runs]]
+run_label     = "Sigma24k"
+Hs            = 15.0
+shoal_length  = 20000.0
+sigma         = 24000.0
+
+# ── Shelf Height (Depth) Sweep ─────────────────────────────────────────
+[[runs]]
+run_label     = "ShelfH_m20"
+Hs            = 15.0
+shoal_length  = 20000.0
+sigma         = 8000.0
+shelf_depth   = -20.0
+
+[[runs]]
+run_label     = "ShelfH_m30"
+Hs            = 15.0
+shoal_length  = 20000.0
+sigma         = 8000.0
+shelf_depth   = -30.0

@@ -1,23 +1,14 @@
-# using Pkg
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# Pkg.add("NCDatasets");
-# Pkg.add("DataFrames");
-# Pkg.add("Interpolations");
-# Pkg.add("CUDA");
-# Pkg.add("Oceanostics");
-# Pkg.add("CSV");
-# Pkg.add("Statistics");
-# Pkg.add("SeawaterPolynomials");
-# import Pkg;
-# # Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
+# ═══════════════════════════════════════════════════════════════════════════
+# flow_over_shoals_sweep.jl
+# ═══════════════════════════════════════════════════════════════════════════
+# Modified version of flow_over_shoals.jl for parameter sweeps.
+# Reads sweep parameters from environment variables set by sweep_driver.jl:
+#   SWEEP_Hs, SWEEP_SHOAL_LENGTH, SWEEP_SHELF_DEPTH, SWEEP_SHELF_BREAK_END,
+#   SWEEP_RUN_LABEL, SWEEP_RUN_INDEX
+# ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded, minimum_zspacing
+using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
@@ -35,6 +26,20 @@ using Printf: @sprintf
 using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Read sweep parameters from environment (set by sweep_driver.jl)
+# Falls back to defaults so script can also be run standalone.
+# ═══════════════════════════════════════════════════════════════════════════
+sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "15.0"))
+sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "20000.0"))
+sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
+sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
+sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
+sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
+sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
+
+@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end"
 
 # build
 @info "building domain"
@@ -55,13 +60,19 @@ else
     arch = CPU()
 end
 @info "architecture = $(arch)"
-include("dshoal_vn_param.jl")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Bathymetry (shared with flow_over_shoals.jl)
+# ═══════════════════════════════════════════════════════════════════════════
+include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+
+# ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
-run_number = 705 # <-- change this for each new run
-sim_runtime = 10days
+# ═══════════════════════════════════════════════════════════════════════════
+run_number = sweep_run_index
+sim_runtime = 100days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = "sweep_$(sweep_run_label)"
 
 if LES
     params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -69,7 +80,7 @@ else
     params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
+    params = (; params..., Nx=30, Ny=60, Nz=10)
 else
     params = (; params..., Nx=200, Ny=600, Nz=50)
 end
@@ -77,7 +88,6 @@ end
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # grid  
-
 if periodic_y
     grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 else
@@ -85,26 +95,13 @@ else
 end
 
 # model parameters
-
-# # quadratic drag (log-law)
-# const κᵛᵏ = 0.4    # von Kármán constant
-# const Rz = 2.5e-4 # roughness fraction of domain depth
-# z_0 = Rz * params.Lz
-# z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
-# c_dz = (κᵛᵏ / log(z₁ / z_0))^2
-
-# @info "Using z₁ = $z₁"
-# @info "Quadratic drag coefficient c_dz = $c_dz"
-
-# drag = BulkDrag(coefficient=c_dz)
-
 if shoal_bath
-    # Define shoal parameters (align with the new sigmoidal setup)
-    Hs = 15.0         # Height of shoal above -25m shelf
-    sigma = 8e3       # Gaussian width of shoal (half crossover)
-    shoal_length = 20e3 # Horizontal span of the shoal ridge
-
-    slope_bottom = dshoal_param_bottom(params.Ly; Hs=Hs, sigma=sigma, shoal_length=shoal_length)
+    slope_bottom = dshoal_param_bottom(params.Ly;
+        Hs=sweep_Hs,
+        shoal_length=sweep_shoal_length,
+        sigma=sweep_sigma,
+        shelf_depth=sweep_shelf_depth,
+        shelf_break_end=sweep_shelf_break_end)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -114,7 +111,7 @@ end
 @info ib_grid
 
 if mass_flux
-    v₀ = 0.10 # [m/s] mean flow velocity
+    v₀ = 0.10
 else
     v₀ = 0.0
 end
@@ -123,35 +120,25 @@ end
 params = (; params..., v₀=v₀)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
-# B1 = North, B2 = South
-# Uses tanh blending for smooth transitions (equivalent to MATLAB smoothdata)
-# δ = smoothing length scale (meters), set to ~2.5m for 5m effective smoothing
+const δ_smooth = 2.5
 
-const δ_smooth = 2.5  # smoothing length scale in meters
-
-# Smooth transition function: 0 when z >> z0, 1 when z << z0
 @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
-# Temperature at North boundary (B1) - SMOOTHED
 @inline function T_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 20.5389, 17.8875, 14.3323
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    # Piecewise linear values
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    # Smooth blending between segments
-    w1 = smooth_step(z, z1)  # 0 above z1, 1 below z1
-    w2 = smooth_step(z, z2)  # 0 above z2, 1 below z2
-    w3 = smooth_step(z, z3)  # 0 above z3, 1 below z3
-    # Blend: start with val1, transition to val2 at z1, to val3 at z2, to val4 at z3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Temperature at South boundary (B2) - SMOOTHED
 @inline function T_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 24.5378, 24.3073, 23.4116
@@ -167,7 +154,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at North boundary (B1) - SMOOTHED
 @inline function S_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 32.6264, 33.7062, 33.2648
@@ -183,7 +169,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at South boundary (B2) - SMOOTHED
 @inline function S_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 35.5830, 35.9986, 36.1776
@@ -204,23 +189,9 @@ Tₑ_val = 23.11
 Sₑ_val = 35.5
 params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
 
-# T/S boundary condition helpers
+# bottom drag parameters
 cᴰ = 2.5e-3
 if LES
-    ρ₀ = 1025.0            # reference seawater density [kg/m³]
-    τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
-    τ_kinematic_v0 = τ_wind / ρ₀   # peak kinematic wind stress on v [m²/s²]
-
-    # Store wind parameters in a NamedTuple to pass to GPU kernels safely
-    wind_stress_params = (; τ₀=τ_kinematic_v0, x₀=50e3, Δx=5e3)
-
-    # Use function with parameters (p) to avoid closure capture issues on GPU
-    @inline wind_stress_v(x, y, t, p) = p.τ₀ * 0.5 * (1.0 - tanh((x - p.x₀) / p.Δx))
-    @inline wind_stress_u(x, y, t, p) = 0.0
-
-    wind_bc_v = FluxBoundaryCondition(wind_stress_v, parameters=wind_stress_params)
-    wind_bc_u = FluxBoundaryCondition(wind_stress_u, parameters=wind_stress_params)
-    @info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v0 = $τ_kinematic_v0 m²/s², transition at x = $(wind_stress_params.x₀ / 1e3) km"
     @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
     @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
     drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
@@ -257,16 +228,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -276,9 +247,6 @@ if is_coriolis
 else
     coriolis = nothing
 end
-
-# reltol = 1e-5
-# maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
@@ -297,7 +265,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=reltol, maxiter=maxiter),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -307,36 +275,13 @@ end
 
 @info "" model
 
-# Check for existing checkpoint to determine if we should pickup or start fresh
-if checkpointing
-    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
-    checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2"), readdir("."))
-    if !isempty(checkpoint_files)
-        @info "Found checkpoint file(s) - will restore when simulation runs"
-        pickup = true
-    else
-        pickup = false
-    end
-else
-    pickup = false
-end
-
-# output
-
-@info "creating output fields"
-
-# Don't overwrite the NetCDF file when picking up from a checkpoint
+pickup = false
 overwrite_existing = !pickup
 
-cfl_values = Float64[]       # Stores CFL at each step
-cfl_times = Float64[]       # Stores model time
-
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-
 conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
 
 progress = TimedMessenger()
-
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 function print_solver_iterations(sim)
@@ -416,30 +361,38 @@ simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
     filename="KE_$(run_tag).nc",
     overwrite_existing=overwrite_existing)
 
-if checkpointing
-    checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
-    simulation.output_writers[:checkpointer] = Checkpointer(model,
-        schedule=TimeInterval(5days),
-        prefix=checkpoint_prefix,
-        overwrite_existing=true,
-        cleanup=true)
+# ── Save sweep metadata to a small NetCDF file for postprocessing ──────
+using NCDatasets
+NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
+    ds.attrib["run_label"] = sweep_run_label
+    ds.attrib["run_index"] = sweep_run_index
+    ds.attrib["Hs"] = sweep_Hs
+    ds.attrib["shoal_length"] = sweep_shoal_length
+    ds.attrib["shelf_depth"] = sweep_shelf_depth
+    ds.attrib["shelf_break_end"] = sweep_shelf_break_end
 end
 
-if !pickup
-    @info "No checkpoint found, setting initial conditions"
-    T_I(x, y, z) = T_south_pwl(z)
-    S_i(x, y, z) = S_south_pwl(z)
-    set!(model, v=(x, y, z) -> v∞(x, z, 0, params), T=T_I, S=S_i)
-end
+# initial conditions
+@info "Setting initial conditions"
+T_I(x, y, z) = T_south_pwl(z)
+S_i(x, y, z) = S_south_pwl(z)
+set!(model, v = (x, y, z) -> v∞(x, z, 0, params), T=T_I, S=S_i)
 
 # run simulation
 @info """
 ════════════════════════════════════════════════════════
- SIMULATION CONFIGURATION: $(run_tag)
+ SWEEP SIMULATION: $(run_tag)
 ════════════════════════════════════════════════════════
- Run number:      $(run_number)
+ Run label:       $(sweep_run_label)
+ Run index:       $(sweep_run_index)
  Runtime:         $(sim_runtime)
  Architecture:    $(arch)
+
+ ── Sweep Parameters ──
+ Hs:              $(sweep_Hs) m
+ shoal_length:    $(sweep_shoal_length) m
+ shelf_depth:     $(sweep_shelf_depth) m
+ shelf_break_end: $(sweep_shelf_break_end) m
 
  ── Switches ──
  LES:             $(LES)
@@ -449,8 +402,7 @@ end
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)
  is_coriolis:     $(is_coriolis)
- checkpointing:   $(checkpointing)
  shoal_bath:      $(shoal_bath)
- ════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
