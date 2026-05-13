@@ -58,8 +58,8 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 804 # <-- change this for each new run
-sim_runtime = 100days
+run_number = 0000 # <-- change this for each new run
+sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
@@ -69,7 +69,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
-    params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
+    params = (; params..., Nx=50, Ny=100, Nz=10) # keep the same for now
 else
     params = (; params..., Nx=200, Ny=400, Nz=50)
 end
