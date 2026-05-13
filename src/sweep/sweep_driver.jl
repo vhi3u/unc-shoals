@@ -19,12 +19,12 @@ run_index = parse(Int, ARGS[1])
 @info "Sweep driver starting for run index = $run_index"
 
 # ── Load parameter table ───────────────────────────────────────────────
-params_file = joinpath(@__DIR__, "params.toml")
+params_file = joinpath(@__DIR__, "params_HsLs.toml")
 config = TOML.parsefile(params_file)
 runs = config["runs"]
 
 if run_index < 1 || run_index > length(runs)
-    error("Run index $run_index is out of range. params.toml has $(length(runs)) entries.")
+    error("Run index $run_index is out of range. $params_file has $(length(runs)) entries.")
 end
 
 this_run = runs[run_index]
@@ -37,6 +37,10 @@ sweep_shelf_depth = Float64(get(this_run, "shelf_depth", -25.0))
 sweep_shelf_break_end = Float64(get(this_run, "shelf_break_end", 12000.0))
 sweep_run_label = String(this_run["run_label"])
 
+# New parameters
+sweep_strat = String(get(this_run, "strat", "default"))
+sweep_wind_stress = Float64(get(this_run, "wind_stress", 0.0))
+
 @info """
 ════════════════════════════════════════════════════════
  SWEEP PARAMETERS (run $run_index / $(length(runs)))
@@ -47,6 +51,8 @@ sweep_run_label = String(this_run["run_label"])
  sigma:           $sweep_sigma m
  shelf_depth:     $sweep_shelf_depth m
  shelf_break_end: $sweep_shelf_break_end m
+ Stratification:  $sweep_strat
+ Wind Stress:     $sweep_wind_stress N/m^2
 ════════════════════════════════════════════════════════
 """
 
@@ -63,6 +69,8 @@ ENV["SWEEP_SHOAL_LENGTH"] = string(sweep_shoal_length)
 ENV["SWEEP_SIGMA"] = string(sweep_sigma)
 ENV["SWEEP_SHELF_DEPTH"] = string(sweep_shelf_depth)
 ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
+ENV["SWEEP_STRAT"] = sweep_strat
+ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
 ENV["SWEEP_RUN_INDEX"] = string(run_index)
 

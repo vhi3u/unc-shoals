@@ -58,20 +58,20 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 705 # <-- change this for each new run
-sim_runtime = 10days
+run_number = 804 # <-- change this for each new run
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
 
 if LES
-    params = (; Lx=100e3, Ly=300e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
 else
-    params = (; Lx=100000, Ly=300000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
 end
 if arch == CPU()
     params = (; params..., Nx=50, Ny=150, Nz=10) # keep the same for now
 else
-    params = (; params..., Nx=200, Ny=600, Nz=50)
+    params = (; params..., Nx=200, Ny=400, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -100,7 +100,7 @@ end
 
 if shoal_bath
     # Define shoal parameters (align with the new sigmoidal setup)
-    Hs = 15.0         # Height of shoal above -25m shelf
+    Hs = 5.0         # Height of shoal above -25m shelf
     sigma = 8e3       # Gaussian width of shoal (half crossover)
     shoal_length = 20e3 # Horizontal span of the shoal ridge
 
@@ -112,15 +112,16 @@ else
 end
 
 @info ib_grid
+v₀ = 0.1
 
-if mass_flux
-    v₀ = 0.10 # [m/s] mean flow velocity
-else
-    v₀ = 0.0
-end
-
-# store parameters
-params = (; params..., v₀=v₀)
+params = (; params...,
+    v₀=v₀,
+    Ls=10e3,
+    Le=40e3,
+    τₙ=6hours,
+    τₛ=24hours,
+    τₑ=24hours,
+    τ_ts=24hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 # B1 = North, B2 = South
@@ -138,20 +139,16 @@ const δ_smooth = 2.5  # smoothing length scale in meters
     v1, v2, v3 = 20.5389, 17.8875, 14.3323
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
-    # Piecewise linear values
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    # Smooth blending between segments
-    w1 = smooth_step(z, z1)  # 0 above z1, 1 below z1
-    w2 = smooth_step(z, z2)  # 0 above z2, 1 below z2
-    w3 = smooth_step(z, z3)  # 0 above z3, 1 below z3
-    # Blend: start with val1, transition to val2 at z1, to val3 at z2, to val4 at z3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Temperature at South boundary (B2) - SMOOTHED
 @inline function T_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 24.5378, 24.3073, 23.4116
@@ -167,7 +164,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at North boundary (B1) - SMOOTHED
 @inline function S_north_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v1, v2, v3 = 32.6264, 33.7062, 33.2648
@@ -183,7 +179,6 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Salinity at South boundary (B2) - SMOOTHED
 @inline function S_south_pwl(z)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v1, v2, v3 = 35.5830, 35.9986, 36.1776
@@ -199,38 +194,112 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Eastern boundary T/S constants
-Tₑ_val = 23.11
-Sₑ_val = 35.5
-params = (; params..., Tₑ=Tₑ_val, Sₑ=Sₑ_val)
+# Temperature at East boundary (Offshore) - STRATIFIED
+@inline function T_east_pwl(z)
+    z1, z2, z3 = -5.0, -25.0, -45.0
+    v1, v2, v3 = 25.0, 23.0, 21.0
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Salinity at East boundary (Offshore) - STABLE (Saltier at depth)
+@inline function S_east_pwl(z)
+    z1, z2, z3 = -5.0, -25.0, -45.0
+    v1, v2, v3 = 35.8, 36.0, 36.2      # Flipped: 35.8 at surface, 36.2 at bottom
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Eastern boundary targets are now functions of z
+params = (; params...)
 
 # T/S boundary condition helpers
 cᴰ = 2.5e-3
+# bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
+@inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
+@inline drag_v(x, y, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
+# immersed drag (immersed boundary): signature (x, y, z, t, field_deps..., params)
+@inline immersed_drag_u(x, y, z, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
+@inline immersed_drag_v(x, y, z, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
+drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
+drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
+immersed_drag_bc_u = FluxBoundaryCondition(immersed_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
+immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
 if LES
-    ρ₀ = 1025.0            # reference seawater density [kg/m³]
-    τ_wind = -0.14          # wind stress magnitude [N/m²] (negative = southward)
-    τ_kinematic_v0 = τ_wind / ρ₀   # peak kinematic wind stress on v [m²/s²]
-
-    # Store wind parameters in a NamedTuple to pass to GPU kernels safely
-    wind_stress_params = (; τ₀=τ_kinematic_v0, x₀=50e3, Δx=5e3)
-
-    # Use function with parameters (p) to avoid closure capture issues on GPU
-    @inline wind_stress_v(x, y, t, p) = p.τ₀ * 0.5 * (1.0 - tanh((x - p.x₀) / p.Δx))
-    @inline wind_stress_u(x, y, t, p) = 0.0
-
-    wind_bc_v = FluxBoundaryCondition(wind_stress_v, parameters=wind_stress_params)
-    wind_bc_u = FluxBoundaryCondition(wind_stress_u, parameters=wind_stress_params)
-    @info "Wind stress: τ_wind = $τ_wind N/m², τ_kinematic_v0 = $τ_kinematic_v0 m²/s², transition at x = $(wind_stress_params.x₀ / 1e3) km"
-    @inline drag_u(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * u
-    @inline drag_v(x, y, z, t, u, v, p) = -p.cᴰ * √(u^2 + v^2) * v
-    drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
-    drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=(; cᴰ=cᴰ,))
     @inline tsbc(x, z, t) = T_south_pwl(z)
     @inline tnbc(x, z, t) = T_north_pwl(z)
     @inline ssbc(x, z, t) = S_south_pwl(z)
     @inline snbc(x, z, t) = S_north_pwl(z)
 end
 
+# wind stress BCs from wind speed (bulk formula, cf. kencode.jl)
+# Ramp up over τ_ramp to suppress near-inertial oscillations from impulsive start
+# ρₐ = 1.225   # kg m⁻³, average density of air at sea-level
+# ρₒ = 1028.0  # kg m⁻³, average density of seawater
+# u_w = 0.0    # m s⁻¹, 10-m wind speed (cross-shore)
+# v_w = 10.0   # m s⁻¹, 10-m wind speed (along-shore)
+# const Qu_wind_full = -ρₐ / ρₒ * cᴰ * u_w * abs(u_w)  # m² s⁻²
+# const Qv_wind_full = -ρₐ / ρₒ * cᴰ * v_w * abs(v_w)  # m² s⁻²
+# const τ_ramp = 2 * 86400.0  # ramp-up time in seconds (~2 days ≈ 2 inertial periods)
+# @inline wind_ramp(t) = tanh(t / τ_ramp)
+# @inline wind_flux_u(x, y, t) = Qu_wind_full * wind_ramp(t)
+# @inline wind_flux_v(x, y, t) = Qv_wind_full * wind_ramp(t)
+# wind_bc_u = FluxBoundaryCondition(wind_flux_u)
+# wind_bc_v = FluxBoundaryCondition(wind_flux_v)
+
+# mask functions
+@inline function south_mask(x, y, z, p)
+    y0 = 0
+    y1 = p.Ls
+    if y0 <= y <= y1
+        return 1 - y / y1
+    else
+        return 0.0
+    end
+end
+
+@inline function north_mask(x, y, z, p)
+    y0 = p.Ly - p.Ls
+    y1 = p.Ly
+
+    if y0 <= y <= y1
+        return (y - y0) / (y1 - y0)
+    else
+        return 0.0
+    end
+end
+
+@inline function east_mask(x, y, z, p)
+    x0 = p.Lx - p.Le
+    x1 = p.Lx
+
+    if x0 <= x <= x1
+        return (x - x0) / (x1 - x0)
+    else
+        return 0.0
+    end
+end
+
+# offshore mask: sigmoid (tanh) taper centered at the shelf break
+# σ_off controls the half-width of the transition (larger = wider, more gradual)
+const σ_off = 20e3   # half-width of sigmoid taper (m)
+@inline offshore_mask(x, y, z, p) = 0.5 * (1.0 + tanh((x - 60e3) / σ_off))
 
 # velocity function
 if sigmoid_v_bc
@@ -253,20 +322,77 @@ else
     end
 end
 
+# sponge functions
+if mass_flux
+    if periodic_y
+        @inline sponge_u(x, y, z, t, u, p) = -(
+            north_mask(x, y, z, p) * u / p.τₙ +
+            offshore_mask(x, y, z, p) * u / p.τₑ)
+
+        @inline sponge_v(x, y, z, t, v, p) = -(
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
+
+        @inline sponge_w(x, y, z, t, w, p) = -(
+            north_mask(x, y, z, p) * w / p.τₙ +
+            offshore_mask(x, y, z, p) * w / p.τₑ)
+
+        @inline sponge_T(x, y, z, t, T, p) = -(
+            north_mask(x, y, z, p) * (T - T_south_pwl(z)) / p.τ_ts +
+            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
+
+        @inline sponge_S(x, y, z, t, S, p) = -(
+            north_mask(x, y, z, p) * (S - S_south_pwl(z)) / p.τ_ts +
+            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
+    else
+        # Bounded case
+        @inline sponge_u(x, y, z, t, u, p) = -(
+            north_mask(x, y, z, p) * u / p.τₙ +
+            offshore_mask(x, y, z, p) * u / p.τₑ)
+
+        @inline sponge_v(x, y, z, t, v, p) = -(
+            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
+
+        @inline sponge_w(x, y, z, t, w, p) = -(
+            north_mask(x, y, z, p) * w / p.τₙ +
+            offshore_mask(x, y, z, p) * w / p.τₑ)
+
+        @inline sponge_T(x, y, z, t, T, p) = -(
+            north_mask(x, y, z, p) * (T - T_north_pwl(z)) / p.τ_ts +
+            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts)
+
+        @inline sponge_S(x, y, z, t, S, p) = -(
+            north_mask(x, y, z, p) * (S - S_north_pwl(z)) / p.τ_ts +
+            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts)
+    end
+end
+
+# forcing functions
+FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
+FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+if mass_flux
+    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
+    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
+    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+else
+    forcings = (T=FT, S=FS)
+end
 
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u) # top=wind_bc_u
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v) # top=wind_bc_v
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=drag_bc_u, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc)
     w_bcs = FieldBoundaryConditions()
 end
 
@@ -290,7 +416,8 @@ if periodic_y
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs
+        boundary_conditions=bcs,
+        forcing=forcings
     )
 else
     model = NonhydrostaticModel(ib_grid;
@@ -301,7 +428,8 @@ else
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs
+        boundary_conditions=bcs,
+        forcing=forcings
     )
 end
 
@@ -333,7 +461,7 @@ cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 
-conjure_time_step_wizard!(simulation, cfl=0.9, diffusive_cfl=0.8)
+conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
 
 progress = TimedMessenger()
 
@@ -390,18 +518,18 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_existing=overwrite_existing)
 
-# Mid-x YZ slice (along-shore transect at domain center)
-simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-    filename="midx_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(round(Int, params.Nx / 2), :, :),
-    overwrite_existing=overwrite_existing)
+# # Mid-x YZ slice (along-shore transect at domain center)
+# simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
+#     filename="midx_$(run_tag).nc",
+#     schedule=TimeInterval(callback_interval),
+#     indices=(round(Int, params.Nx / 2), :, :),
+#     overwrite_existing=overwrite_existing)
 
-# (2) 3D snapshots (every 20 days)
-simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-    filename="snapshots_3d_$(run_tag).nc",
-    schedule=TimeInterval(20days),
-    overwrite_existing=overwrite_existing)
+# # (2) 3D snapshots (every 20 days)
+# simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
+#     filename="snapshots_3d_$(run_tag).nc",
+#     schedule=TimeInterval(20days),
+#     overwrite_existing=overwrite_existing)
 
 # (3) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
@@ -409,12 +537,12 @@ simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_existing=overwrite_existing)
 
-# Domain-integrated KE time series
-∫KE = Integral(KE)
-simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-    schedule=TimeInterval(callback_interval),
-    filename="KE_$(run_tag).nc",
-    overwrite_existing=overwrite_existing)
+# # Domain-integrated KE time series
+# ∫KE = Integral(KE)
+# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
+#     schedule=TimeInterval(callback_interval),
+#     filename="KE_$(run_tag).nc",
+#     overwrite_existing=overwrite_existing)
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
@@ -427,9 +555,33 @@ end
 
 if !pickup
     @info "No checkpoint found, setting initial conditions"
-    T_I(x, y, z) = T_south_pwl(z)
-    S_i(x, y, z) = S_south_pwl(z)
-    set!(model, v=(x, y, z) -> v∞(x, z, 0, params), T=T_I, S=S_i)
+    # initial conditions
+    uᵢ = 0.005 * rand(size(u)...)
+    vᵢ = 0.005 * rand(size(v)...)
+    wᵢ = 0.005 * rand(size(w)...)
+    uᵢ .-= mean(uᵢ)
+    vᵢ .-= mean(vᵢ)
+    wᵢ .-= mean(wᵢ)
+    uᵢ .+= 0
+    if sigmoid_ic
+        xv, yv, zv = nodes(v, reshape=true)
+        vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+    else
+        vᵢ .+= v₀
+    end
+
+    if gradient_IC
+        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+        @inline blend(a, b, α) = (1 - α) * a + α * b
+        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
+    else
+        @inline Tᵢ(x, y, z) = T_south_pwl(z)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z)
+    end
+
+    # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
+    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 end
 
 # run simulation
