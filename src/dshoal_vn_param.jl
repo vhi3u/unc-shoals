@@ -27,7 +27,7 @@ Shoal Geometry:
 # ── Background bathymetry ───────────────────────────────────────────────
 
 @inline function param_background_depth(x)
-    h0, h1, h2, h3, h4 = -3.0, -5.0, -25.0, -30.0, -50.0
+    h0, h1, h2, h3, h4 = -5.0, -7.0, -25.0, -30.0, -50.0
 
     # Transitions midpoint and width
     # 1. Coastal ramp (0-5km)
@@ -124,7 +124,7 @@ end
     potential_height = smooth_max(0.0, elevation_target - hw, 2.0)
 
     # Apply spatial factors and add to background
-    return min(-1.0, hw + potential_height * factor)
+    return min(-5.0, hw + potential_height * factor)
 end
 
 # ── Public constructor ──────────────────────────────────────────────────
