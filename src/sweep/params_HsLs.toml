@@ -1,0 +1,69 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Parameter Sweep Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Each [[runs]] entry defines one simulation.
+# The PBS job array index (1-based) maps to the order of entries here.
+#
+# Parameters:
+#   Hs            - Shoal height above shelf [m]
+#   shoal_length  - Horizontal extent of the shoal ridge [m]
+#   sigma         - Along-shore Gaussian width [m] (default: 8000.0)
+#   shelf_depth   - Background shelf depth [m] (default: -25.0)
+#   strat         - Stratification scenario ("default", "winter", "summer")
+#   wind_stress   - Surface wind stress [N/m^2] (default: 0.0)
+#   run_label     - A short label for output directory naming
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Shoal Geometry Sweep (Ls = 20-40 km, Hs = 5-15 m) ─────────────────
+[[runs]]
+run_label     = "Hs05_Ls20k"
+Hs            = 5.0
+shoal_length  = 20000.0
+
+[[runs]]
+run_label     = "Hs10_Ls20k"
+Hs            = 10.0
+shoal_length  = 20000.0
+
+[[runs]]
+run_label     = "Hs15_Ls20k"
+Hs            = 15.0
+shoal_length  = 20000.0
+
+[[runs]]
+run_label     = "Hs15_Ls30k"
+Hs            = 15.0
+shoal_length  = 30000.0
+
+[[runs]]
+run_label     = "Hs15_Ls40k"
+Hs            = 15.0
+shoal_length  = 40000.0
+
+# ── Shelf Depth Sweep ──────────────────────────────────────────────────
+[[runs]]
+run_label     = "ShelfH_m20"
+Hs            = 15.0
+shoal_length  = 20000.0
+shelf_depth   = -20.0
+
+[[runs]]
+run_label     = "ShelfH_m30"
+Hs            = 15.0
+shoal_length  = 20000.0
+shelf_depth   = -30.0
+
+# ── Extended Shoal Geometry Sweep ──────────────────────────────────────
+
+[[runs]]
+run_label     = "Hs05_Ls40k"
+Hs            = 5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "Hs10_Ls40k"
+Hs            = 10.0
+shoal_length  = 40000.0
+
+
