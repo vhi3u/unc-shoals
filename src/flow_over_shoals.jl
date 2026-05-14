@@ -58,7 +58,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 0000 # <-- change this for each new run
+run_number = 1001 # <-- change this for each new run
 sim_runtime = 10days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -406,11 +406,14 @@ end
 # reltol = 1e-5
 # maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
 
+# dynamic smagorisnky config from chor 2026 seamount paper
+closure = DynamicSmagorinsky(averaging=LagrangianAveraging(), schedule=IterationInterval(5))
+
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=closure,
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
@@ -423,7 +426,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=closure,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=reltol, maxiter=maxiter),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
