@@ -439,7 +439,6 @@ end
 
 @info "" model
 # show eddy viscosity
-@show model.closure_fields.νₑ
 
 # Check for existing checkpoint to determine if we should pickup or start fresh
 if checkpointing
@@ -588,6 +587,8 @@ if !pickup
 
     # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
     set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+
+    @show model.closure_fields.νₑ
 end
 
 # run simulation
