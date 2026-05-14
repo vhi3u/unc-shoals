@@ -407,7 +407,7 @@ end
 # maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
 
 # dynamic smagorisnky config from chor 2026 seamount paper
-closure = DynamicSmagorinsky(averaging=LagrangianAveraging(), schedule=IterationInterval(5))
+closure = DynamicSmagorinsky()
 
 
 if periodic_y
