@@ -409,6 +409,7 @@ end
 # dynamic smagorisnky config from chor 2026 seamount paper
 closure = DynamicSmagorinsky(averaging=LagrangianAveraging(), schedule=IterationInterval(5))
 
+
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
@@ -437,6 +438,8 @@ else
 end
 
 @info "" model
+# show eddy viscosity
+@show model.closure_fields.νₑ
 
 # Check for existing checkpoint to determine if we should pickup or start fresh
 if checkpointing
