@@ -390,6 +390,8 @@ end
 
 @info "" model
 
+@info "" model.pressure_solver
+
 # Check for existing checkpoint to determine if we should pickup or start fresh
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
