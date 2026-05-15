@@ -1,20 +1,5 @@
 # using Pkg
 # Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
-# import Pkg;
-# Pkg.add("Oceananigans");
-# Pkg.add("NCDatasets");
-# Pkg.add("DataFrames");
-# Pkg.add("Interpolations");
-# Pkg.add("CUDA");
-# Pkg.add("Oceanostics");
-# Pkg.add("CSV");
-# Pkg.add("Statistics");
-# Pkg.add("SeawaterPolynomials");
-# import Pkg;
-# # Pkg.add("Rasters");
-# Pkg.instantiate() # Only need to do this once when you started the repo in another machine
-# Pkg.resolve()
 
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded, minimum_zspacing
@@ -58,10 +43,10 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 0000 # <-- change this for each new run
-sim_runtime = 10days
+run_number = 1 # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = "GPU_test_$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
@@ -85,18 +70,6 @@ else
 end
 
 # model parameters
-
-# # quadratic drag (log-law)
-# const κᵛᵏ = 0.4    # von Kármán constant
-# const Rz = 2.5e-4 # roughness fraction of domain depth
-# z_0 = Rz * params.Lz
-# z₁ = minimum_zspacing(grid, Center(), Center(), Center()) / 2
-# c_dz = (κᵛᵏ / log(z₁ / z_0))^2
-
-# @info "Using z₁ = $z₁"
-# @info "Quadratic drag coefficient c_dz = $c_dz"
-
-# drag = BulkDrag(coefficient=c_dz)
 
 if shoal_bath
     # Define shoal parameters (align with the new sigmoidal setup)
@@ -248,21 +221,6 @@ if LES
     @inline snbc(x, z, t) = S_north_pwl(z)
 end
 
-# wind stress BCs from wind speed (bulk formula, cf. kencode.jl)
-# Ramp up over τ_ramp to suppress near-inertial oscillations from impulsive start
-# ρₐ = 1.225   # kg m⁻³, average density of air at sea-level
-# ρₒ = 1028.0  # kg m⁻³, average density of seawater
-# u_w = 0.0    # m s⁻¹, 10-m wind speed (cross-shore)
-# v_w = 10.0   # m s⁻¹, 10-m wind speed (along-shore)
-# const Qu_wind_full = -ρₐ / ρₒ * cᴰ * u_w * abs(u_w)  # m² s⁻²
-# const Qv_wind_full = -ρₐ / ρₒ * cᴰ * v_w * abs(v_w)  # m² s⁻²
-# const τ_ramp = 2 * 86400.0  # ramp-up time in seconds (~2 days ≈ 2 inertial periods)
-# @inline wind_ramp(t) = tanh(t / τ_ramp)
-# @inline wind_flux_u(x, y, t) = Qu_wind_full * wind_ramp(t)
-# @inline wind_flux_v(x, y, t) = Qv_wind_full * wind_ramp(t)
-# wind_bc_u = FluxBoundaryCondition(wind_flux_u)
-# wind_bc_v = FluxBoundaryCondition(wind_flux_v)
-
 # mask functions
 @inline function south_mask(x, y, z, p)
     y0 = 0
@@ -383,8 +341,8 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u) # top=wind_bc_u
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v) # top=wind_bc_v
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v)
     w_bcs = FieldBoundaryConditions()
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
@@ -403,9 +361,6 @@ else
     coriolis = nothing
 end
 
-# reltol = 1e-5
-# maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
-
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
@@ -416,8 +371,8 @@ if periodic_y
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
+        #forcing=forcings
     )
 else
     model = NonhydrostaticModel(ib_grid;
@@ -489,7 +444,6 @@ v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
 # Cross-correlations for EKE and Fluxes
-# EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
 uu = Field(u_c * u_c)
 vv = Field(v_c * v_c)
 ww = Field(w_c * w_c)
@@ -518,31 +472,11 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_existing=overwrite_existing)
 
-# # Mid-x YZ slice (along-shore transect at domain center)
-# simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-#     filename="midx_$(run_tag).nc",
-#     schedule=TimeInterval(callback_interval),
-#     indices=(round(Int, params.Nx / 2), :, :),
-#     overwrite_existing=overwrite_existing)
-
-# # (2) 3D snapshots (every 20 days)
-# simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-#     filename="snapshots_3d_$(run_tag).nc",
-#     schedule=TimeInterval(20days),
-#     overwrite_existing=overwrite_existing)
-
 # (3) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     filename="time_avg_3d_$(run_tag).nc",
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_existing=overwrite_existing)
-
-# # Domain-integrated KE time series
-# ∫KE = Integral(KE)
-# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-#     schedule=TimeInterval(callback_interval),
-#     filename="KE_$(run_tag).nc",
-#     overwrite_existing=overwrite_existing)
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
@@ -580,7 +514,6 @@ if !pickup
         @inline Sᵢ(x, y, z) = S_south_pwl(z)
     end
 
-    # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
     set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
 end
 
