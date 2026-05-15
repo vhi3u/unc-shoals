@@ -390,7 +390,7 @@ end
 
 @info "" model
 
-@info "" model.pressure_solver
+@show model.pressure_solver
 
 # Check for existing checkpoint to determine if we should pickup or start fresh
 if checkpointing
