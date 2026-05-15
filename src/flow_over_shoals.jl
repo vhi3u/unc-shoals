@@ -416,8 +416,8 @@ if periodic_y
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
+        #forcing=forcings
     )
 else
     model = NonhydrostaticModel(ib_grid;
