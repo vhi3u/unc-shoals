@@ -58,10 +58,10 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 0000 # <-- change this for each new run
-sim_runtime = 10days
+run_number = 1000 # <-- change this for each new run
+sim_runtime = 20days
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
+run_tag = (periodic_y ? "periodic" : "bounded") * "_optimize$(run_number)"  # e.g. "periodic_run1"
 
 if LES
     params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
