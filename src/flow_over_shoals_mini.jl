@@ -71,7 +71,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=50, Ny=100, Nz=10) # keep the same for now
 else
-    params = (; params..., Nx=1000, Ny=2000, Nz=50) # O(1) resolution
+    params = (; params..., Nx=500, Ny=1000, Nz=50) # O(1) resolution (2m horizontal)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -459,7 +459,7 @@ overwrite_existing = !pickup
 cfl_values = Float64[]       # Stores CFL at each step
 cfl_times = Float64[]       # Stores model time
 
-simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
+simulation = Simulation(model, Δt=5seconds, stop_time=sim_runtime)
 
 conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
 
