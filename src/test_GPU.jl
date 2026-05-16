@@ -366,13 +366,13 @@ if periodic_y
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         #closure=nothing,
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        #hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
+        #forcing=forcings
     )
 else
     model = NonhydrostaticModel(ib_grid;
