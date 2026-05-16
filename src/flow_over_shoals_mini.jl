@@ -412,7 +412,7 @@ if periodic_y
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        #pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
