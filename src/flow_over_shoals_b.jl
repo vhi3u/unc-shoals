@@ -36,9 +36,9 @@ end
 Lx = 100e3
 Ly = 200e3
 Lz = 50
-Nx = 50
-Ny = 100
-Nz = 25
+Nx = 100
+Ny = 200
+Nz = 50
 
 x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
@@ -82,8 +82,8 @@ model = NonhydrostaticModel(ib_grid;
     closure=ScalarDiffusivity(ν=1e-4),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
     tracers=(),
-    buoyancy=nothing,
-    coriolis=nothing,
+    buoyancy=SeawaterBuoyancy(),
+    coriolis=FPlane(latitude=35.2480),
     boundary_conditions=bcs
 )
 
@@ -93,7 +93,7 @@ model = NonhydrostaticModel(ib_grid;
 set!(model, v=(x, y, z) -> v₀)
 
 # 6. Configure Simulation
-sim_runtime = 10days
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "bounded_shoals_simple"
 
