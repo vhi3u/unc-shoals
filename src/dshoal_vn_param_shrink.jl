@@ -26,21 +26,21 @@ Shoal Geometry:
 
 # ── Background bathymetry ───────────────────────────────────────────────
 
-@inline function param_background_depth(x)
+@inline function param_background_depth(x, scale=1.0)
     h0, h1, h2, h3, h4 = -5.0, -7.0, -25.0, -30.0, -50.0
 
     # Transitions midpoint and width
     # 1. Coastal ramp (0-5km)
-    h = h0 + (h1 - h0) * smooth_step(x, 2.5e3, 1.5e3)
+    h = h0 + (h1 - h0) * smooth_step(x, 2.5e3 * scale, 1.5e3 * scale)
 
     # 2. Shelf break (5-12km)
-    h += (h2 - h1) * smooth_step(x, 8.5e3, 2.5e3)
+    h += (h2 - h1) * smooth_step(x, 8.5e3 * scale, 2.5e3 * scale)
 
     # 3. Shelf slope (12-62km)
-    h += (h3 - h2) * smooth_step(x, 37.0e3, 15.0e3)
+    h += (h3 - h2) * smooth_step(x, 37.0e3 * scale, 15.0e3 * scale)
 
     # 4. Offshore ramp (62-65km)
-    h += (h4 - h3) * smooth_step(x, 63.5e3, 5.0e3)
+    h += (h4 - h3) * smooth_step(x, 63.5e3 * scale, 5.0e3 * scale)
 
     return h
 end
@@ -90,9 +90,9 @@ end
 
 # ── Combined bottom function ────────────────────────────────────────────
 
-@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length)
+@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, scale=1.0)
     # 1. Background depth
-    hw = param_background_depth(x)
+    hw = param_background_depth(x, scale)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
@@ -100,7 +100,7 @@ end
     # 3. Shoal geometry
     # Taper (smooth cosine ramp) defines the offshore end.
     # Widened the transition from 36/30 to 45/30 for a gentler offshore slope.
-    x_ref = 8.0e3
+    x_ref = 8.0e3 * scale
     x_taper_start = x_ref + shoal_length * (20.0 / 30.0)
     x_taper_end = x_ref + shoal_length * (45.0 / 30.0)
 
@@ -140,11 +140,12 @@ function dshoal_param_bottom(Ly;
     sigma=8e3,
     Hs=15.0,
     shoal_length=40e3,
-    Ly_shoal=Ly)
+    Ly_shoal=Ly,
+    scale=1.0)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
-    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length)
+    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, scale)
     return bottom
 end
