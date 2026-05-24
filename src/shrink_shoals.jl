@@ -27,7 +27,7 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = false
 sigmoid_ic = false
-is_coriolis = false
+is_coriolis = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -38,8 +38,8 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 1 # <-- change this for each new run
-sim_runtime = 24hours
+run_number = 2 # <-- change this for each new run
+sim_runtime = 6hours
 callback_interval = 10minutes
 run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
 
