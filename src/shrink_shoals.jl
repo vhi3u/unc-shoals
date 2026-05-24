@@ -38,7 +38,7 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 2 # <-- change this for each new run
+run_number = 3 # <-- change this for each new run
 sim_runtime = 6hours
 callback_interval = 10minutes
 run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
@@ -149,9 +149,10 @@ end
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
 
 if is_coriolis
-    # Note: For exact 1:100 dynamical similitude (Rossby number), you would scale f by 100:
-    # coriolis = FPlane(f = 100 * 8.3e-5)
-    coriolis = FPlane(latitude=35.2480)
+    # To keep the Rossby number (Ro = U / fL) consistent with the 100km domain:
+    # Since L is 100x smaller, f must be 100x larger.
+    f_real = 2 * 7.2921e-5 * sind(35.2480)
+    coriolis = FPlane(f = 100 * f_real)
 else
     coriolis = nothing
 end
