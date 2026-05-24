@@ -38,7 +38,7 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 3 # <-- change this for each new run
+run_number = 4 # <-- change this for each new run
 sim_runtime = 6hours
 callback_interval = 10minutes
 run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
@@ -96,8 +96,13 @@ params = (; params...,
 
 
 
-# T/S boundary condition helpers
-cᴰ = 2.5e-3
+# Logarithmic boundary layer drag formulation
+Rz = 2.5e-4
+z₀ = Rz * params.Lz # roughness length
+z₁ = (params.Lz / params.Nz) / 2 # distance to first cell center
+κᵛᵏ = 0.4 # von Karman constant
+cᴰ = (κᵛᵏ / log(z₁/z₀))^2
+@info "Calculated logarithmic boundary drag Cᴰ =" cᴰ
 # bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
 @inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
 @inline drag_v(x, y, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
@@ -149,10 +154,7 @@ end
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
 
 if is_coriolis
-    # To keep the Rossby number (Ro = U / fL) consistent with the 100km domain:
-    # Since L is 100x smaller, f must be 100x larger.
-    f_real = 2 * 7.2921e-5 * sind(35.2480)
-    coriolis = FPlane(f = 100 * f_real)
+    coriolis = FPlane(latitude=35.2480)
 else
     coriolis = nothing
 end
