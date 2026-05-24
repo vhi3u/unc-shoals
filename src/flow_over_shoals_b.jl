@@ -26,19 +26,18 @@ using CUDA: has_cuda_gpu
 
 if has_cuda_gpu()
     arch = GPU()
-    @info "Building bounded GPU domain"
+    Nx, Ny, Nz = 200, 400, 50
+    @info "Building bounded GPU domain (Nx=$Nx, Ny=$Ny, Nz=$Nz)"
 else
     arch = CPU()
-    @info "Building bounded CPU domain"
+    Nx, Ny, Nz = 50, 100, 10
+    @info "Building bounded CPU domain (Nx=$Nx, Ny=$Ny, Nz=$Nz)"
 end
 
-# Grid parameters (kept small for fast CPU runs)
+# Grid parameters
 Lx = 100e3
 Ly = 200e3
 Lz = 50
-Nx = 100
-Ny = 200
-Nz = 50
 
 x, y, z = (0, Lx), (0, Ly), (-Lz, 0)
 
@@ -69,19 +68,20 @@ immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(
 
 # Open Boundary Conditions for v at South and North boundaries using PerturbationAdvection
 open_bc = OpenBoundaryCondition(v₀; scheme=PerturbationAdvection())
+open_bc_zero = OpenBoundaryCondition(0.0; scheme=PerturbationAdvection())
 
-u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, south=open_bc, north=open_bc)
-w_bcs = FieldBoundaryConditions()
+u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, east=open_bc_zero)
+v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, south=open_bc, north=open_bc, east=open_bc)
+w_bcs = FieldBoundaryConditions(east=open_bc_zero)
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
 
-# 4. Construct Nonhydrostatic Model (No Coriolis, No buoyancy, No tracers)
+# 4. Construct Nonhydrostatic Model 
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(),
-    closure=ScalarDiffusivity(ν=1e-4),
+    closure=VerticalScalarDiffusivity(ν=1e-5, κ=1e-5),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
-    tracers=(),
+    tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
     coriolis=FPlane(latitude=35.2480),
     boundary_conditions=bcs
