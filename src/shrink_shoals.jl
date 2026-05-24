@@ -147,14 +147,21 @@ else
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
-# reltol = 1e-5
-# maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
+
+if is_coriolis
+    # Note: For exact 1:100 dynamical similitude (Rossby number), you would scale f by 100:
+    # coriolis = FPlane(f = 100 * 8.3e-5)
+    coriolis = FPlane(latitude=35.2480)
+else
+    coriolis = nothing
+end
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
+        coriolis=coriolis,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         boundary_conditions=bcs
     )
@@ -163,6 +170,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
+        coriolis=coriolis,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         boundary_conditions=bcs
     )
