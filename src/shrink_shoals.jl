@@ -154,7 +154,7 @@ if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         boundary_conditions=bcs
     )
@@ -162,7 +162,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
         boundary_conditions=bcs
     )
