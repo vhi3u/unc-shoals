@@ -27,7 +27,7 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = false
 sigmoid_ic = false
-is_coriolis = true
+is_coriolis = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -169,8 +169,6 @@ else
 end
 
 @info "" model
-
-
 
 # output
 
