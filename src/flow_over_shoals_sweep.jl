@@ -423,20 +423,11 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-κh = 0.5e-5 # [m²/s] horizontal diffusivity
-νh = 12.0   # [m²/s] horizontal viscocity
-κv = 0.5e-5 # [m²/s] vertical diffusivity
-νv = 3e-4   # [m²/s] vertical viscocity
-
-vertical_closure = VerticalScalarDiffusivity(ν = νv, κ = κv)
-
-horizontal_closure = HorizontalScalarDiffusivity(ν = νh, κ = κh)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(horizontal_closure, vertical_closure),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
@@ -449,7 +440,6 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(horizontal_closure, vertical_closure),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
