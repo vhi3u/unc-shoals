@@ -427,7 +427,7 @@ if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=ScalarDiffusivity(ν=1e-4, κ=1e-4),
+        closure=(HorizontalScalarDiffusivity(ν=1.0, κ=1.0), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
         tracers=(:T, :S),
@@ -441,7 +441,7 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=ScalarDiffusivity(ν=1e-4, κ=1e-4),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=1000),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -531,12 +531,12 @@ simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_existing=overwrite_existing)
 
-# Domain-integrated KE time series
-∫KE = Integral(KE)
-simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-    schedule=TimeInterval(callback_interval),
-    filename="KE_$(run_tag).nc",
-    overwrite_existing=overwrite_existing)
+# # Domain-integrated KE time series
+# ∫KE = Integral(KE)
+# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
+#     schedule=TimeInterval(callback_interval),
+#     filename="KE_$(run_tag).nc",
+#     overwrite_existing=overwrite_existing)
 
 # ── Save sweep metadata to a small NetCDF file for postprocessing ──────
 using NCDatasets
