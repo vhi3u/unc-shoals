@@ -249,18 +249,23 @@ end
 # Eastern boundary targets are now functions of z
 params = (; params...)
 
-# bottom drag parameters
-cᴰ = 2.5e-3
-# bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
-@inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
-@inline drag_v(x, y, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
-# immersed drag (immersed boundary): signature (x, y, z, t, field_deps..., params)
-@inline immersed_drag_u(x, y, z, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
-@inline immersed_drag_v(x, y, z, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
-drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
-immersed_drag_bc_u = FluxBoundaryCondition(immersed_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
+#+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
+z₀ = 2.5e-4 # roughness length
+z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) / 2
+@info "Using z₁ =" z₁
+
+const κᵛᵏ = 0.4 # von Karman constant
+params = (; params..., c_dz = (κᵛᵏ / log(z₁/z₀))^2) # quadratic drag coefficient
+@info "Defining momentum BCs with Cᴰ =" params.c_dz
+
+@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
+@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
+@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
+
+immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+#---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
     @inline tnbc(x, z, t) = T_north_pwl(z, T_north_v1)
@@ -402,7 +407,7 @@ if periodic_y
     S_bcs = FieldBoundaryConditions()
     u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
@@ -410,7 +415,7 @@ else
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
     u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
