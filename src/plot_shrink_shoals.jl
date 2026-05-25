@@ -1,7 +1,7 @@
 using Plots;
 gr();
 
-include("dshoal_vn_param.jl")
+include("dshoal_vn_param_shrink.jl")
 
 # Domain parameters
 Ly = 2e3   # 2 km
