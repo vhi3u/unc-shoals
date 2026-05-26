@@ -433,7 +433,7 @@ if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=2.0, κ=2.0), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
+        closure=(HorizontalScalarDiffusivity(ν=0.1, κ=0.1), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
@@ -446,7 +446,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=2.0, κ=2.0), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
+        closure=(HorizontalScalarDiffusivity(ν=0.1, κ=0.1), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
