@@ -560,18 +560,10 @@ end
 
 # initial conditions
 @info "Setting initial conditions"
-uᵢ = 0.005 * rand(size(u)...)
-vᵢ = 0.005 * rand(size(v)...)
-wᵢ = 0.005 * rand(size(w)...)
-uᵢ .-= mean(uᵢ)
-vᵢ .-= mean(vᵢ)
-wᵢ .-= mean(wᵢ)
-uᵢ .+= 0
 if sigmoid_ic
-    xv, yv, zv = nodes(v, reshape=true)
-    vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+    v_init = (x, y, z) -> v∞(x, z, 0, params)
 else
-    vᵢ .+= v₀
+    v_init = v₀
 end
 
 if gradient_IC
@@ -584,7 +576,7 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
 end
 
-set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
