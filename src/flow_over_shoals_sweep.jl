@@ -249,18 +249,23 @@ end
 # Eastern boundary targets are now functions of z
 params = (; params...)
 
-# bottom drag parameters
-cᴰ = 2.5e-3
-# bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
-@inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
-@inline drag_v(x, y, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
-# immersed drag (immersed boundary): signature (x, y, z, t, field_deps..., params)
-@inline immersed_drag_u(x, y, z, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
-@inline immersed_drag_v(x, y, z, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
-drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
-immersed_drag_bc_u = FluxBoundaryCondition(immersed_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
+#+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
+z₀ = 2.5e-4 # roughness length
+z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) / 2
+@info "Using z₁ =" z₁
+
+const κᵛᵏ = 0.4 # von Karman constant
+params = (; params..., c_dz = (κᵛᵏ / log(z₁/z₀))^2) # quadratic drag coefficient
+@info "Defining momentum BCs with Cᴰ =" params.c_dz
+
+@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
+@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
+@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
+
+immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+#---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
     @inline tnbc(x, z, t) = T_north_pwl(z, T_north_v1)
@@ -402,7 +407,7 @@ if periodic_y
     S_bcs = FieldBoundaryConditions()
     u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
@@ -410,7 +415,7 @@ else
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
     u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions()
+    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -423,13 +428,14 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
+
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -441,7 +447,8 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol),
+        hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -512,12 +519,12 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_existing=overwrite_existing)
 
-# # Mid-x YZ slice (along-shore transect at domain center)
-# simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-#     filename="midx_$(run_tag).nc",
-#     schedule=TimeInterval(callback_interval),
-#     indices=(round(Int, params.Nx / 2), :, :),
-#     overwrite_existing=overwrite_existing)
+# Mid-x YZ slice (along-shore transect at domain center)
+simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
+    filename="midx_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(round(Int, params.Nx / 5), :, :),
+    overwrite_existing=overwrite_existing)
 
 # # (2) 3D snapshots (every 20 days)
 # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
@@ -531,12 +538,12 @@ simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_existing=overwrite_existing)
 
-# Domain-integrated KE time series
-∫KE = Integral(KE)
-simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-    schedule=TimeInterval(callback_interval),
-    filename="KE_$(run_tag).nc",
-    overwrite_existing=overwrite_existing)
+# # Domain-integrated KE time series
+# ∫KE = Integral(KE)
+# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
+#     schedule=TimeInterval(callback_interval),
+#     filename="KE_$(run_tag).nc",
+#     overwrite_existing=overwrite_existing)
 
 # ── Save sweep metadata to a small NetCDF file for postprocessing ──────
 using NCDatasets
@@ -553,18 +560,10 @@ end
 
 # initial conditions
 @info "Setting initial conditions"
-uᵢ = 0.005 * rand(size(u)...)
-vᵢ = 0.005 * rand(size(v)...)
-wᵢ = 0.005 * rand(size(w)...)
-uᵢ .-= mean(uᵢ)
-vᵢ .-= mean(vᵢ)
-wᵢ .-= mean(wᵢ)
-uᵢ .+= 0
 if sigmoid_ic
-    xv, yv, zv = nodes(v, reshape=true)
-    vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+    v_init = (x, y, z) -> v∞(x, z, 0, params)
 else
-    vᵢ .+= v₀
+    v_init = v₀
 end
 
 if gradient_IC
@@ -577,7 +576,7 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
 end
 
-set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
