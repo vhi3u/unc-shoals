@@ -97,11 +97,11 @@ params = (; params...,
 
 
 # Logarithmic boundary layer drag formulation
-Rz = 2.5e-4
+Rz = 2.5e-2
 z₀ = Rz * params.Lz # roughness length
 z₁ = (params.Lz / params.Nz) / 2 # distance to first cell center
 κᵛᵏ = 0.4 # von Karman constant
-cᴰ = (κᵛᵏ / log(z₁/z₀))^2
+cᴰ = (κᵛᵏ / log(z₁ / z₀))^2
 @info "Calculated logarithmic boundary drag Cᴰ =" cᴰ
 # bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
 @inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
