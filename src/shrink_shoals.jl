@@ -38,7 +38,7 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 4 # <-- change this for each new run
+run_number = 5 # <-- change this for each new run
 sim_runtime = 6hours
 callback_interval = 10minutes
 run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
