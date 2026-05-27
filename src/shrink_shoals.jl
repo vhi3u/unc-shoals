@@ -25,8 +25,8 @@ using CUDA: has_cuda_gpu, allowscalar
 LES = true
 periodic_y = true
 gradient_IC = false
-sigmoid_v_bc = false
-sigmoid_ic = false
+sigmoid_v_bc = true
+sigmoid_ic = true
 is_coriolis = true
 shoal_bath = true
 if has_cuda_gpu()
@@ -97,7 +97,7 @@ params = (; params...,
 
 
 # Logarithmic boundary layer drag formulation
-Rz = 2.5e-2
+Rz = 2.5e-6
 z₀ = Rz * params.Lz # roughness length
 z₁ = (params.Lz / params.Nz) / 2 # distance to first cell center
 κᵛᵏ = 0.4 # von Karman constant
