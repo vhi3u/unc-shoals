@@ -38,10 +38,10 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 9 # <-- change this for each new run
-sim_runtime = 6hours
+run_number = 10 # <-- change this for each new run
+sim_runtime = 24hours
 callback_interval = 10minutes
-run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
+run_tag = CPU ? "shrink_cpu$(run_number)" : "shrink_test$(run_number)"
 
 if LES
     params = (; Lx=1000, Ly=2000, Lz=50, Nx=200, Ny=400, Nz=50)
@@ -86,9 +86,9 @@ v₀ = 0.1
 params = (; params...,
     v₀=v₀,
     Ls=LES ? 100.0 : 10e3,
-    Le=LES ? 400.0 : 40e3,
     x_off=LES ? 600.0 : 60e3,
     σ_off=LES ? 200.0 : 20e3,
+    sigmoid_v_bc=sigmoid_v_bc,
 )
 
 
@@ -109,8 +109,8 @@ immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(
 
 
 # velocity function
-if sigmoid_v_bc
-    @inline function v∞(x, z, t, p)
+@inline function v∞(x, z, t, p)
+    if p.sigmoid_v_bc
         xC = p.Lx == 1000 ? 30.0 : 3e3
         xS = p.Lx == 1000 ? 600.0 : 60e3
         Lw = p.Lx
@@ -122,9 +122,7 @@ if sigmoid_v_bc
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
         return p.v₀ * sc
-    end
-else
-    @inline function v∞(x, z, t, p)
+    else
         return p.v₀
     end
 end
@@ -137,8 +135,13 @@ N²∞ = (params.v₀ / (0.01 * params.Lz))^2 # assume Froude number = 1.0
 h_sponge = 0.25 * params.Ly
 sponge_damping_rate = max(√N²∞, α * params.v₀ / h_sponge) / 20
 north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=h_sponge)
+struct VSpongeTarget{P}
+    p::P
+end
+@inline (target::VSpongeTarget)(x, y, z, t) = v∞(x, z, t, target.p) # for GPU compatibility 
+
 w_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=0)
-v_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=(x, y, z, t) -> v∞(x, z, t, params))
+v_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=VSpongeTarget(params))
 u_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=0)
 
 
@@ -179,7 +182,8 @@ else
         closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
         coriolis=coriolis,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
-        boundary_conditions=bcs
+        boundary_conditions=bcs,
+        forcing=(; u=u_sponge, v=v_sponge, w=w_sponge)
     )
 end
 
@@ -196,7 +200,7 @@ cfl_times = Float64[]       # Stores model time
 
 simulation = Simulation(model, Δt=1.0, stop_time=sim_runtime)
 
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.9)
 
 progress = TimedMessenger()
 
@@ -241,11 +245,16 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_existing=overwrite_existing)
 
+simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
+    filename="midz_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, :, round(Int, params.Nx / 5)),
+    overwrite_existing=overwrite_existing)
 
-# simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-#     filename="time_avg_3d_$(run_tag).nc",
-#     schedule=AveragedTimeInterval(1hours, window=1hours),
-#     overwrite_existing=overwrite_existing)
+simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
+    filename="time_avg_3d_$(run_tag).nc",
+    schedule=AveragedTimeInterval(1hours, window=1hours),
+    overwrite_existing=overwrite_existing)
 
 
 
