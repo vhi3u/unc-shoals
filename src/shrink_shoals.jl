@@ -38,7 +38,7 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 5 # <-- change this for each new run
+run_number = 9 # <-- change this for each new run
 sim_runtime = 6hours
 callback_interval = 10minutes
 run_tag = "shrink_test$(run_number)"  # e.g. "shrink_test9999"
@@ -68,7 +68,7 @@ end
 
 if shoal_bath
     # Define shoal parameters (align with the new sigmoidal setup)
-    Hs = 5.0         # Height of shoal above -25m shelf
+    Hs = 15.0         # Height of shoal above -25m shelf
     sigma = LES ? 80.0 : 8e3       # Gaussian width of shoal (half crossover)
     shoal_length = LES ? 200.0 : 20e3 # Horizontal span of the shoal ridge
 
@@ -89,10 +89,7 @@ params = (; params...,
     Le=LES ? 400.0 : 40e3,
     x_off=LES ? 600.0 : 60e3,
     σ_off=LES ? 200.0 : 20e3,
-    τₙ=6hours,
-    τₛ=24hours,
-    τₑ=24hours,
-    τ_ts=24hours)
+)
 
 
 
@@ -103,14 +100,9 @@ z₁ = (params.Lz / params.Nz) / 2 # distance to first cell center
 κᵛᵏ = 0.4 # von Karman constant
 cᴰ = (κᵛᵏ / log(z₁ / z₀))^2
 @info "Calculated logarithmic boundary drag Cᴰ =" cᴰ
-# bottom drag (z-boundary): signature (x, y, t, field_deps..., params)
-@inline drag_u(x, y, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
-@inline drag_v(x, y, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
 # immersed drag (immersed boundary): signature (x, y, z, t, field_deps..., params)
 @inline immersed_drag_u(x, y, z, t, u, v, cᴰ) = -cᴰ * u * sqrt(u^2 + v^2)
 @inline immersed_drag_v(x, y, z, t, u, v, cᴰ) = -cᴰ * v * sqrt(u^2 + v^2)
-drag_bc_u = FluxBoundaryCondition(drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
 immersed_drag_bc_u = FluxBoundaryCondition(immersed_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
 immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
 
@@ -137,7 +129,18 @@ else
     end
 end
 
-forcings = NamedTuple()
+# sponges and forcings
+
+α = params.Lz / params.Ly
+
+N²∞ = (params.v₀ / (0.01 * params.Lz))^2 # assume Froude number = 1.0
+h_sponge = 0.25 * params.Ly
+sponge_damping_rate = max(√N²∞, α * params.v₀ / h_sponge) / 20
+north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=h_sponge)
+w_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=0)
+v_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=(x, y, z, t) -> v∞(x, z, t, params))
+u_sponge = Relaxation(rate=sponge_damping_rate, mask=north_mask, target=0)
+
 
 if periodic_y
     u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
@@ -166,7 +169,8 @@ if periodic_y
         closure=LES ? DynamicSmagorinsky() : AnisotropicMinimumDissipation(),
         coriolis=coriolis,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
-        boundary_conditions=bcs
+        boundary_conditions=bcs,
+        forcing=(; u=u_sponge, v=v_sponge, w=w_sponge)
     )
 else
     model = NonhydrostaticModel(ib_grid;
