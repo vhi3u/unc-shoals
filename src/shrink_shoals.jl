@@ -56,7 +56,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=25, Ny=50, Nz=10) # keep the same for now
 elseif !LES
-    params = (; params..., Nx=200, Ny=400, Nz=50)
+    params = (; params..., Nx=100, Ny=200, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -136,7 +136,7 @@ end
 
 α = params.Lz / params.Ly
 
-N²∞ = (params.v₀ / (0.1 * params.Lz))^2 # assume Froude number = 1.0
+N²∞ = (params.v₀ / (1.0 * params.Lz))^2 # assume Froude number = 1.0
 h_sponge = 0.1 * params.Ly
 sponge_damping_rate = max(√N²∞, α * params.v₀ / h_sponge) / 10
 north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=h_sponge)
@@ -253,7 +253,7 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
 simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
     filename="midz_$(run_tag).nc",
     schedule=TimeInterval(callback_interval),
-    indices=(:, :, round(Int, params.Nz * 0.4)),
+    indices=(:, :, round(Int, params.Nz * 0.6)),
     overwrite_existing=overwrite_existing)
 
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
