@@ -41,7 +41,12 @@ include("dshoal_vn_param_shrink.jl")
 run_number = 10 # <-- change this for each new run
 sim_runtime = 24hours
 callback_interval = 10minutes
-run_tag = CPU ? "shrink_cpu$(run_number)" : "shrink_test$(run_number)"
+
+if arch == CPU
+    run_tag = "shrink_cpu$(run_number)"
+else
+    run_tag = "shrink_gpu$(run_number)"
+end
 
 if LES
     params = (; Lx=1000, Ly=2000, Lz=50, Nx=200, Ny=400, Nz=50)
