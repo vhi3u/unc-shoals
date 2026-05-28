@@ -38,8 +38,8 @@ end
 include("dshoal_vn_param_shrink.jl")
 
 # simulation knobs
-run_number = 10 # <-- change this for each new run
-sim_runtime = 24hours
+run_number = 11 # <-- change this for each new run
+sim_runtime = 6hours
 callback_interval = 10minutes
 
 if arch == CPU
@@ -136,9 +136,9 @@ end
 
 α = params.Lz / params.Ly
 
-N²∞ = (params.v₀ / (0.01 * params.Lz))^2 # assume Froude number = 1.0
-h_sponge = 0.25 * params.Ly
-sponge_damping_rate = max(√N²∞, α * params.v₀ / h_sponge) / 20
+N²∞ = (params.v₀ / (0.1 * params.Lz))^2 # assume Froude number = 1.0
+h_sponge = 0.1 * params.Ly
+sponge_damping_rate = max(√N²∞, α * params.v₀ / h_sponge) / 10
 north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=h_sponge)
 struct VSpongeTarget{P}
     p::P
@@ -224,7 +224,7 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 
 KE = @at (Center, Center, Center) KineticEnergy(model)
-
+Ro = @at (Center, Center, Center) RossbyNumber(model)
 
 u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
@@ -234,7 +234,7 @@ w_c = @at (Center, Center, Center) w
 uu = Field(u_c * u_c)
 vv = Field(v_c * v_c)
 ww = Field(w_c * w_c)
-slice_fields = (; u_c, v_c, w_c, KE)
+slice_fields = (; u_c, v_c, w_c, KE, Ro)
 tavg_fields = (; u_c, v_c, w_c, uu, vv, ww)
 
 
