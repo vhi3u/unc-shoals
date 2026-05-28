@@ -253,7 +253,7 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
 simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
     filename="midz_$(run_tag).nc",
     schedule=TimeInterval(callback_interval),
-    indices=(:, :, round(Int, params.Nx * 0.4)),
+    indices=(:, :, round(Int, params.Nz * 0.4)),
     overwrite_existing=overwrite_existing)
 
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
