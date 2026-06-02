@@ -376,7 +376,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.5)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -397,7 +397,7 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 η = model.free_surface.displacement
 state_fields = merge(model.velocities, model.tracers, (; η))
 simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
-    filename="fields_$(run_tag).nc",
+    filename="fields_$(run_tag).jld2",
     schedule=TimeInterval(12hours),
     overwrite_existing=overwrite_existing)
 
