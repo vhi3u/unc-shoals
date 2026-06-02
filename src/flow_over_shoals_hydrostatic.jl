@@ -62,9 +62,7 @@ mass_flux = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
-is_coriolis = true
 checkpointing = true
-shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
 else
@@ -101,18 +99,14 @@ z = MutableVerticalDiscretization(range(-params.Lz, 0, length=params.Nz + 1))
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
-if shoal_bath
-    slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=sweep_Hs,
-        shoal_length=sweep_shoal_length,
-        sigma=sweep_sigma,
-        shelf_depth=sweep_shelf_depth,
-        shelf_break_end=sweep_shelf_break_end)
-    GFB = GridFittedBottom(slope_bottom)
-    ib_grid = ImmersedBoundaryGrid(grid, GFB)
-else
-    ib_grid = grid
-end
+slope_bottom = dshoal_param_bottom(params.Ly;
+    Hs=sweep_Hs,
+    shoal_length=sweep_shoal_length,
+    sigma=sweep_sigma,
+    shelf_depth=sweep_shelf_depth,
+    shelf_break_end=sweep_shelf_break_end)
+GFB = GridFittedBottom(slope_bottom)
+ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 @info ib_grid
 
@@ -383,11 +377,7 @@ v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
 
 # No w boundary conditions: w is diagnostic in the hydrostatic model.
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
-if is_coriolis
-    coriolis = FPlane(latitude=35.2480)
-else
-    coriolis = nothing
-end
+coriolis = FPlane(latitude=35.2480)
 
 # Implicit free surface: η is solved implicitly each step. On this immersed-
 # boundary grid (variable bottom depth) the default solver_method resolves to a
@@ -565,8 +555,6 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
  gradient_IC:     $(gradient_IC)
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)
- is_coriolis:     $(is_coriolis)
- shoal_bath:      $(shoal_bath)
 ════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
