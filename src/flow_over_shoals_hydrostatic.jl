@@ -449,3 +449,14 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 ════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
+
+# ── Animate the output ─────────────────────────────────────────────────────
+# Build a GIF from fields_$(run_tag).jld2. Plotting uses Plots and runs locally;
+# on headless/GPU nodes (no Plots/display) this is skipped with a warning rather
+# than failing an otherwise-successful run. `run_tag` is in scope, so the plot
+# script picks up this run's output file automatically.
+try
+    include(joinpath(@__DIR__, "plot_hydrostatic_simulation.jl"))
+catch err
+    @warn "Skipped animation (expected on headless/GPU nodes without Plots)" exception = (err, catch_backtrace())
+end
