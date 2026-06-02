@@ -268,51 +268,22 @@ immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :
 ρ₀ = 1024.0
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
-# mask utility: smooth transition with zero derivative at endpoints
-@inline smooth_ramp(dt) = sin(0.5 * π * clamp(dt, 0.0, 1.0))^2
-
-@inline function south_mask(x, y, z, p)
-    y0 = 0
-    y1 = p.Ls
-    if y0 <= y <= y1
-        return 1 - y / y1
-    else
-        return 0.0
-    end
-end
-
-@inline function north_mask(x, y, z, p)
-    y0 = p.Ly - p.Ls
-    y1 = p.Ly
-
-    if y0 <= y <= y1
-        return (y - y0) / (y1 - y0)
-    else
-        return 0.0
-    end
-end
-
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Le
-    x1 = p.Lx
-    return smooth_ramp((x - x0) / (x1 - x0))
-end
-
-@inline function west_mask(x, y, z, p)
-    x0 = 0
-    x1 = p.Lw
-
-    if x0 <= x <= x1
-        return 1 - (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
-end
-
-# offshore mask: sigmoid (tanh) taper centered at the shelf break
-# σ_off controls the half-width of the transition (larger = wider, more gradual)
-const σ_off = 20e3   # half-width of sigmoid taper (m)
-@inline offshore_mask(x, y, z, p) = 0.5 * (1.0 + tanh((x - 60e3) / σ_off))
+# ─────────────────────────────────────────────────────────────────────────
+# Nudging (sponge) masks — Oceananigans `PiecewiseLinearMask{D}(center, width)`
+# is a tent along direction D: value 1 at `center`, ramping linearly to 0 at
+# `center ± width`, and 0 beyond. Each mask is centered ON the boundary it
+# nudges toward, with `width` equal to the same sponge thickness used before,
+# so only the in-domain half of the tent acts — i.e. a one-sided ramp from 0
+# in the interior to 1 at the boundary, over the same distances as before.
+# Called as mask(x, y, z) (no parameters argument).
+# ─────────────────────────────────────────────────────────────────────────
+const south_mask    = PiecewiseLinearMask{:y}(center=0.0,       width=params.Ls)  # y ∈ [0, Ls]
+const north_mask    = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)  # y ∈ [Ly-Ls, Ly]
+const west_mask     = PiecewiseLinearMask{:x}(center=0.0,       width=params.Lw)  # x ∈ [0, Lw]
+const east_mask     = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)  # x ∈ [Lx-Le, Lx]
+# offshore: linear ramp over the eastern/offshore zone, from the shelf break
+# (x = Lx - Le = 60 km) up to the offshore boundary (x = Lx = 100 km).
+const offshore_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
 # velocity function
 if sigmoid_v_bc
@@ -338,24 +309,24 @@ end
 # sponge functions
 if mass_flux
     @inline sponge_u(x, y, z, t, u, p) = -(
-        north_mask(x, y, z, p) * u / p.τₙ +
-        offshore_mask(x, y, z, p) * u / p.τₑ)
+        north_mask(x, y, z) * u / p.τₙ +
+        offshore_mask(x, y, z) * u / p.τₑ)
 
     @inline sponge_v(x, y, z, t, v, p) = -(
-        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-        offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
+        north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
+        offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
 
     @inline sponge_w(x, y, z, t, w, p) = -(
-        north_mask(x, y, z, p) * w / p.τₙ +
-        offshore_mask(x, y, z, p) * w / p.τₑ)
+        north_mask(x, y, z) * w / p.τₙ +
+        offshore_mask(x, y, z) * w / p.τₑ)
 
     @inline sponge_T(x, y, z, t, T, p) = -(
-        north_mask(x, y, z, p) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
+        north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
 
     @inline sponge_S(x, y, z, t, S, p) = -(
-        north_mask(x, y, z, p) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
+        north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
 end
 
 # forcing functions
@@ -399,7 +370,6 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     forcing = forcings
 )
 
-pause
 @info "" model
 
 pickup = isfile("checkpoint_$(run_tag).jld2")
