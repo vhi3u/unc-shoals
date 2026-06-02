@@ -90,12 +90,7 @@ else
     params = (; params..., Nx=200, Ny=400, Nz=50)
 end
 
-x, y = (0, params.Lx), (0, params.Ly)
-# z-star requires a MutableVerticalDiscretization: the vertical coordinate moves
-# with the free surface. Uniform reference spacing from -Lz to 0 (Nz+1 faces).
-z = MutableVerticalDiscretization(range(-params.Lz, 0, length=params.Nz + 1))
-
-# grid (periodic in y / along-shore)
+x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
@@ -352,24 +347,19 @@ v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
-# Implicit free surface: η is solved implicitly each step. On this immersed-
-# boundary grid (variable bottom depth) the default solver_method resolves to a
-# preconditioned conjugate-gradient solver (with an FFT-based preconditioner on
-# the horizontally-regular grid). This replaces the nonhydrostatic pressure
-# (Poisson) solver entirely.
-#
-# The FFT preconditioner only inverts the constant-depth operator exactly, so the
-# CG must iterate to account for the variable bathymetry; the default tolerance
-# (reltol ≈ 1e-7) is tight and costs many iterations. Loosen it and cap maxiter
-# to trade a little free-surface accuracy for far fewer CG iterations per step.
-free_surface = ImplicitFreeSurface(reltol=1e-5, abstol=1e-9, maxiter=50)
+# Split-explicit free surface: the fast barotropic mode is subcycled explicitly
+# rather than solving a global elliptic problem each step — so there are no CG
+# iterations at all. With the time-step wizard (variable Δt), passing `cfl`
+# selects FixedTimeStepSize substepping: the barotropic step is fixed by the CFL
+# and the grid, and the number of substeps adapts to the current baroclinic Δt.
+# Works with ZStarCoordinate / the MutableVerticalDiscretization grid.
+free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.7)
 # Common model parameters, will override :closure below
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
     momentum_advection = WENO(order=5),
     tracer_advection = WENO(order=5),
     free_surface = free_surface,
-    vertical_coordinate = ZStarCoordinate(),
     tracers = (:T, :S),
     buoyancy = SeawaterBuoyancy(),
     coriolis = coriolis,
@@ -387,17 +377,6 @@ conjure_time_step_wizard!(simulation, cfl=0.5)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
-
-function print_solver_iterations(sim)
-    fs = sim.model.free_surface
-    if hasproperty(fs, :implicit_step_solver) &&
-       hasproperty(fs.implicit_step_solver, :preconditioned_conjugate_gradient_solver)
-        cg = fs.implicit_step_solver.preconditioned_conjugate_gradient_solver
-        @info @sprintf("Free-surface solver: %d CG iterations (t = %.2f days)",
-            cg.iteration, time(sim) / 86400)
-    end
-end
-simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
 # ── Output: a single writer with all state variables, every 12 hours ──────
 # State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
