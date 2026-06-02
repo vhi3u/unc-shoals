@@ -355,7 +355,12 @@ coriolis = FPlane(latitude=35.2480)
 # preconditioned conjugate-gradient solver (with an FFT-based preconditioner on
 # the horizontally-regular grid). This replaces the nonhydrostatic pressure
 # (Poisson) solver entirely.
-free_surface = ImplicitFreeSurface()
+#
+# The FFT preconditioner only inverts the constant-depth operator exactly, so the
+# CG must iterate to account for the variable bathymetry; the default tolerance
+# (reltol ≈ 1e-7) is tight and costs many iterations. Loosen it and cap maxiter
+# to trade a little free-surface accuracy for far fewer CG iterations per step.
+free_surface = ImplicitFreeSurface(reltol=1e-5, abstol=1e-9, maxiter=50)
 # Common model parameters, will override :closure below
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
