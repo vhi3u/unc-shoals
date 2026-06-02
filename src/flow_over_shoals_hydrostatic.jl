@@ -306,27 +306,24 @@ else
     end
 end
 
-# sponge functions
+# T_0 / S_0: the initial-condition T and S profiles (the CTD-derived "south"
+# profile — the same stratification imposed as the initial condition below). The
+# northern sponge nudges the flow back to these.
+@inline T_0(z) = T_south_pwl(z, T_south_v1)
+@inline S_0(z) = S_south_pwl(z, S_south_v1)
+
+# North-edge nudging (sponge): with y periodic, reset the flow to the initial
+# condition near the northern edge so the shoal's wake doesn't recirculate into
+# the inflow through the periodic southern boundary. `north_mask` (a
+# PiecewiseLinearMask) ramps from 0 in the interior to 1 at y = Ly over the last
+# Ls. Targets are the IC: u → 0, v → v∞, T → T_0, S → S_0. (T/S are written as
+# T_south_pwl(z, p.T_south_v1) / S_south_pwl(z, p.S_south_v1), i.e. T_0/S_0 routed
+# through `params`, so the forcing kernels stay GPU-safe.)
 if mass_flux
-    @inline sponge_u(x, y, z, t, u, p) = -(
-        north_mask(x, y, z) * u / p.τₙ +
-        offshore_mask(x, y, z) * u / p.τₑ)
-
-    @inline sponge_v(x, y, z, t, v, p) = -(
-        north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
-        offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
-
-    @inline sponge_w(x, y, z, t, w, p) = -(
-        north_mask(x, y, z) * w / p.τₙ +
-        offshore_mask(x, y, z) * w / p.τₑ)
-
-    @inline sponge_T(x, y, z, t, T, p) = -(
-        north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
-
-    @inline sponge_S(x, y, z, t, S, p) = -(
-        north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
+    @inline sponge_u(x, y, z, t, u, p) = -north_mask(x, y, z) * u / p.τₙ
+    @inline sponge_v(x, y, z, t, v, p) = -north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ
+    @inline sponge_T(x, y, z, t, T, p) = -north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts
+    @inline sponge_S(x, y, z, t, S, p) = -north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts
 end
 
 # forcing functions
@@ -341,9 +338,14 @@ else
     forcings = (T=FT, S=FS)
 end
 
+# y is periodic — no north/south boundary conditions; the along-shore inflow is
+# conditioned by the northern sponge above. The eastern (offshore) boundary stays
+# open for the cross-shore velocity u (PerturbationAdvection, radiating toward
+# zero); T and S are no-flux there by default.
+radiation = OpenBoundaryCondition(0.0; scheme=PerturbationAdvection())
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
+u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, east=radiation)
 v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
 
 # No w boundary conditions: w is diagnostic in the hydrostatic model.
@@ -420,8 +422,8 @@ if gradient_IC
     @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
     @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
 else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z, T_south_v1)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
+    @inline Tᵢ(x, y, z) = T_0(z)
+    @inline Sᵢ(x, y, z) = S_0(z)
 end
 
 # w is diagnostic (recomputed from continuity), so it is not set here.
