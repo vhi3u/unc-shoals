@@ -392,93 +392,14 @@ function print_solver_iterations(sim)
 end
 simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
-u, v, w = model.velocities
-T = model.tracers.T
-S = model.tracers.S
-Ro = @at (Center, Center, Center) RossbyNumber(model)
-KE = @at (Center, Center, Center) KineticEnergy(model)
-
-# Centered velocities for consistency
-u_c = @at (Center, Center, Center) u
-v_c = @at (Center, Center, Center) v
-w_c = @at (Center, Center, Center) w
-
-# Cross-correlations for EKE and Fluxes
-# EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
-uu = Field(u_c * u_c)
-vv = Field(v_c * v_c)
-ww = Field(w_c * w_c)
-uT = Field(u_c * T)
-uS = Field(u_c * S)
-vT = Field(v_c * T)
-vS = Field(v_c * S)
-wT = Field(w_c * T)
-wS = Field(w_c * S)
-
-slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
-tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
-
-# (1) 2D snapshots (every 1 day)
-# Surface XY slice (top layer)
-simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
-    filename="top_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(:, :, params.Nz),
-    overwrite_existing=overwrite_existing)
-
-# Free-surface elevation η (2D field; the defining diagnostic of the hydrostatic
-# free-surface model)
+# ── Output: a single writer with all state variables, every 12 hours ──────
+# State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
 η = model.free_surface.displacement
-simulation.output_writers[:free_surface] = NetCDFWriter(model, (; η),
-    filename="eta_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
+state_fields = merge(model.velocities, model.tracers, (; η))
+simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
+    filename="fields_$(run_tag).nc",
+    schedule=TimeInterval(12hours),
     overwrite_existing=overwrite_existing)
-
-# Mid-y XZ slice (cross-shore transect at domain center)
-simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
-    filename="midy_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(:, round(Int, params.Ny / 2), :),
-    overwrite_existing=overwrite_existing)
-
-# Mid-x YZ slice (along-shore transect at domain center)
-simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-    filename="midx_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(round(Int, params.Nx / 5), :, :),
-    overwrite_existing=overwrite_existing)
-
-# # (2) 3D snapshots (every 20 days)
-# simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-#     filename="snapshots_3d_$(run_tag).nc",
-#     schedule=TimeInterval(20days),
-#     overwrite_existing=overwrite_existing)
-
-# (3) 3D Time Averages (10 day window)
-simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
-    schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
-
-# # Domain-integrated KE time series
-# ∫KE = Integral(KE)
-# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-#     schedule=TimeInterval(callback_interval),
-#     filename="KE_$(run_tag).nc",
-#     overwrite_existing=overwrite_existing)
-
-# ── Save sweep metadata to a small NetCDF file for postprocessing ──────
-using NCDatasets
-NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
-    ds.attrib["run_label"] = sweep_run_label
-    ds.attrib["run_index"] = sweep_run_index
-    ds.attrib["Hs"] = sweep_Hs
-    ds.attrib["shoal_length"] = sweep_shoal_length
-    ds.attrib["shelf_depth"] = sweep_shelf_depth
-    ds.attrib["shelf_break_end"] = sweep_shelf_break_end
-    ds.attrib["strat"] = sweep_strat
-    ds.attrib["wind_stress"] = sweep_wind_stress
-end
 
 # initial conditions
 @info "Setting initial conditions"
