@@ -59,7 +59,6 @@ sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
 
 # switches
 mass_flux = true
-periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
@@ -98,12 +97,8 @@ x, y = (0, params.Lx), (0, params.Ly)
 # with the free surface. Uniform reference spacing from -Lz to 0 (Nz+1 faces).
 z = MutableVerticalDiscretization(range(-params.Lz, 0, length=params.Nz + 1))
 
-# grid  
-if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
-else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
-end
+# grid (periodic in y / along-shore)
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
 if shoal_bath
@@ -275,12 +270,6 @@ params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag co
 immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
 immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
 #---
-# North/south T/S value boundary conditions (used in the bounded, non-periodic case)
-@inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
-@inline tnbc(x, z, t) = T_north_pwl(z, T_north_v1)
-@inline ssbc(x, z, t) = S_south_pwl(z, S_south_v1)
-@inline snbc(x, z, t) = S_north_pwl(z, S_north_v1)
-
 # wind stress BC
 ρ₀ = 1024.0
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
@@ -354,48 +343,25 @@ end
 
 # sponge functions
 if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            north_mask(x, y, z, p) * u / p.τₙ +
-            offshore_mask(x, y, z, p) * u / p.τₑ)
+    @inline sponge_u(x, y, z, t, u, p) = -(
+        north_mask(x, y, z, p) * u / p.τₙ +
+        offshore_mask(x, y, z, p) * u / p.τₑ)
 
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
+    @inline sponge_v(x, y, z, t, v, p) = -(
+        north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
+        offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
 
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            north_mask(x, y, z, p) * w / p.τₙ +
-            offshore_mask(x, y, z, p) * w / p.τₑ)
+    @inline sponge_w(x, y, z, t, w, p) = -(
+        north_mask(x, y, z, p) * w / p.τₙ +
+        offshore_mask(x, y, z, p) * w / p.τₑ)
 
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            north_mask(x, y, z, p) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        north_mask(x, y, z, p) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
 
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            north_mask(x, y, z, p) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
-    else
-        # Bounded case
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            north_mask(x, y, z, p) * u / p.τₙ +
-            offshore_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            north_mask(x, y, z, p) * w / p.τₙ +
-            offshore_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            north_mask(x, y, z, p) * (T - T_north_pwl(z, p.T_north_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            north_mask(x, y, z, p) * (S - S_north_pwl(z, p.S_north_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts)
-    end
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        north_mask(x, y, z, p) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
 end
 
 # forcing functions
@@ -410,19 +376,10 @@ else
     forcings = (T=FT, S=FS)
 end
 
-if periodic_y
-    T_bcs = FieldBoundaryConditions()
-    S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-else
-    open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
-    open_zero = OpenBoundaryCondition(0.0)
-    T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
-    S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-end
+T_bcs = FieldBoundaryConditions()
+S_bcs = FieldBoundaryConditions()
+u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
+v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
 
 # No w boundary conditions: w is diagnostic in the hydrostatic model.
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
@@ -438,36 +395,20 @@ end
 # the horizontally-regular grid). This replaces the nonhydrostatic pressure
 # (Poisson) solver entirely.
 free_surface = ImplicitFreeSurface()
+# Common model parameters, will override :closure below
+model = HydrostaticFreeSurfaceModel(ib_grid;
+    timestepper = :QuasiAdamsBashforth2,
+    momentum_advection = WENO(order=5),
+    tracer_advection = WENO(order=5),
+    free_surface = free_surface,
+    vertical_coordinate = ZStarCoordinate(),
+    tracers = (:T, :S),
+    buoyancy = SeawaterBuoyancy(),
+    coriolis = coriolis,
+    boundary_conditions = bcs,
+    forcing = forcings
+)
 
-if periodic_y
-    model = HydrostaticFreeSurfaceModel(ib_grid;
-        timestepper=:QuasiAdamsBashforth2,
-        momentum_advection=WENO(order=5),
-        tracer_advection=WENO(order=5),
-        closure=ScalarDiffusivity(ν=1e-2, κ=1e-2),
-        free_surface=free_surface,
-        vertical_coordinate=ZStarCoordinate(),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-else
-    model = HydrostaticFreeSurfaceModel(ib_grid;
-        timestepper=:QuasiAdamsBashforth2,
-        momentum_advection=WENO(order=5),
-        tracer_advection=WENO(order=5),
-        closure=(HorizontalScalarBiharmonicDiffusivity(ν=2.5e5, κ=2.5e5), VerticalScalarDiffusivity(ν=1e-4, κ=1e-5)),
-        free_surface=free_surface,
-        vertical_coordinate=ZStarCoordinate(),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-end
 pause
 @info "" model
 
@@ -621,7 +562,6 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 
  ── Switches ──
  mass_flux:       $(mass_flux)
- periodic_y:      $(periodic_y)
  gradient_IC:     $(gradient_IC)
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)
