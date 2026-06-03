@@ -1,21 +1,20 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # flow_over_shoals_hydrostatic.jl
 # ═══════════════════════════════════════════════════════════════════════════
-# Hydrostatic variant of flow_over_shoals.jl.
+# Hydrostatic M2-tidal flow over the shoal. HydrostaticFreeSurfaceModel with:
+#   • SplitExplicitFreeSurface (barotropic mode subcycled — no elliptic solve);
+#   • a static z-coordinate on a periodic-in-y, bounded-in-x/z grid;
+#   • CATKE vertical mixing + a stacked horizontal closure (Laplacian + biharmonic
+#     hyperviscosity, resolution-scaled) to suppress 2Δx grid-scale noise;
+#   • a body-force M2 tide (ramped) driving v ≈ v₀·sc(x)·sin(ω t), with gentle
+#     north/offshore reset sponges and quadratic BulkDrag on the seafloor.
 #
-# Instead of a NonhydrostaticModel with a ConjugateGradientPoissonSolver, this
-# uses a HydrostaticFreeSurfaceModel with:
-#   • an ImplicitFreeSurface — the free-surface elevation η is solved implicitly
-#     each step (on this immersed-boundary grid the default solver is a
-#     preconditioned conjugate-gradient solver), replacing the nonhydrostatic
-#     pressure (Poisson) solver entirely; and
-#   • a ZStarCoordinate built on a MutableVerticalDiscretization grid, so the
-#     vertical coordinate stretches/contracts to follow the moving free surface.
+# This configuration was tuned for stability + no grid-scale noise; see
+# src/NUMERICAL_ARTIFACTS.md for the rationale, and flow_over_shoals_hydrostatic2.jl
+# for an alternative (WENOVectorInvariant + lighter closure) route.
 #
-# See Oceananigans validation/open_boundaries/flow_over_hill.jl for the pattern.
-#
-# Like the sweep script, geometry/forcing are still read from SWEEP_* env vars
-# (with standalone defaults) so it can be run directly or under sweep_driver.jl.
+# Geometry/forcing read from SWEEP_* env vars (standalone defaults); resolution
+# and runtime overridable via NX/NY/NZ, SIM_RUNTIME_DAYS, CALLBACK_HOURS, SKIP_PLOT.
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
@@ -85,8 +84,8 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 30days
-callback_interval = 86400seconds
+sim_runtime = parse(Float64, get(ENV, "SIM_RUNTIME_DAYS", "30")) * days
+callback_interval = parse(Float64, get(ENV, "CALLBACK_HOURS", "24")) * hours
 run_tag = "hydrostatic_$(sweep_run_label)"
 
 params = (; Lx=100e3, Ly=200e3, Lz=50)
@@ -95,6 +94,11 @@ if arch == CPU()
 else
     params = (; params..., Nx=200, Ny=400, Nz=50)
 end
+# Optional resolution overrides (NX/NY/NZ env vars) for resolution testing.
+params = (; params...,
+    Nx=parse(Int, get(ENV, "NX", string(params.Nx))),
+    Ny=parse(Int, get(ENV, "NY", string(params.Ny))),
+    Nz=parse(Int, get(ENV, "NZ", string(params.Nz))))
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
@@ -137,7 +141,7 @@ params = (; params...,
     Ls=10e3,
     Le=40e3,
     Lw=10e3,
-    τₙ=6hours,
+    τₙ=24hours,    # gentle north reset (was 6h — too fast, drove a NE-corner instability)
     τₛ=24hours,
     τₑ=24hours,
     τw=24hours,
@@ -147,7 +151,8 @@ params = (; params...,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
     wind_stress=sweep_wind_stress,
-    ω_M2=2π / 12.4206hours)   # M2 tidal angular frequency (period ≈ 12.42 h)
+    ω_M2=2π / 12.4206hours,   # M2 tidal angular frequency (period ≈ 12.42 h)
+    τ_ramp=2days)             # tidal spin-up ramp timescale
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -285,30 +290,32 @@ const east_mask     = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 # (x = Lx - Le = 60 km) up to the offshore boundary (x = Lx = 100 km).
 const offshore_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
-# velocity function
-# Time-dependent inflow: a barotropic M2 tide. The amplitude is v₀ (times the
-# cross-shore shape `sc` in the sigmoid case) and the sign alternates as
-# sin(ω_M2 t), so the along-shore flow floods northward and ebbs southward over
-# each ≈ 12.42 h M2 period.
+# velocity function — barotropic M2 tide.
+# `sc_shape(x)` is the cross-shore amplitude shape (≈1 over the shelf, → 0
+# offshore). The tide is v∞ = v₀·sc·sin(ω t). Rather than imposing this tide with
+# a thin, fast sponge — which drove a NE-corner grid-scale instability (the thin
+# strip tried to track the 12.4 h tide at τₙ=6h; see src/NUMERICAL_ARTIFACTS.md) —
+# we drive it with a smooth, domain-wide body force F_tide = dv∞/dt =
+# v₀·ω·sc·cos(ω t), and keep the sponges as *gentle* reset layers (slow τ).
 if sigmoid_v_bc
-    @inline function v∞(x, z, t, p)
+    @inline function sc_shape(x, p)
         xC = 3e3
         xS = 60e3
         Lw = p.Lx
         k1 = 40 / Lw
         k2 = 20 / Lw
-
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
         s2 = 1 / (1 + exp(k2 * (x - xS)))
-        s = (s1 - 1) + s2
-        sc = clamp(s, 0.0, 1.0)
-        return p.v₀ * sc * sin(p.ω_M2 * t)
+        return clamp((s1 - 1) + s2, 0.0, 1.0)
     end
 else
-    @inline function v∞(x, z, t, p)
-        return p.v₀ * sin(p.ω_M2 * t)
-    end
+    @inline sc_shape(x, p) = 1.0
 end
+# Smooth spin-up ramp (≈ 1 - e^{-t/τ_ramp}) so the tide eases in over τ_ramp ≫ a
+# tidal period instead of hitting full amplitude in the first cycles.
+@inline tide_amp(t, p)    = p.v₀ * (1 - exp(-t / p.τ_ramp))
+@inline v∞(x, z, t, p)    = tide_amp(t, p) * sc_shape(x, p) * sin(p.ω_M2 * t)            # tidal velocity
+@inline F_tide_v(x, t, p) = tide_amp(t, p) * p.ω_M2 * sc_shape(x, p) * cos(p.ω_M2 * t)   # body force ≈ dv∞/dt
 
 # T_0 / S_0: the initial-condition T and S profiles (the CTD-derived "south"
 # profile — the same stratification imposed as the initial condition below). The
@@ -332,7 +339,7 @@ if mass_flux
     @inline sponge_u(x, y, z, t, u, p) = -(
         north_mask(x, y, z) * u / p.τₙ +
         offshore_mask(x, y, z) * u / p.τₑ)
-    @inline sponge_v(x, y, z, t, v, p) = -(
+    @inline sponge_v(x, y, z, t, v, p) = F_tide_v(x, t, p) - (
         north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
         offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
     @inline sponge_T(x, y, z, t, T, p) = -(
@@ -369,8 +376,24 @@ v_bcs = FieldBoundaryConditions(bottom=drag, immersed=drag, top=wind_bc_v)
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
+#+++ Horizontal closure (stacked, resolution-scaled) — see src/NUMERICAL_ARTIFACTS.md
+# Grid-scale (2Δx) ringing in an under-damped sheared flow is the usual source of
+# the artifacts / blow-up here. Damp it with a Laplacian horizontal viscosity
+# (always-on background, keeps low-shear regions quiet) plus a scale-selective
+# biharmonic for the 2Δx mode, stacked on the vertical CATKE closure. Coefficients
+# scale from the guide's Δx = 1.7 km baseline (ν_h = 20 m²/s, ν₄ = 1e8 m⁴/s):
+# Laplacian ν_h ∝ Δx², biharmonic ν₄ ∝ Δx⁴ (constant damping timescales).
+Δh = params.Lx / params.Nx                       # ≈ Δy (square cells)
+ν_h = 20.0  * (Δh / 1700)^2                       # Laplacian viscosity  (m²/s)
+ν₄  = 1.0e8 * (Δh / 1700)^4                       # biharmonic viscosity (m⁴/s)
+@info "Horizontal closure (resolution-scaled)" Δh ν_h ν₄
+closure = (HorizontalScalarDiffusivity(ν=ν_h, κ=ν_h / 4),        # always-on; Pr_h = 4
+           HorizontalScalarBiharmonicDiffusivity(ν=ν₄, κ=ν₄),    # scale-selective 2Δx trim
+           CATKEVerticalDiffusivity())                           # vertical mixing
+#---
+
 #+++ Create model
-free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.7)
+free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.5)
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
     momentum_advection = WENO(order=5),
@@ -380,7 +403,7 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     buoyancy = SeawaterBuoyancy(),
     coriolis = coriolis,
     boundary_conditions = bcs,
-    closure = CATKEVerticalDiffusivity(),
+    closure = closure,
     forcing = forcings
 )
 @info "" model
@@ -390,8 +413,8 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
 pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
-simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.5)
+simulation = Simulation(model, Δt=2minutes, stop_time=sim_runtime)
+conjure_time_step_wizard!(simulation, IterationInterval(10); cfl=0.15, max_Δt=15minutes)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -429,7 +452,7 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 @info """
 ════════════════════════════════════════════════════════
  HYDROSTATIC SIMULATION: $(run_tag)
- (HydrostaticFreeSurfaceModel + ImplicitFreeSurface + ZStarCoordinate)
+ (HydrostaticFreeSurfaceModel + SplitExplicitFreeSurface + body-force M2 tide)
 ════════════════════════════════════════════════════════
  Run label:       $(sweep_run_label)
  Run index:       $(sweep_run_index)
@@ -454,10 +477,12 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 run!(simulation, pickup=pickup)
 #---
 
-#+++ Animate the output 
-try
-    include(joinpath(@__DIR__, "plot_hydrostatic_simulation.jl"))
-catch err
-    @warn "Skipped animation (expected on headless/GPU nodes without Plots)" exception = (err, catch_backtrace())
+#+++ Animate the output
+if get(ENV, "SKIP_PLOT", "false") != "true"
+    try
+        include(joinpath(@__DIR__, "plot_hydrostatic_simulation.jl"))
+    catch err
+        @warn "Skipped animation (expected on headless/GPU nodes without Plots)" exception = (err, catch_backtrace())
+    end
 end
 #---
