@@ -7,14 +7,20 @@
 # state variables as FieldTimeSeries: u, v, w (velocities), T, S (tracers) and
 # η (free-surface elevation), saved every 12 hours.
 #
-# This produces a GIF that evolves in time, laid out in three rows:
+# This produces an MP4 that evolves in time, laid out in three rows:
 #   • top row    — surface (top-layer) x–y maps of u, v, w, T, S, and η
 #   • middle row — one thin horizontal colorbar per column
 #   • bottom row — cross-shore (mid-y) x–z transects of u, v, w, T, S
 # Each column (field) shares a single color range and colorbar across its
 # surface and transect panels.
 #
-# Runs locally with Plots (not on the GPU). Usage:
+# Plotting uses CairoMakie via Oceananigans' Makie extension: `Field`s (and
+# `view`-sliced `Field`s) are handed straight to `heatmap!`, which converts
+# coordinates and masks immersed (bottom) cells with NaN automatically — there
+# is no need to pull arrays out with `interior()` for plotting. Frames are read
+# lazily through an `Observable` index, so only one frame is in memory at a time.
+#
+# Runs locally with CairoMakie (not on the GPU). Usage:
 #   julia --project src/plot_hydrostatic_simulation.jl [path/to/fields_*.jld2]
 #
 # All work is wrapped in `animate_hydrostatic_output` so that, when this file is
@@ -25,7 +31,7 @@
 using Oceananigans
 using Printf: @sprintf
 using Statistics: quantile
-using Plots
+using CairoMakie
 
 function animate_hydrostatic_output(filename)
     isfile(filename) || error("Output file not found: $(filename)\n" *
@@ -44,35 +50,28 @@ function animate_hydrostatic_output(filename)
 
     times = T_ts.times
     Nt = length(times)
-    Ny = size(T_ts.grid, 2)
-    jmid = max(1, Ny ÷ 2)               # mid-y index for the cross-shore transect
-
     @info "Reading $(Nt) frames"
-    surf(fts, n)     = Array(interior(fts[n])[:, :, end])    # topmost z-layer (x–y)
-    transect(fts, n) = Array(interior(fts[n])[:, jmid, :])   # mid-y (x–z)
 
-    # color limits from the 5th/95th percentiles (robust to outliers), shared per
-    # column across all frames and both rows. `collect_finite` gathers the values;
-    # signed fields are symmetrized about 0 for the diverging colormap.
-    function collect_finite(slicesets...)
-        vals = Float64[]
-        for slices in slicesets, s in slices, val in s
-            isfinite(val) && push!(vals, val)
+    # ── color limits ──────────────────────────────────────────────────────────
+    # Shared per column across all frames and both rows; signed fields are
+    # symmetrized about 0 for the diverging colormap. This is the only place that
+    # touches raw values (statistics, not plotting): we take the 5th/95th
+    # percentiles (robust to outliers) over the surface and transect slices.
+    function collect_finite!(vals, A)
+        for v in A
+            isfinite(v) && push!(vals, Float64(v))
         end
         return vals
     end
-    function clims_symmetric(slicesets...)
-        vals = collect_finite(slicesets...)
-        isempty(vals) && return (-1.0, 1.0)
+    function clims_from(vals, signed)
+        isempty(vals) && return signed ? (-1.0, 1.0) : (0.0, 1.0)
         lo, hi = quantile(vals, [0.05, 0.95])
-        m = max(abs(lo), abs(hi))
-        return m == 0 ? (-1.0, 1.0) : (-m, m)
-    end
-    function clims_percentile(slicesets...)
-        vals = collect_finite(slicesets...)
-        isempty(vals) && return (0.0, 1.0)
-        lo, hi = quantile(vals, [0.05, 0.95])
-        return hi > lo ? (lo, hi) : (lo, lo + 1)
+        if signed
+            m = max(abs(lo), abs(hi))
+            return m == 0 ? (-1.0, 1.0) : (-m, m)
+        else
+            return hi > lo ? (lo, hi) : (lo, lo + 1)
+        end
     end
 
     # the five 3D state fields: (title, time series, colormap, signed?)
@@ -82,63 +81,76 @@ function animate_hydrostatic_output(filename)
               ("T (°C)",   T_ts, :thermal, false),
               ("S (g/kg)", S_ts, :haline,  false))
 
-    # ── precompute slices, nodes and (shared) color limits — single disk pass ──
-    field_data = map(fields) do (title, fts, cmap, signed)
-        s = [surf(fts, n)     for n in 1:Nt]
-        t = [transect(fts, n) for n in 1:Nt]
-        clims = signed ? clims_symmetric(s, t) : clims_percentile(s, t)
-        (; title, cmap, clims, x=xnodes(fts) ./ 1e3, y=ynodes(fts) ./ 1e3, z=znodes(fts), surf=s, tran=t)
-    end
-    η_s = [(a = interior(η_ts[n]); Array(ndims(a) == 3 ? a[:, :, 1] : a)) for n in 1:Nt]
-    η_data = (; title="η (m)", cmap=:balance, clims=clims_symmetric(η_s),
-                x=xnodes(η_ts) ./ 1e3, y=ynodes(η_ts) ./ 1e3, surf=η_s)
+    # ── figure scaffold ─────────────────────────────────────────────────────
+    # 4 layout rows: title · surface maps · thin colorbars · cross-shore transects
+    # over 6 columns (u, v, w, T, S, η). η has no transect, so its bottom cell is
+    # left empty. `n` indexes the frame; everything time-varying is `@lift`ed off it.
+    n = Observable(1)
+    title = @lift @sprintf("flow over shoal — t = %.1f days   (top: surface x–y · bottom: cross-shore x–z)",
+                           times[$n] / 86400)
 
-    # thin horizontal colorbar: a 1×N gradient strip whose x-axis is the value scale
-    function colorbar_strip(clims, cmap)
-        g = collect(range(clims[1], clims[2], length=200))
-        heatmap(g, [0.0], reshape(g, 1, :); c=cmap, clims=clims, colorbar=false,
-                legend=false, framestyle=:box, yticks=false, ylims=(-0.5, 0.5),
-                xlabel="", ylabel="", title="", titlefontsize=8, tickfontsize=6)
-    end
+    fig = Figure(size=(2100, 1000))
+    Label(fig[1, 1:6], title; fontsize=18, tellwidth=false)
 
-    # 3 rows × 6 columns. Middle (colorbar) row is a thin strip; the bottom-right
-    # cell (no η transect) is left empty (`_`).
-    layout = @layout [a{0.47h} b c d e f
-                      g{0.05h} h i j k l
-                      m{0.47h} n o p q _]
+    for (col, (ftitle, fts, cmap, signed)) in enumerate(fields)
+        ktop = size(fts, 3)               # topmost z index (Nz for Centers, Nz+1 for w)
+        jmid = max(1, size(fts, 2) ÷ 2)   # mid-y index for the cross-shore transect
+        xkm = xnodes(fts) ./ 1e3
+        ykm = ynodes(fts) ./ 1e3
+        zm  = znodes(fts)
 
-    @info "Rendering animation"
-    anim = @animate for n in 1:Nt
-        ps = Plots.Plot[]
-
-        # row 1 — surface maps (u, v, w, T, S, η)
-        for (col, fd) in enumerate(field_data)
-            push!(ps, heatmap(fd.x, fd.y, fd.surf[n]'; title=fd.title, c=fd.cmap, clims=fd.clims,
-                              colorbar=false, xlabel="", ylabel=(col == 1 ? "y (km)" : ""),
-                              titlefontsize=10))
+        # shared color range from finite values over both slices, all frames
+        vals = Float64[]
+        for m in 1:Nt
+            f = fts[m]
+            collect_finite!(vals, interior(f, :, :, ktop))
+            collect_finite!(vals, interior(f, :, jmid, :))
         end
-        push!(ps, heatmap(η_data.x, η_data.y, η_data.surf[n]'; title=η_data.title,
-                          c=η_data.cmap, clims=η_data.clims, colorbar=false,
-                          xlabel="", ylabel="", titlefontsize=10))
+        crange = clims_from(vals, signed)
 
-        # row 2 — one shared horizontal colorbar per column
-        for fd in field_data
-            push!(ps, colorbar_strip(fd.clims, fd.cmap))
-        end
-        push!(ps, colorbar_strip(η_data.clims, η_data.cmap))
+        # lazily slice the current frame into 2D Fields; Makie plots them directly
+        fₙ    = @lift fts[$n]
+        surfₙ = @lift view($fₙ, :, :, ktop)    # surface x–y (top z-layer)
+        tranₙ = @lift view($fₙ, :, jmid, :)    # cross-shore x–z (mid-y)
 
-        # row 3 — cross-shore transects (u, v, w, T, S); η has none
-        for (col, fd) in enumerate(field_data)
-            push!(ps, heatmap(fd.x, fd.z, fd.tran[n]'; c=fd.cmap, clims=fd.clims, colorbar=false,
-                              xlabel="x (km)", ylabel=(col == 1 ? "z (m)" : ""), title=""))
-        end
+        # row 1 — surface map
+        ax_s = Axis(fig[2, col]; title=ftitle, titlesize=14,
+                    ylabel = col == 1 ? "y (km)" : "", xticklabelsvisible=false)
+        hm = heatmap!(ax_s, xkm, ykm, surfₙ; colormap=cmap, colorrange=crange, nan_color=:gray)
 
-        plot(ps...; layout, size=(2100, 950),
-             plot_title=@sprintf("flow over shoal — t = %.1f days  (top: surface x–y · bottom: cross-shore x–z)", times[n] / 86400))
+        # row 2 — thin shared horizontal colorbar
+        Colorbar(fig[3, col], hm; vertical=false, flipaxis=false, height=12, ticklabelsize=9)
+
+        # row 3 — cross-shore transect
+        ax_t = Axis(fig[4, col]; xlabel="x (km)", ylabel = col == 1 ? "z (m)" : "")
+        heatmap!(ax_t, xkm, zm, tranₙ; colormap=cmap, colorrange=crange, nan_color=:gray)
     end
+
+    # η (free surface) — surface map only, column 6
+    let xkm = xnodes(η_ts) ./ 1e3, ykm = ynodes(η_ts) ./ 1e3
+        vals = Float64[]
+        for m in 1:Nt
+            collect_finite!(vals, interior(η_ts[m]))
+        end
+        crange = clims_from(vals, true)
+
+        ηₙ = @lift η_ts[$n]
+        ax = Axis(fig[2, 6]; title="η (m)", titlesize=14, xticklabelsvisible=false)
+        hm = heatmap!(ax, xkm, ykm, ηₙ; colormap=:balance, colorrange=crange, nan_color=:gray)
+        Colorbar(fig[3, 6], hm; vertical=false, flipaxis=false, height=12, ticklabelsize=9)
+    end
+
+    # tall surface/transect rows, thin title/colorbar rows (cf. original 0.47/0.05/0.47)
+    rowsize!(fig.layout, 2, Relative(0.45))
+    rowsize!(fig.layout, 4, Relative(0.45))
+    colgap!(fig.layout, 12)
+    rowgap!(fig.layout, 6)
 
     gifname = first(splitext(basename(filename))) * ".mp4"
-    gif(anim, gifname; fps=10)
+    @info "Rendering animation"
+    record(fig, gifname, 1:Nt; framerate=10) do i
+        n[] = i
+    end
     @info "Saved animation to $(gifname)"
     return gifname
 end
