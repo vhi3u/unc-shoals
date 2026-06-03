@@ -316,18 +316,31 @@ end
 @inline T_0(z) = T_south_pwl(z, T_south_v1)
 @inline S_0(z) = S_south_pwl(z, S_south_v1)
 
-# North-edge nudging (sponge): with y periodic, reset the flow to the initial
-# condition near the northern edge so the shoal's wake doesn't recirculate into
-# the inflow through the periodic southern boundary. `north_mask` (a
-# PiecewiseLinearMask) ramps from 0 in the interior to 1 at y = Ly over the last
-# Ls. Targets are the IC: u → 0, v → v∞, T → T_0, S → S_0. (T/S are written as
-# T_south_pwl(z, p.T_south_v1) / S_south_pwl(z, p.S_south_v1), i.e. T_0/S_0 routed
-# through `params`, so the forcing kernels stay GPU-safe.)
+# Sponge nudging at the northern and eastern (offshore) edges. Two
+# PiecewiseLinearMask ramps drive it: `north_mask` (0 → 1 over the last Ls at
+# y = Ly) and `offshore_mask` (0 → 1 over [Lx-Le, Lx], i.e. 60 → 100 km). Each
+# relaxes the flow toward a reference state:
+#   • north (timescales τₙ / τ_ts): the initial condition — u → 0, v → v∞,
+#     T → T_0, S → S_0 — so the shoal wake doesn't recirculate through the
+#     periodic southern boundary;
+#   • east  (timescales τₑ / τ_ts): the offshore state — u → 0, v → v∞,
+#     T → T_east, S → S_east — a Davies layer that absorbs disturbances before
+#     the eastern wall.
+# T/S north targets use p.T_south_v1 / p.S_south_v1 (= T_0/S_0) for GPU safety;
+# T_east_pwl / S_east_pwl are plain functions of z.
 if mass_flux
-    @inline sponge_u(x, y, z, t, u, p) = -north_mask(x, y, z) * u / p.τₙ
-    @inline sponge_v(x, y, z, t, v, p) = -north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ
-    @inline sponge_T(x, y, z, t, T, p) = -north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts
-    @inline sponge_S(x, y, z, t, S, p) = -north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts
+    @inline sponge_u(x, y, z, t, u, p) = -(
+        north_mask(x, y, z) * u / p.τₙ +
+        offshore_mask(x, y, z) * u / p.τₑ)
+    @inline sponge_v(x, y, z, t, v, p) = -(
+        north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
+        offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
+    @inline sponge_T(x, y, z, t, T, p) = -(
+        north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z) * (T - T_east_pwl(z)) / p.τ_ts)
+    @inline sponge_S(x, y, z, t, S, p) = -(
+        north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
+        offshore_mask(x, y, z) * (S - S_east_pwl(z)) / p.τ_ts)
 end
 
 # forcing functions
@@ -390,7 +403,7 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_inter
 state_fields = merge(model.velocities, model.tracers, (; η))
 simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
     filename="fields_$(run_tag).jld2",
-    schedule=TimeInterval(6hours),
+    schedule=TimeInterval(3hours),
     overwrite_existing=overwrite_existing)
 #---
 
