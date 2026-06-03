@@ -38,6 +38,12 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
+#+++ Hacks
+import Oceananigans.TurbulenceClosures: cell_diffusion_timescale
+
+cell_diffusion_timescale(closure::CATKEVerticalDiffusivity, diffusivities, grid, clock, fields) = Inf
+#---
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Read sweep parameters from environment (set by sweep_driver.jl)
 # Falls back to defaults so script can also be run standalone.
@@ -79,7 +85,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 50days
+sim_runtime = 30days
 callback_interval = 86400seconds
 run_tag = "hydrostatic_$(sweep_run_label)"
 
@@ -252,13 +258,11 @@ const κᵛᵏ = 0.4 # von Karman constant
 params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
-@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
-@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
-
-# w is diagnostic in the hydrostatic model (computed from continuity), so only
-# the horizontal velocities receive a quadratic-drag flux on the bottom.
-immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+# Quadratic bulk drag with the law-of-the-wall coefficient c_dz from above.
+# `BulkDrag` returns a FluxBoundaryCondition whose direction is inferred from
+# each velocity's location; it is applied below on both the domain bottom (the
+# offshore seafloor at z = -Lz) and the immersed boundary (shelf/shoal topography).
+drag = BulkDrag(coefficient=params.c_dz)
 #---
 # wind stress BC
 ρ₀ = 1024.0
@@ -338,20 +342,21 @@ else
     forcings = (T=FT, S=FS)
 end
 
-# y is periodic — no north/south boundary conditions; the along-shore inflow is
-# conditioned by the northern sponge above. The eastern (offshore) boundary stays
-# open for the cross-shore velocity u (PerturbationAdvection, radiating toward
-# zero); T and S are no-flux there by default.
-radiation = OpenBoundaryCondition(0.0; scheme=PerturbationAdvection())
+# y is periodic — no north/south boundary conditions. The eastern (offshore) and
+# western boundaries are closed walls; the eastern wall is fronted by the offshore
+# sponge above (a Davies nudging layer), and T/S are no-flux on the walls.
+# Quadratic bulk drag acts on the domain bottom (offshore seafloor) and the
+# immersed seafloor (shelf/shoal).
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, east=radiation)
-v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
+u_bcs = FieldBoundaryConditions(bottom=drag, immersed=drag)
+v_bcs = FieldBoundaryConditions(bottom=drag, immersed=drag, top=wind_bc_v)
 
 # No w boundary conditions: w is diagnostic in the hydrostatic model.
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
+#+++ Create model
 free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.7)
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
@@ -365,9 +370,10 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     closure = CATKEVerticalDiffusivity(),
     forcing = forcings
 )
-
 @info "" model
+#---
 
+#+++ Create simulation
 pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
@@ -376,6 +382,7 @@ conjure_time_step_wizard!(simulation, cfl=0.5)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
+#---
 
 #+++ Output: a single writer with all state variables, every 12 hours
 # State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
@@ -383,17 +390,13 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_inter
 state_fields = merge(model.velocities, model.tracers, (; η))
 simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
     filename="fields_$(run_tag).jld2",
-    schedule=TimeInterval(12hours),
+    schedule=TimeInterval(6hours),
     overwrite_existing=overwrite_existing)
 #---
 
 #+++ initial conditions
 @info "Setting initial conditions"
-if sigmoid_ic
-    v_init = (x, y, z) -> v∞(x, z, 0, params)
-else
-    v_init = v₀
-end
+v_init = sigmoid_ic ? ((x, y, z) -> v∞(x, z, 0, params)) : v₀
 
 if gradient_IC
     @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
