@@ -140,7 +140,8 @@ params = (; params...,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
-    wind_stress=sweep_wind_stress)
+    wind_stress=sweep_wind_stress,
+    ω_M2=2π / 12.4206hours)   # M2 tidal angular frequency (period ≈ 12.42 h)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -281,6 +282,10 @@ const east_mask     = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const offshore_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
 # velocity function
+# Time-dependent inflow: a barotropic M2 tide. The amplitude is v₀ (times the
+# cross-shore shape `sc` in the sigmoid case) and the sign alternates as
+# sin(ω_M2 t), so the along-shore flow floods northward and ebbs southward over
+# each ≈ 12.42 h M2 period.
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
@@ -293,11 +298,11 @@ if sigmoid_v_bc
         s2 = 1 / (1 + exp(k2 * (x - xS)))
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
-        return p.v₀ * sc
+        return p.v₀ * sc * sin(p.ω_M2 * t)
     end
 else
     @inline function v∞(x, z, t, p)
-        return p.v₀
+        return p.v₀ * sin(p.ω_M2 * t)
     end
 end
 
