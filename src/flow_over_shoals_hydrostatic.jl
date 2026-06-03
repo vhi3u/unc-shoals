@@ -79,7 +79,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 100days
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = "hydrostatic_$(sweep_run_label)"
 
@@ -347,14 +347,7 @@ v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
-# Split-explicit free surface: the fast barotropic mode is subcycled explicitly
-# rather than solving a global elliptic problem each step — so there are no CG
-# iterations at all. With the time-step wizard (variable Δt), passing `cfl`
-# selects FixedTimeStepSize substepping: the barotropic step is fixed by the CFL
-# and the grid, and the number of substeps adapts to the current baroclinic Δt.
-# Works with ZStarCoordinate / the MutableVerticalDiscretization grid.
 free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.7)
-# Common model parameters, will override :closure below
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
     momentum_advection = WENO(order=5),
@@ -364,6 +357,7 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     buoyancy = SeawaterBuoyancy(),
     coriolis = coriolis,
     boundary_conditions = bcs,
+    closure = CATKEVerticalDiffusivity(),
     forcing = forcings
 )
 
@@ -378,7 +372,7 @@ conjure_time_step_wizard!(simulation, cfl=0.5)
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
-# ── Output: a single writer with all state variables, every 12 hours ──────
+#+++ Output: a single writer with all state variables, every 12 hours
 # State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
 η = model.free_surface.displacement
 state_fields = merge(model.velocities, model.tracers, (; η))
@@ -386,8 +380,9 @@ simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
     filename="fields_$(run_tag).jld2",
     schedule=TimeInterval(12hours),
     overwrite_existing=overwrite_existing)
+#---
 
-# initial conditions
+#+++ initial conditions
 @info "Setting initial conditions"
 if sigmoid_ic
     v_init = (x, y, z) -> v∞(x, z, 0, params)
@@ -407,8 +402,9 @@ end
 
 # w is diagnostic (recomputed from continuity), so it is not set here.
 set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
+#---
 
-# run simulation
+#+++ run simulation
 @info """
 ════════════════════════════════════════════════════════
  HYDROSTATIC SIMULATION: $(run_tag)
@@ -435,14 +431,12 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 ════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
+#---
 
-# ── Animate the output ─────────────────────────────────────────────────────
-# Build a GIF from fields_$(run_tag).jld2. Plotting uses Plots and runs locally;
-# on headless/GPU nodes (no Plots/display) this is skipped with a warning rather
-# than failing an otherwise-successful run. `run_tag` is in scope, so the plot
-# script picks up this run's output file automatically.
+#+++ Animate the output 
 try
     include(joinpath(@__DIR__, "plot_hydrostatic_simulation.jl"))
 catch err
     @warn "Skipped animation (expected on headless/GPU nodes without Plots)" exception = (err, catch_backtrace())
 end
+#---
