@@ -87,8 +87,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = parse(Float64, get(ENV, "SIM_RUNTIME_DAYS", "30")) * days
-callback_interval = parse(Float64, get(ENV, "CALLBACK_HOURS", "24")) * hours
+sim_runtime = 20days
 run_tag = "hydrostatic2_$(sweep_run_label)"
 
 params = (; Lx=100e3, Ly=200e3, Lz=50)
@@ -413,26 +412,6 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
 @info "" model
 #---
 
-#+++ Create simulation
-pickup = isfile("checkpoint_$(run_tag).jld2")
-overwrite_existing = !pickup
-
-simulation = Simulation(model, Δt=2minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, IterationInterval(10); cfl=0.15, max_Δt=15minutes)
-
-progress = TimedMessenger()
-simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
-#---
-
-#+++ Output: a single writer with all state variables, every 12 hours
-# State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
-η = model.free_surface.displacement
-state_fields = merge(model.velocities, model.tracers, (; η))
-simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
-    filename="fields_$(run_tag).jld2",
-    schedule=TimeInterval(3hours),
-    overwrite_existing=overwrite_existing)
-#---
 
 #+++ initial conditions
 @info "Setting initial conditions"
@@ -451,6 +430,32 @@ end
 # w is diagnostic (recomputed from continuity), so it is not set here.
 set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 #---
+
+#+++ Create simulation
+pickup = isfile("checkpoint_$(run_tag).jld2")
+overwrite_existing = !pickup
+
+b̄ = Average(Oceananigans.Models.buoyancy_field(model), dims=(1, 2))
+N² = ∂z(Field(b̄)) |> maximum
+max_Δt = 0.5 / √(N²)
+
+simulation = Simulation(model, Δt=2minutes, stop_time=sim_runtime)
+conjure_time_step_wizard!(simulation, IterationInterval(5); cfl=0.4, max_Δt)
+
+progress = TimedMessenger()
+simulation.callbacks[:progress] = Callback(progress, TimeInterval(24hours))
+#---
+
+#+++ Output: a single writer with all state variables, every 12 hours
+# State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
+η = model.free_surface.displacement
+state_fields = merge(model.velocities, model.tracers, (; η))
+simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
+    filename="fields_$(run_tag).jld2",
+    schedule=TimeInterval(1hours),
+    overwrite_existing=overwrite_existing)
+#---
+
 
 #+++ run simulation
 @info """
