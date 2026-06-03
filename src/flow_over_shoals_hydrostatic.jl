@@ -1,20 +1,23 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# flow_over_shoals_hydrostatic.jl
+# flow_over_shoals_hydrostatic2.jl
 # ═══════════════════════════════════════════════════════════════════════════
-# Hydrostatic M2-tidal flow over the shoal. HydrostaticFreeSurfaceModel with:
-#   • SplitExplicitFreeSurface (barotropic mode subcycled — no elliptic solve);
-#   • a static z-coordinate on a periodic-in-y, bounded-in-x/z grid;
-#   • CATKE vertical mixing + a stacked horizontal closure (Laplacian + biharmonic
-#     hyperviscosity, resolution-scaled) to suppress 2Δx grid-scale noise;
-#   • a body-force M2 tide (ramped) driving v ≈ v₀·sc(x)·sin(ω t), with gentle
-#     north/offshore reset sponges and quadratic BulkDrag on the seafloor.
+# Alternative route to the same goal as flow_over_shoals_hydrostatic.jl — a
+# stable, artifact-free, grid-noise-free M2-tidal flow over the shoal.
 #
-# This configuration was tuned for stability + no grid-scale noise; see
-# src/NUMERICAL_ARTIFACTS.md for the rationale, and flow_over_shoals_hydrostatic2.jl
-# for an alternative (WENOVectorInvariant + lighter closure) route.
+# Identical physics and numerics EXCEPT the horizontal dissipation strategy:
+#   • flow_over_shoals_hydrostatic.jl: flux-form WENO momentum advection damped by
+#     a heavy *explicit* stack — Laplacian (ν_h) + biharmonic (ν₄) hyperviscosity.
+#   • THIS script: WENOVectorInvariant momentum advection, whose vorticity-flux
+#     upwinding supplies scale-selective dissipation intrinsically, plus only a
+#     *light* Laplacian background (no biharmonic) — a less heavy-handed closure.
+#
+# Both share: HydrostaticFreeSurfaceModel + SplitExplicitFreeSurface, CATKE
+# vertical mixing, BulkDrag on bottom + immersed seafloor, a body-force M2 tide
+# (ramped) with gentle north/offshore reset sponges, and the tightened CFL.
 #
 # Geometry/forcing read from SWEEP_* env vars (standalone defaults); resolution
-# and runtime overridable via NX/NY/NZ, SIM_RUNTIME_DAYS, CALLBACK_HOURS, SKIP_PLOT.
+# and runtime overridable via NX/NY/NZ and SIM_RUNTIME_DAYS. See
+# src/NUMERICAL_ARTIFACTS.md for the dissipation/closure rationale.
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
@@ -86,7 +89,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 run_number = sweep_run_index
 sim_runtime = parse(Float64, get(ENV, "SIM_RUNTIME_DAYS", "30")) * days
 callback_interval = parse(Float64, get(ENV, "CALLBACK_HOURS", "24")) * hours
-run_tag = "hydrostatic_$(sweep_run_label)"
+run_tag = "hydrostatic2_$(sweep_run_label)"
 
 params = (; Lx=100e3, Ly=200e3, Lz=50)
 if arch == CPU()
@@ -101,7 +104,8 @@ params = (; params...,
     Nz=parse(Int, get(ENV, "NZ", string(params.Nz))))
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
-grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
+# halo=(7,7,5): WENOVectorInvariant's 9th-order vorticity reconstruction needs ≥7 horizontal halo points.
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(7, 7, 5), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
 slope_bottom = dshoal_param_bottom(params.Ly;
@@ -376,27 +380,27 @@ v_bcs = FieldBoundaryConditions(bottom=drag, immersed=drag, top=wind_bc_v)
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
-#+++ Horizontal closure (stacked, resolution-scaled) — see src/NUMERICAL_ARTIFACTS.md
-# Grid-scale (2Δx) ringing in an under-damped sheared flow is the usual source of
-# the artifacts / blow-up here. Damp it with a Laplacian horizontal viscosity
-# (always-on background, keeps low-shear regions quiet) plus a scale-selective
-# biharmonic for the 2Δx mode, stacked on the vertical CATKE closure. Coefficients
-# scale from the guide's Δx = 1.7 km baseline (ν_h = 20 m²/s, ν₄ = 1e8 m⁴/s):
-# Laplacian ν_h ∝ Δx², biharmonic ν₄ ∝ Δx⁴ (constant damping timescales).
+#+++ Horizontal dissipation (alternative "lighter" route) — see src/NUMERICAL_ARTIFACTS.md
+# Where flow_over_shoals_hydrostatic.jl damps grid-scale (2Δx) noise with a heavy
+# *explicit* stack (Laplacian + biharmonic), this variant leans on the advection
+# scheme instead: WENOVectorInvariant momentum advection (below) upwinds the
+# vorticity flux and supplies scale-selective dissipation intrinsically (its
+# default vorticity reconstruction is 9th order). We therefore keep only a *light*
+# Laplacian background — half of the other script's ν_h and no biharmonic — to
+# quiet low-shear regions / internal waves, plus CATKE for vertical mixing.
+# ν_h scales ∝ Δx² from the guide's Δx = 1.7 km baseline (ν_h = 20 → here 10 m²/s).
 Δh = params.Lx / params.Nx                       # ≈ Δy (square cells)
-ν_h = 20.0  * (Δh / 1700)^2                       # Laplacian viscosity  (m²/s)
-ν₄  = 1.0e8 * (Δh / 1700)^4                       # biharmonic viscosity (m⁴/s)
-@info "Horizontal closure (resolution-scaled)" Δh ν_h ν₄
-closure = (HorizontalScalarDiffusivity(ν=ν_h, κ=ν_h / 4),        # always-on; Pr_h = 4
-           HorizontalScalarBiharmonicDiffusivity(ν=ν₄, κ=ν₄),    # scale-selective 2Δx trim
-           CATKEVerticalDiffusivity())                           # vertical mixing
+ν_h = 10.0 * (Δh / 1700)^2                        # light Laplacian viscosity (m²/s)
+@info "Horizontal closure (light Laplacian + WENOVectorInvariant)" Δh ν_h
+closure = (HorizontalScalarDiffusivity(ν=ν_h, κ=ν_h / 4),   # light always-on background; Pr_h = 4
+           CATKEVerticalDiffusivity())                      # vertical mixing
 #---
 
 #+++ Create model
 free_surface = SplitExplicitFreeSurface(ib_grid; cfl=0.5)
 model = HydrostaticFreeSurfaceModel(ib_grid;
     timestepper = :QuasiAdamsBashforth2,
-    momentum_advection = WENO(order=5),
+    momentum_advection = WENOVectorInvariant(),   # vorticity-form WENO: built-in scale-selective dissipation
     tracer_advection = WENO(order=5),
     free_surface = free_surface,
     tracers = (:T, :S),
@@ -452,7 +456,7 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 @info """
 ════════════════════════════════════════════════════════
  HYDROSTATIC SIMULATION: $(run_tag)
- (HydrostaticFreeSurfaceModel + SplitExplicitFreeSurface + body-force M2 tide)
+ (HydrostaticFreeSurfaceModel + SplitExplicitFreeSurface + WENOVectorInvariant)
 ════════════════════════════════════════════════════════
  Run label:       $(sweep_run_label)
  Run index:       $(sweep_run_index)
