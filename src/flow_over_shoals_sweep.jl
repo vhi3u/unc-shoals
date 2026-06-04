@@ -525,6 +525,13 @@ simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
     indices=(round(Int, params.Nx / 5), :, :),
     overwrite_existing=overwrite_existing)
 
+# z slice at z = -20 m 
+simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
+    filename="midz_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, :, round(Int, params.Nz * 0.6)),
+    overwrite_existing=overwrite_existing)
+
 # # (2) 3D snapshots (every 20 days)
 # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
 #     filename="snapshots_3d_$(run_tag).nc",
