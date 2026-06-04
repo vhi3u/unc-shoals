@@ -21,7 +21,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded
+using Oceananigans.Grids: Periodic, Bounded, xnode, ynode, znode
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
@@ -87,7 +87,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 20days
+sim_runtime = parse(Float64, get(ENV, "SIM_RUNTIME_DAYS", "20")) * days
 run_tag = "hydrostatic2_$(sweep_run_label)"
 
 params = (; Lx=100e3, Ly=200e3, Lz=50)
@@ -101,6 +101,20 @@ params = (; params...,
     Nx=parse(Int, get(ENV, "NX", string(params.Nx))),
     Ny=parse(Int, get(ENV, "NY", string(params.Ny))),
     Nz=parse(Int, get(ENV, "NZ", string(params.Nz))))
+
+# Resolution-aware horizontal-closure controls (see the closure block below).
+#   Re₀          base Reynolds-number coefficient (tunable; larger ⇒ lower ν_h)
+#   closure_dims 2 ⇒ p=2 (2-D scaling), 3 ⇒ p=4/3 (3-D scaling)
+#   U_closure    characteristic horizontal velocity scale (m/s) ≈ tidal+mean flow
+# Default Re₀=32 ⇒ ν_h ≈ 0.0078 m²/s at 200×400×50 (κ_h ≈ 0.002). Chosen from the
+# src/tune_closure.jl sweep: it sits at the resolved-enstrophy plateau (not
+# overdamped — unlike ν≈1) yet ~110× below the previous hard-coded 0.865 m²/s, with
+# WENOVectorInvariant providing the bulk of the scale-selective dissipation. Lower
+# ν changes the solution by <1% and removes the stability margin.
+params = (; params...,
+    Re₀=parse(Float64, get(ENV, "RE0", "32.0")),
+    closure_dims=parse(Int, get(ENV, "CLOSURE_DIMS", "2")),
+    U_closure=0.1)
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 # halo=(7,7,5): WENOVectorInvariant's 9th-order vorticity reconstruction needs ≥7 horizontal halo points.
@@ -338,28 +352,59 @@ end
 #     the eastern wall.
 # T/S north targets use p.T_south_v1 / p.S_south_v1 (= T_0/S_0) for GPU safety;
 # T_east_pwl / S_east_pwl are plain functions of z.
+#
+# ⚠ GPU note: these are written in *discrete form* (discrete_form=true), i.e.
+# f(i, j, k, grid, clock, model_fields, p), indexing the field directly as
+# model_fields.<f>[i,j,k] and recovering (x,y,z) with xnode/ynode/znode at the
+# field's own location. The natural "continuous" form (field_dependencies=:u,…)
+# does NOT compile on the GPU here: ContinuousForcing's field-interpolation path
+# (and the built-in Relaxation, which shares it) makes the momentum-tendency
+# kernel type-unstable → InvalidIRError (gpu_gc_pool_alloc). Discrete form sidesteps
+# that machinery entirely while reproducing identical physics. Each forcing gets a
+# *minimal* params NamedTuple (only the fields it needs); masks are const globals.
+@inline sponge_T(i, j, k, grid, clock, mf, p) = begin
+    x = xnode(i, grid, Center()); y = ynode(j, grid, Center()); z = znode(k, grid, Center())
+    T = @inbounds mf.T[i, j, k]
+    -(north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
+      offshore_mask(x, y, z) * (T - T_east_pwl(z)) / p.τ_ts)
+end
+@inline sponge_S(i, j, k, grid, clock, mf, p) = begin
+    x = xnode(i, grid, Center()); y = ynode(j, grid, Center()); z = znode(k, grid, Center())
+    S = @inbounds mf.S[i, j, k]
+    -(north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
+      offshore_mask(x, y, z) * (S - S_east_pwl(z)) / p.τ_ts)
+end
 if mass_flux
-    @inline sponge_u(x, y, z, t, u, p) = -(
-        north_mask(x, y, z) * u / p.τₙ +
-        offshore_mask(x, y, z) * u / p.τₑ)
-    @inline sponge_v(x, y, z, t, v, p) = F_tide_v(x, t, p) - (
-        north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
-        offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
-    @inline sponge_T(x, y, z, t, T, p) = -(
-        north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z) * (T - T_east_pwl(z)) / p.τ_ts)
-    @inline sponge_S(x, y, z, t, S, p) = -(
-        north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-        offshore_mask(x, y, z) * (S - S_east_pwl(z)) / p.τ_ts)
+    @inline sponge_u(i, j, k, grid, clock, mf, p) = begin
+        x = xnode(i, grid, Face()); y = ynode(j, grid, Center()); z = znode(k, grid, Center())
+        u = @inbounds mf.u[i, j, k]
+        -(north_mask(x, y, z) * u / p.τₙ +
+          offshore_mask(x, y, z) * u / p.τₑ)
+    end
+    @inline sponge_v(i, j, k, grid, clock, mf, p) = begin
+        x = xnode(i, grid, Center()); y = ynode(j, grid, Face()); z = znode(k, grid, Center())
+        t = clock.time
+        v = @inbounds mf.v[i, j, k]
+        F_tide_v(x, t, p) - (
+            north_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₙ +
+            offshore_mask(x, y, z) * (v - v∞(x, z, t, p)) / p.τₑ)
+    end
 end
 
-# forcing functions
-FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
+# Minimal per-forcing params (small NamedTuples keep the GPU kernels lean).
+T_force_params = (; τ_ts=params.τ_ts, T_south_v1=params.T_south_v1)
+S_force_params = (; τ_ts=params.τ_ts, S_south_v1=params.S_south_v1)
+u_force_params = (; τₙ=params.τₙ, τₑ=params.τₑ)
+v_force_params = (; τₙ=params.τₙ, τₑ=params.τₑ, v₀=params.v₀,
+                    τ_ramp=params.τ_ramp, ω_M2=params.ω_M2, Lx=params.Lx)
+
+# forcing functions (discrete form — see GPU note above)
+FT = Forcing(sponge_T, discrete_form=true, parameters=T_force_params)
+FS = Forcing(sponge_S, discrete_form=true, parameters=S_force_params)
 if mass_flux
     # No w forcing: w is diagnostic in the hydrostatic model.
-    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
+    Fᵤ = Forcing(sponge_u, discrete_form=true, parameters=u_force_params)
+    Fᵥ = Forcing(sponge_v, discrete_form=true, parameters=v_force_params)
     forcings = (u=Fᵤ, v=Fᵥ, T=FT, S=FS)
 else
     forcings = (T=FT, S=FS)
@@ -379,18 +424,44 @@ v_bcs = FieldBoundaryConditions(bottom=drag, immersed=drag, top=wind_bc_v)
 bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
 
-#+++ Horizontal dissipation (alternative "lighter" route) — see src/NUMERICAL_ARTIFACTS.md
-# Where flow_over_shoals_hydrostatic.jl damps grid-scale (2Δx) noise with a heavy
-# *explicit* stack (Laplacian + biharmonic), this variant leans on the advection
-# scheme instead: WENOVectorInvariant momentum advection (below) upwinds the
-# vorticity flux and supplies scale-selective dissipation intrinsically (its
-# default vorticity reconstruction is 9th order). We therefore keep only a *light*
-# Laplacian background — half of the other script's ν_h and no biharmonic — to
-# quiet low-shear regions / internal waves, plus CATKE for vertical mixing.
-# ν_h scales ∝ Δx² from the guide's Δx = 1.7 km baseline (ν_h = 20 → here 10 m²/s).
-Δh = params.Lx / params.Nx                       # ≈ Δy (square cells)
-ν_h = 10.0 * (Δh / 1700)^2                        # light Laplacian viscosity (m²/s)
-@info "Horizontal closure (light Laplacian + WENOVectorInvariant)" Δh ν_h
+#+++ Horizontal dissipation — resolution-aware Reynolds-number scaling
+# This variant leans on the advection scheme for the bulk of the grid-scale
+# damping: WENOVectorInvariant momentum advection (below) upwinds the vorticity
+# flux and supplies scale-selective dissipation intrinsically (its default
+# vorticity reconstruction is 9th order). On top of that we add only a *light*
+# Laplacian background to quiet low-shear regions / internal waves, plus CATKE
+# for vertical mixing.
+#
+# Rather than fixing an absolute viscosity (which would have to be re-picked by
+# hand at every resolution), we let ν_h follow from a base Reynolds-number
+# coefficient Re₀ that is held fixed across resolutions, while the *effective*
+# Reynolds number is allowed to grow with the horizontal grid count N:
+#
+#     Re(N) = Re₀ · N^p ,   p = 2   (2-D enstrophy-cascade scaling)
+#                           p = 4/3 (3-D Kolmogorov scaling)
+#
+# The viscosity is the inverse of that Reynolds number times a characteristic
+# momentum scale U·L, so it shrinks automatically as the grid is refined (more
+# grid points ⇒ higher Re ⇒ lower ν_h):
+#
+#     ν_h = U·L / (Re₀ · N^p)
+#
+# We never form an explicit Reynolds number — Re₀ is just the tunable
+# proportionality constant (larger Re₀ ⇒ lower ν_h, i.e. less damping, closer to
+# the marginally-stable limit). N is the cross-shore grid count and L = Lx, so
+# L/N = Δx exactly (cells are square here, Δx = Δy). The default Re₀ is the
+# lowest-dissipation value found to stay stable + noise-free at the production
+# resolution (see src/tune_closure.jl). κ_h = ν_h / Pr_h locks tracer diffusivity
+# to viscosity (Pr_h = 4). p is hydrostatic-ambiguous; 2-D is the default (it
+# matches the proven ν ∝ Δx² scaling), CLOSURE_DIMS=3 selects the 4/3 exponent.
+# NOTE: Re₀ is normalised against the bare N^p, so it is NOT comparable between
+# the two exponents — at N=200, N² = 4e4 but N^(4/3) ≈ 1.2e3, so the same Re₀
+# gives ~34× more viscosity under 3-D. Switching CLOSURE_DIMS ⇒ re-tune Re₀.
+p_closure = params.closure_dims == 3 ? (4 // 3) : 2
+N_closure = params.Nx                              # cross-shore grid count; L = Lx ⇒ L/N = Δx
+ν_h = params.U_closure * params.Lx / (params.Re₀ * float(N_closure)^p_closure)
+Δh = params.Lx / params.Nx                         # ≈ Δy (square cells), for reference
+@info "Horizontal closure (Re-scaled Laplacian + WENOVectorInvariant)" Δh params.Re₀ p_closure ν_h ν_h/4
 closure = (HorizontalScalarDiffusivity(ν=ν_h, κ=ν_h / 4),   # light always-on background; Pr_h = 4
            CATKEVerticalDiffusivity())                      # vertical mixing
 #---
@@ -435,9 +506,12 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
+# Cap Δt to resolve internal gravity waves: max_Δt = 0.5/√(N²max)
 b̄ = Average(Oceananigans.Models.buoyancy_field(model), dims=(1, 2))
-N² = ∂z(Field(b̄)) |> maximum
-max_Δt = 0.5 / √(N²)
+dbdz = ∂z(Field(b̄))
+N²_max = view(dbdz, :, :, 2:grid.Nz-1) |> maximum # Ignore bottom and surface points
+max_Δt = 0.5 / √(max(N²_max, eps()))
+@info "Δt cap from buoyancy frequency" N² max_Δt
 
 simulation = Simulation(model, Δt=2minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, IterationInterval(5); cfl=0.4, max_Δt)
@@ -446,13 +520,16 @@ progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(24hours))
 #---
 
-#+++ Output: a single writer with all state variables, every 12 hours
+#+++ Output: a single writer with all state variables.
 # State variables: velocities (u, v, w) + tracers (T, S) + free-surface η.
+# Output cadence is OUTPUT_INTERVAL_HOURS (default 1 h). At 200×400×50 each frame
+# is ~160 MB, so for long runs use a coarser interval (e.g. 3 h) to bound file size.
+output_interval = parse(Float64, get(ENV, "OUTPUT_INTERVAL_HOURS", "1")) * hours
 η = model.free_surface.displacement
 state_fields = merge(model.velocities, model.tracers, (; η))
 simulation.output_writers[:fields] = JLD2Writer(model, state_fields,
     filename="fields_$(run_tag).jld2",
-    schedule=TimeInterval(1hours),
+    schedule=TimeInterval(output_interval),
     overwrite_existing=overwrite_existing)
 #---
 
