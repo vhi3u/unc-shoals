@@ -90,11 +90,11 @@ run_number = sweep_run_index
 sim_runtime = parse(Float64, get(ENV, "SIM_RUNTIME_DAYS", "20")) * days
 run_tag = "hydrostatic2_$(sweep_run_label)"
 
-params = (; Lx=100e3, Ly=200e3, Lz=50)
+params = (; Lx=200e3, Ly=400e3, Lz=50)
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10)
+    params = (; params..., Nx=60, Ny=120, Nz=10)
 else
-    params = (; params..., Nx=200, Ny=400, Nz=50)
+    params = (; params..., Nx=400, Ny=800, Nz=50)   # Δx=Δy=0.5 km (same resolution as the old 100×200 km domain)
 end
 # Optional resolution overrides (NX/NY/NZ env vars) for resolution testing.
 params = (; params...,
@@ -121,7 +121,12 @@ x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(7, 7, 5), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
-slope_bottom = dshoal_param_bottom(params.Ly;
+# Keep the shoal at its ORIGINAL physical location even though the along-shore domain
+# is now 400 km. The shoal y-center is Ly_bathy/2, so we pass the original 200 km length
+# (⇒ center at y = 100 km), not params.Ly (which would re-center it at y = 200 km). The
+# cross-shore profile is defined in absolute km, so the wider Lx leaves it unaffected.
+Ly_bathy = 200e3
+slope_bottom = dshoal_param_bottom(Ly_bathy;
     Hs=sweep_Hs,
     shoal_length=sweep_shoal_length,
     sigma=sweep_sigma,
@@ -153,16 +158,19 @@ elseif sweep_strat == "summer"
     T_south_v1, S_south_v1 = 27.34, 35.83
 end
 
+# Master sponge relaxation timescale, env-tunable for nudging-strength sweeps.
+τ_sponge = parse(Float64, get(ENV, "SPONGE_TAU_HOURS", "24")) * hours
 params = (; params...,
     v₀=v₀,
-    Ls=10e3,
-    Le=40e3,
+    Ls=100e3,   # north sponge half-width: mask centered at Ly-Ls=300 km, width Ls ⇒ active y∈[200,400] km
+    Le=100e3,   # offshore (east) sponge width: mask centered at Lx=200 km, width Le ⇒ active x∈[100,200] km
     Lw=10e3,
-    τₙ=24hours,    # gentle north reset (was 6h — too fast, drove a NE-corner instability)
-    τₛ=24hours,
-    τₑ=24hours,
-    τw=24hours,
-    τ_ts=24hours,
+    τₙ=τ_sponge,
+    τₛ=τ_sponge,
+    τₑ=τ_sponge,
+    τw=τ_sponge,
+    τ_ts=τ_sponge,
+    τ_eta=τ_sponge,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -293,19 +301,21 @@ wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 # ─────────────────────────────────────────────────────────────────────────
 # Nudging (sponge) masks — Oceananigans `PiecewiseLinearMask{D}(center, width)`
 # is a tent along direction D: value 1 at `center`, ramping linearly to 0 at
-# `center ± width`, and 0 beyond. Each mask is centered ON the boundary it
-# nudges toward, with `width` equal to the same sponge thickness used before,
-# so only the in-domain half of the tent acts — i.e. a one-sided ramp from 0
-# in the interior to 1 at the boundary, over the same distances as before.
-# Called as mask(x, y, z) (no parameters argument).
+# `center ± width`, and 0 beyond. Two masks are active here (called as
+# mask(x, y, z), no parameters argument):
+#
+#   • north_mask: a y-tent CENTERED at y = Ly - Ls = 300 km, width Ls = 100 km.
+#     It is nonzero on y ∈ [200, 400] km, PEAKS at y = 300 km, and returns to ZERO
+#     at the periodic seam (y = 0 ≡ Ly = 400 km) and at y = 200 km. Peaking in the
+#     interior (rather than on the boundary) keeps the forcing continuous across the
+#     periodic-y seam — a boundary-peaked one-sided ramp would jump from full strength
+#     to zero across the seam and seed grid-scale noise there.
+#   • offshore_mask: an x-tent centered on the offshore wall (x = Lx = 200 km), width
+#     Le = 100 km ⇒ a one-sided ramp 0 → 1 over x ∈ [100, 200] km (a Davies layer in
+#     front of the eastern wall). The shoal (x ≈ 8–38 km) sits far inshore of it.
 # ─────────────────────────────────────────────────────────────────────────
-const south_mask    = PiecewiseLinearMask{:y}(center=0.0,       width=params.Ls)  # y ∈ [0, Ls]
-const north_mask    = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)  # y ∈ [Ly-Ls, Ly]
-const west_mask     = PiecewiseLinearMask{:x}(center=0.0,       width=params.Lw)  # x ∈ [0, Lw]
-const east_mask     = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)  # x ∈ [Lx-Le, Lx]
-# offshore: linear ramp over the eastern/offshore zone, from the shelf break
-# (x = Lx - Le = 60 km) up to the offshore boundary (x = Lx = 100 km).
-const offshore_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+const north_mask    = PiecewiseLinearMask{:y}(center=params.Ly - params.Ls, width=params.Ls)
+const offshore_mask = PiecewiseLinearMask{:x}(center=params.Lx,              width=params.Le)
 
 # velocity function — barotropic M2 tide.
 # `sc_shape(x)` is the cross-shore amplitude shape (≈1 over the shelf, → 0
@@ -318,7 +328,8 @@ if sigmoid_v_bc
     @inline function sc_shape(x, p)
         xC = 3e3
         xS = 60e3
-        Lw = p.Lx
+        Lw = 100e3   # fixed reference length (the original Lx) so the tidal cross-shore
+                     # shape is unchanged when the offshore domain is widened
         k1 = 40 / Lw
         k2 = 20 / Lw
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
@@ -340,18 +351,20 @@ end
 @inline T_0(z) = T_south_pwl(z, T_south_v1)
 @inline S_0(z) = S_south_pwl(z, S_south_v1)
 
-# Sponge nudging at the northern and eastern (offshore) edges. Two
-# PiecewiseLinearMask ramps drive it: `north_mask` (0 → 1 over the last Ls at
-# y = Ly) and `offshore_mask` (0 → 1 over [Lx-Le, Lx], i.e. 60 → 100 km). Each
-# relaxes the flow toward a reference state:
-#   • north (timescales τₙ / τ_ts): the initial condition — u → 0, v → v∞,
-#     T → T_0, S → S_0 — so the shoal wake doesn't recirculate through the
-#     periodic southern boundary;
-#   • east  (timescales τₑ / τ_ts): the offshore state — u → 0, v → v∞,
-#     T → T_east, S → S_east — a Davies layer that absorbs disturbances before
-#     the eastern wall.
-# T/S north targets use p.T_south_v1 / p.S_south_v1 (= T_0/S_0) for GPU safety;
-# T_east_pwl / S_east_pwl are plain functions of z.
+# Sponge nudging in the northern strip and the offshore (eastern) band, via the two
+# masks above. BOTH layers relax toward the SAME initial-condition reference state —
+# this is the key change from the earlier setup, where the offshore layer pulled T/S
+# toward a *different* offshore profile (T_east/S_east) and parked a spurious standing
+# front at its inner edge:
+#   • u → 0                     (IC: the fluid starts at rest)
+#   • v → v∞(x, z, t)           (the prescribed background barotropic tide; the IC is v∞
+#                                at t=0, i.e. this is the IC generalized in time — it
+#                                absorbs perturbations without damping the imposed tide,
+#                                and v∞ ≈ 0 in the offshore band so v → 0 there)
+#   • T → T_0(z)=T_south_pwl,   S → S_0(z)=S_south_pwl   (the IC stratification)
+#   • η → 0                     (IC free surface; see sponge_eta below)
+# Timescales: τₙ/τₑ (momentum), τ_ts (tracers), τ_eta (η) — all = τ_sponge here.
+# T/S targets use p.T_south_v1 / p.S_south_v1 (= T_0/S_0), passed via params for GPU safety.
 #
 # ⚠ GPU note: these are written in *discrete form* (discrete_form=true), i.e.
 # f(i, j, k, grid, clock, model_fields, p), indexing the field directly as
@@ -365,14 +378,16 @@ end
 @inline sponge_T(i, j, k, grid, clock, mf, p) = begin
     x = xnode(i, grid, Center()); y = ynode(j, grid, Center()); z = znode(k, grid, Center())
     T = @inbounds mf.T[i, j, k]
-    -(north_mask(x, y, z) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-      offshore_mask(x, y, z) * (T - T_east_pwl(z)) / p.τ_ts)
+    Tᵢ = T_south_pwl(z, p.T_south_v1)   # initial-condition profile — both sponges relax to it
+    -(north_mask(x, y, z) * (T - Tᵢ) / p.τ_ts +
+      offshore_mask(x, y, z) * (T - Tᵢ) / p.τ_ts)
 end
 @inline sponge_S(i, j, k, grid, clock, mf, p) = begin
     x = xnode(i, grid, Center()); y = ynode(j, grid, Center()); z = znode(k, grid, Center())
     S = @inbounds mf.S[i, j, k]
-    -(north_mask(x, y, z) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-      offshore_mask(x, y, z) * (S - S_east_pwl(z)) / p.τ_ts)
+    Sᵢ = S_south_pwl(z, p.S_south_v1)   # initial-condition profile — both sponges relax to it
+    -(north_mask(x, y, z) * (S - Sᵢ) / p.τ_ts +
+      offshore_mask(x, y, z) * (S - Sᵢ) / p.τ_ts)
 end
 if mass_flux
     @inline sponge_u(i, j, k, grid, clock, mf, p) = begin
@@ -391,23 +406,35 @@ if mass_flux
     end
 end
 
+# Free-surface displacement sponge: nudge η → 0 (its initial condition) in the same
+# north + offshore regions. In the split-explicit solver the η forcing is called as
+# F(i, j, k_top, grid, clock, (; η, U, V)) — only η/U/V are in scope — so it MUST be
+# discrete-form and reference only mf.η. η lives at (Center, Center); masks ignore z.
+@inline sponge_eta(i, j, k, grid, clock, mf, p) = begin
+    x = xnode(i, grid, Center()); y = ynode(j, grid, Center())
+    η = @inbounds mf.η[i, j, k]
+    -(north_mask(x, y, 0.0) * η / p.τ_eta + offshore_mask(x, y, 0.0) * η / p.τ_eta)
+end
+
 # Minimal per-forcing params (small NamedTuples keep the GPU kernels lean).
-T_force_params = (; τ_ts=params.τ_ts, T_south_v1=params.T_south_v1)
-S_force_params = (; τ_ts=params.τ_ts, S_south_v1=params.S_south_v1)
-u_force_params = (; τₙ=params.τₙ, τₑ=params.τₑ)
-v_force_params = (; τₙ=params.τₙ, τₑ=params.τₑ, v₀=params.v₀,
-                    τ_ramp=params.τ_ramp, ω_M2=params.ω_M2, Lx=params.Lx)
+T_force_params   = (; τ_ts=params.τ_ts, T_south_v1=params.T_south_v1)
+S_force_params   = (; τ_ts=params.τ_ts, S_south_v1=params.S_south_v1)
+u_force_params   = (; τₙ=params.τₙ, τₑ=params.τₑ)
+v_force_params   = (; τₙ=params.τₙ, τₑ=params.τₑ, v₀=params.v₀,
+                      τ_ramp=params.τ_ramp, ω_M2=params.ω_M2, Lx=params.Lx)
+eta_force_params = (; τ_eta=params.τ_eta)
 
 # forcing functions (discrete form — see GPU note above)
 FT = Forcing(sponge_T, discrete_form=true, parameters=T_force_params)
 FS = Forcing(sponge_S, discrete_form=true, parameters=S_force_params)
+Fη = Forcing(sponge_eta, discrete_form=true, parameters=eta_force_params)
 if mass_flux
     # No w forcing: w is diagnostic in the hydrostatic model.
     Fᵤ = Forcing(sponge_u, discrete_form=true, parameters=u_force_params)
     Fᵥ = Forcing(sponge_v, discrete_form=true, parameters=v_force_params)
-    forcings = (u=Fᵤ, v=Fᵥ, T=FT, S=FS)
+    forcings = (u=Fᵤ, v=Fᵥ, T=FT, S=FS, η=Fη)
 else
-    forcings = (T=FT, S=FS)
+    forcings = (T=FT, S=FS, η=Fη)
 end
 
 # y is periodic — no north/south boundary conditions. The eastern (offshore) and
@@ -506,12 +533,18 @@ set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
 pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
-# Cap Δt to resolve internal gravity waves: max_Δt = 0.5/√(N²max)
-b̄ = Average(Oceananigans.Models.buoyancy_field(model), dims=(1, 2))
-dbdz = ∂z(Field(b̄))
-N²_max = view(dbdz, :, :, 2:grid.Nz-1) |> maximum # Ignore bottom and surface points
+# Cap Δt to resolve internal gravity waves: max_Δt = 0.5/√(N²max).
+# Compute N² from a single fully-wet offshore column (i = Nx, deepest water). The IC is
+# horizontally homogeneous, so any wet column has the correct stratification — and this
+# avoids immersed shelf/shoal cells contaminating a horizontal average (which inflates
+# N²max ~500× and would pin Δt ~25× too small).
+bfield = Oceananigans.Models.buoyancy_field(model)
+compute!(bfield)
+zc = [znode(k, grid, Center()) for k in 1:params.Nz]
+bcol = Array(interior(bfield, params.Nx, max(1, params.Ny ÷ 2), :))
+N²_max = maximum(diff(bcol) ./ diff(zc))
 max_Δt = 0.5 / √(max(N²_max, eps()))
-@info "Δt cap from buoyancy frequency" N² max_Δt
+@info "Δt cap from buoyancy frequency (offshore wet column)" N²_max max_Δt
 
 simulation = Simulation(model, Δt=2minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, IterationInterval(5); cfl=0.4, max_Δt)
