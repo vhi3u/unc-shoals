@@ -77,9 +77,9 @@ callback_interval = 86400seconds
 run_tag = "sweep_$(sweep_run_label)"
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
     params = (; params..., Nx=30, Ny=60, Nz=10)
