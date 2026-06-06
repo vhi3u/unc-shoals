@@ -428,33 +428,19 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-if periodic_y
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=200),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-else
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-end
+model = NonhydrostaticModel(ib_grid;
+    timestepper=:RungeKutta3,
+    advection=WENO(order=5),
+    closure=CATKEVerticalDiffusivity(),
+    # closure=TKEDissipationVerticalDiffusivity(),
+    hydrostatic_pressure_anomaly=CenterField(ib_grid),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
+    tracers=(:T, :S),
+    buoyancy=SeawaterBuoyancy(),
+    coriolis=coriolis,
+    boundary_conditions=bcs,
+    forcing=forcings
+)
 
 @info "" model
 
