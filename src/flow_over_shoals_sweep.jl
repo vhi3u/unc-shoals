@@ -27,6 +27,14 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
+# cell diffusion hack 
+
+import Oceananigans.TurbulenceClosures: cell_diffusion_timescale
+
+cell_diffusion_timescale(closure::CATKEVerticalDiffusivity, diffusivities, grid, clock, fields) = Inf
+cell_diffusion_timescale(closure::TKEDissipationVerticalDiffusivity, diffusivities, grid, clock, fields) = Inf
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Read sweep parameters from environment (set by sweep_driver.jl)
 # Falls back to defaults so script can also be run standalone.
