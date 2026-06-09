@@ -440,7 +440,7 @@ model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
     # closure=CATKEVerticalDiffusivity(),
-    closure=TKEDissipationVerticalDiffusivity(),
+    closure=TKEDissipationVerticalDiffusivity(ExplicitTimeDiscretization),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S, :e, :ϵ),
@@ -576,7 +576,7 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
 end
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ, e=1e-5, ϵ=1e-7)
 
 # run simulation
 @info """
