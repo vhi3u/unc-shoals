@@ -437,10 +437,10 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 model = NonhydrostaticModel(ib_grid;
-    timestepper=:RungeKutta3,
+    timestepper=:QuasiAdamsBashforth2,
     advection=WENO(order=5),
     # closure=CATKEVerticalDiffusivity(),
-    closure=TKEDissipationVerticalDiffusivity(ExplicitTimeDiscretization),
+    closure=TKEDissipationVerticalDiffusivity(ExplicitTimeDiscretization()),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S, :e, :ϵ),
