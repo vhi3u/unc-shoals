@@ -266,13 +266,7 @@ const κᵛᵏ = 0.4 # von Karman constant
 params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
-@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
-@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
-@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
-
-immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+drag_bc = BulkDrag(coefficient=params.c_dz)
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -413,17 +407,17 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag_bc)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc, north=open_bc, south=open_bc, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag_bc)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
