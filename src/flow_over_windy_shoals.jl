@@ -15,7 +15,7 @@ using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 using Statistics: mean
 
-run_number = 1
+run_number = 2
 run_tag = "windy_shoals$(run_number)"  # e.g. "periodic_run1"
 callback_interval = 86400seconds
 sim_runtime = 100days
@@ -169,13 +169,20 @@ z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) /
 @info "Using z₁ =" z₁
 const κᵛᵏ = 0.4 # von Karman constant
 params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
-@info "Defining momentum BCs with Cᴰ =" params.c_dz
-drag_bc = BulkDrag(coefficient=params.c_dz)
+# @info "Defining momentum BCs with Cᴰ =" params.c_dz
+# drag_bc = BulkDrag(coefficient=params.c_dz)
+
+# testing no-slp
+drag_bc = ValueBoundaryCondition(0.0)
+
 
 # surface wind stress
-@inline wind_ramp(t) = tanh(t / (2 * 86400.0))
-@inline wind_stress_v(x, y, t) = (-0.05 / 1000.0) * wind_ramp(t)
-wind_bc = FluxBoundaryCondition(wind_stress_v)
+u₁₀ = 10
+ρₐ = 1.2
+ρ₀ = 1026
+τx = -ρₐ / ρ₀ * params.c_dz * u₁₀ * abs(u₁₀)
+wind_bc = FluxBoundaryCondition(τx)
+
 
 # Explicit mask functions (fully typed, no global variable captures)
 @inline north_mask(x, y, z) = clamp((y - 180e3) / 20e3, 0.0, 1.0)
@@ -212,11 +219,11 @@ end
     return tot > 0 ? (n * v0 + s * v0 + e * 0.0) / tot : v0
 end
 
-u_nudge = Relaxation(; rate=1 / 24hours, mask=sponge_mask_uvw, target=0)
-v_nudge = Relaxation(; rate=1 / 24hours, mask=sponge_mask_uvw, target=v_target)
-w_nudge = Relaxation(; rate=1 / 24hours, mask=sponge_mask_uvw, target=0)
-T_nudge = Relaxation(; rate=1 / 24hours, mask=sponge_mask, target=T_target)
-S_nudge = Relaxation(; rate=1 / 24hours, mask=sponge_mask, target=S_target)
+u_nudge = Relaxation(; rate=1 / 12hours, mask=sponge_mask_uvw, target=0)
+v_nudge = Relaxation(; rate=1 / 12hours, mask=sponge_mask_uvw, target=v_target)
+w_nudge = Relaxation(; rate=1 / 12hours, mask=sponge_mask_uvw, target=0)
+T_nudge = Relaxation(; rate=1 / 12hours, mask=sponge_mask, target=T_target)
+S_nudge = Relaxation(; rate=1 / 12hours, mask=sponge_mask, target=S_target)
 
 forcings = (; u=u_nudge, v=v_nudge, w=w_nudge, T=T_nudge, S=S_nudge)
 
