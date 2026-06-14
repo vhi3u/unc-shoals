@@ -138,11 +138,7 @@ params = (; params...,
     Ls=10e3,
     Le=40e3,
     Lw=10e3,
-    τₙ=6hours,
-    τₛ=24hours,
-    τₑ=24hours,
-    τw=24hours,
-    τ_ts=24hours,
+    τ=24hours,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -255,7 +251,7 @@ z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) /
 @info "Using z₁ =" z₁
 
 const κᵛᵏ = 0.4 # von Karman constant
-params = (; params..., c_dz = (κᵛᵏ / log(z₁/z₀))^2) # quadratic drag coefficient
+params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
 @inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
@@ -277,51 +273,48 @@ end
 ρ₀ = 1024.0
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
-# mask utility: smooth transition with zero derivative at endpoints
-@inline smooth_ramp(dt) = sin(0.5 * π * clamp(dt, 0.0, 1.0))^2
+# new sponge masks using built-in functions from Oceananigans
 
-@inline function south_mask(x, y, z, p)
-    y0 = 0
-    y1 = p.Ls
-    if y0 <= y <= y1
-        return 1 - y / y1
+
+north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
+south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
+east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+
+@inline sponge_mask(x, y, z) = min(
+    north_mask(x, y, z) +
+    south_mask(x, y, z) +
+    east_mask(x, y, z), 1.0
+)
+
+@inline function T_target(x, y, z, t)
+    n = north_mask(x, y, z)
+    s = south_mask(x, y, z)
+    e = east_mask(x, y, z)
+    tot = n + s + e
+    if tot > 0
+        return (n * tnbc(x, z, t) + s * tsbc(x, z, t) + e * T_east_pwl(z)) / tot
     else
         return 0.0
     end
 end
 
-@inline function north_mask(x, y, z, p)
-    y0 = p.Ly - p.Ls
-    y1 = p.Ly
-
-    if y0 <= y <= y1
-        return (y - y0) / (y1 - y0)
+@inline function S_target(x, y, z, t)
+    n = north_mask(x, y, z)
+    s = south_mask(x, y, z)
+    e = east_mask(x, y, z)
+    tot = n + s + e
+    if tot > 0
+        return (n * snbc(x, z, t) + s * ssbc(x, z, t) + e * S_east_pwl(z)) / tot
     else
         return 0.0
     end
 end
 
-@inline function east_mask(x, y, z, p)
-    x0 = p.Lx - p.Le
-    x1 = p.Lx
-    return smooth_ramp((x - x0) / (x1 - x0))
-end
-
-@inline function west_mask(x, y, z, p)
-    x0 = 0
-    x1 = p.Lw
-
-    if x0 <= x <= x1
-        return 1 - (x - x0) / (x1 - x0)
-    else
-        return 0.0
-    end
-end
-
-# offshore mask: sigmoid (tanh) taper centered at the shelf break
-# σ_off controls the half-width of the transition (larger = wider, more gradual)
-const σ_off = 20e3   # half-width of sigmoid taper (m)
-@inline offshore_mask(x, y, z, p) = 0.5 * (1.0 + tanh((x - 60e3) / σ_off))
+u_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=0.0)
+v_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=v∞)
+w_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=0.0)
+T_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=T_target)
+S_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=S_target)
 
 # velocity function
 if sigmoid_v_bc
@@ -344,62 +337,11 @@ else
     end
 end
 
-# sponge functions
-if mass_flux
-    if periodic_y
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            north_mask(x, y, z, p) * u / p.τₙ +
-            offshore_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            north_mask(x, y, z, p) * w / p.τₙ +
-            offshore_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            north_mask(x, y, z, p) * (T - T_south_pwl(z, p.T_south_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / (5 * p.τ_ts))
-
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            north_mask(x, y, z, p) * (S - S_south_pwl(z, p.S_south_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / (5 * p.τ_ts))
-    else
-        # Bounded case
-        @inline sponge_u(x, y, z, t, u, p) = -(
-            north_mask(x, y, z, p) * u / p.τₙ +
-            offshore_mask(x, y, z, p) * u / p.τₑ)
-
-        @inline sponge_v(x, y, z, t, v, p) = -(
-            north_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₙ +
-            offshore_mask(x, y, z, p) * (v - v∞(x, z, t, p)) / p.τₑ)
-
-        @inline sponge_w(x, y, z, t, w, p) = -(
-            north_mask(x, y, z, p) * w / p.τₙ +
-            offshore_mask(x, y, z, p) * w / p.τₑ)
-
-        @inline sponge_T(x, y, z, t, T, p) = -(
-            north_mask(x, y, z, p) * (T - T_north_pwl(z, p.T_north_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (T - T_east_pwl(z)) / p.τ_ts)
-
-        @inline sponge_S(x, y, z, t, S, p) = -(
-            north_mask(x, y, z, p) * (S - S_north_pwl(z, p.S_north_v1)) / p.τ_ts +
-            offshore_mask(x, y, z, p) * (S - S_east_pwl(z)) / p.τ_ts)
-    end
-end
-
 # forcing functions
-FT = Forcing(sponge_T, field_dependencies=:T, parameters=params)
-FS = Forcing(sponge_S, field_dependencies=:S, parameters=params)
 if mass_flux
-    Fᵤ = Forcing(sponge_u, field_dependencies=:u, parameters=params)
-    Fᵥ = Forcing(sponge_v, field_dependencies=:v, parameters=params)
-    F_w = Forcing(sponge_w, field_dependencies=:w, parameters=params)
-    forcings = (u=Fᵤ, v=Fᵥ, w=F_w, T=FT, S=FS)
+    forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 else
-    forcings = (T=FT, S=FS)
+    forcings = (T=T_nudging, S=S_nudging)
 end
 
 if periodic_y
