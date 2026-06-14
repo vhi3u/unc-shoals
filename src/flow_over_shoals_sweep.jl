@@ -255,7 +255,7 @@ z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) /
 @info "Using z₁ =" z₁
 
 const κᵛᵏ = 0.4 # von Karman constant
-params = (; params..., c_dz = (κᵛᵏ / log(z₁/z₀))^2) # quadratic drag coefficient
+params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
 @inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
