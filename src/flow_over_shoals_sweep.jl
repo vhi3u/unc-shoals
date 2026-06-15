@@ -54,7 +54,7 @@ gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -273,49 +273,6 @@ end
 ρ₀ = 1024.0
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
-# new sponge masks using built-in functions from Oceananigans
-
-
-north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
-south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
-east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
-
-@inline sponge_mask(x, y, z) = min(
-    north_mask(x, y, z) +
-    south_mask(x, y, z) +
-    east_mask(x, y, z), 1.0
-)
-
-@inline function T_target(x, y, z, t)
-    n = north_mask(x, y, z)
-    s = south_mask(x, y, z)
-    e = east_mask(x, y, z)
-    tot = n + s + e
-    if tot > 0
-        return (n * tnbc(x, z, t) + s * tsbc(x, z, t) + e * T_east_pwl(z)) / tot
-    else
-        return 0.0
-    end
-end
-
-@inline function S_target(x, y, z, t)
-    n = north_mask(x, y, z)
-    s = south_mask(x, y, z)
-    e = east_mask(x, y, z)
-    tot = n + s + e
-    if tot > 0
-        return (n * snbc(x, z, t) + s * ssbc(x, z, t) + e * S_east_pwl(z)) / tot
-    else
-        return 0.0
-    end
-end
-
-u_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=0.0)
-v_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=v∞)
-w_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=0.0)
-T_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=T_target)
-S_nudging = Relaxation(; rate=1 / params.τ, mask=sponge_mask, target=S_target)
-
 # velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
@@ -336,6 +293,75 @@ else
         return p.v₀
     end
 end
+
+# new sponge masks using built-in functions from Oceananigans
+
+const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
+const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
+const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+const east_mask_uvw = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+const global_params = params
+
+if periodic_y
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + east_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + east_mask_uvw(x, y, z), 1.0)
+
+    @inline function T_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        e = east_mask(x, y, z)
+        tot = n + e
+        return tot > 0 ? (n * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+    end
+
+    @inline function S_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        e = east_mask(x, y, z)
+        tot = n + e
+        return tot > 0 ? (n * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+    end
+
+    @inline function v_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        e = east_mask_uvw(x, y, z)
+        tot = n + e
+        v0 = 0.1 # local constant
+        return tot > 0 ? (n * v0 + e * 0.0) / tot : v0
+    end
+else
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask_uvw(x, y, z), 1.0)
+
+    @inline function T_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        s = south_mask(x, y, z)
+        e = east_mask(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+    end
+
+    @inline function S_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        s = south_mask(x, y, z)
+        e = east_mask(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+    end
+
+    @inline function v_target(x, y, z, t)
+        n = north_mask(x, y, z)
+        s = south_mask(x, y, z)
+        e = east_mask_uvw(x, y, z)
+        tot = n + s + e
+        v0 = 0.1 # local constant
+        return tot > 0 ? (n * v0 + s * v0 + e * 0.0) / tot : v0
+    end
+end
+
+u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
+v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=v_target)
+w_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
+T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask, target=T_target)
+S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask, target=S_target)
 
 # forcing functions
 if mass_flux
@@ -405,7 +431,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
