@@ -27,6 +27,14 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
+# cell diffusion hack 
+
+import Oceananigans.TurbulenceClosures: cell_diffusion_timescale
+
+cell_diffusion_timescale(closure::CATKEVerticalDiffusivity, diffusivities, grid, clock, fields) = Inf
+cell_diffusion_timescale(closure::TKEDissipationVerticalDiffusivity, diffusivities, grid, clock, fields) = Inf
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Read sweep parameters from environment (set by sweep_driver.jl)
 # Falls back to defaults so script can also be run standalone.
@@ -77,9 +85,9 @@ callback_interval = 86400seconds
 run_tag = "sweep_$(sweep_run_label)"
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100e3, Ly=200e3, Lz=50)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
     params = (; params..., Nx=30, Ny=60, Nz=10)
@@ -258,13 +266,7 @@ const κᵛᵏ = 0.4 # von Karman constant
 params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
-@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
-@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
-@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
-
-immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+drag_bc = BulkDrag(coefficient=params.c_dz)
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -405,17 +407,17 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag_bc)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag_bc)
+    v_bcs = FieldBoundaryConditions(immersed=drag_bc, north=open_bc, south=open_bc, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag_bc)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -428,34 +430,19 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-
-if periodic_y
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-else
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-end
+model = NonhydrostaticModel(ib_grid;
+    timestepper=:QuasiAdamsBashforth2,
+    advection=WENO(order=5),
+    # closure=CATKEVerticalDiffusivity(),
+    closure=TKEDissipationVerticalDiffusivity(ExplicitTimeDiscretization()),
+    hydrostatic_pressure_anomaly=CenterField(ib_grid),
+    pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
+    tracers=(:T, :S, :e, :ϵ),
+    buoyancy=SeawaterBuoyancy(),
+    coriolis=coriolis,
+    boundary_conditions=bcs,
+    forcing=forcings
+)
 
 @info "" model
 
@@ -463,7 +450,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -526,6 +513,13 @@ simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
     indices=(round(Int, params.Nx / 5), :, :),
     overwrite_existing=overwrite_existing)
 
+# z slice at z = -20 m 
+simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
+    filename="midz_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, :, round(Int, params.Nz * 0.6)),
+    overwrite_existing=overwrite_existing)
+
 # # (2) 3D snapshots (every 20 days)
 # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
 #     filename="snapshots_3d_$(run_tag).nc",
@@ -576,7 +570,7 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
 end
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ, e=1e-5, ϵ=1e-7)
 
 # run simulation
 @info """
