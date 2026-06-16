@@ -51,8 +51,8 @@ LES = true
 mass_flux = true
 periodic_y = true
 gradient_IC = false
-sigmoid_v_bc = true
-sigmoid_ic = true
+sigmoid_v_bc = false
+sigmoid_ic = false
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
@@ -77,14 +77,14 @@ callback_interval = 86400seconds
 run_tag = "sweep_$(sweep_run_label)"
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=200e3, Ly=200e3, Lz=50)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50, Nx=30, Ny=30, Nz=10)
+    params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=30, Ny=60, Nz=10)
+    params = (; params..., Nx=60, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=200, Ny=400, Nz=50)
+    params = (; params..., Nx=400, Ny=400, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -135,8 +135,8 @@ end
 
 params = (; params...,
     v₀=v₀,
-    Ls=10e3,
-    Le=40e3,
+    Ls=20e3,
+    Le=100e3,
     Lw=10e3,
     τ=24hours,
     T_north_v1=T_north_v1,
