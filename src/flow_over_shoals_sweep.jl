@@ -51,8 +51,8 @@ LES = true
 mass_flux = true
 periodic_y = true
 gradient_IC = false
-sigmoid_v_bc = false
-sigmoid_ic = false
+sigmoid_v_bc = true
+sigmoid_ic = true
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
@@ -277,10 +277,10 @@ wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        xS = 60e3
+        xS = 65e3
         Lw = p.Lx
-        k1 = 40 / Lw
-        k2 = 20 / Lw
+        k1 = 80 / Lw
+        k2 = 40 / Lw
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
         s2 = 1 / (1 + exp(k2 * (x - xS)))
@@ -299,61 +299,43 @@ end
 const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
-const east_mask_uvw = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const global_params = params
 
 if periodic_y
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + east_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + east_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = north_mask(x, y, z)
+    @inline sponge_mask_uvw(x, y, z) = north_mask(x, y, z)
 
     @inline function T_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        e = east_mask(x, y, z)
-        tot = n + e
-        return tot > 0 ? (n * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+        return T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        e = east_mask(x, y, z)
-        tot = n + e
-        return tot > 0 ? (n * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+        return S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        e = east_mask_uvw(x, y, z)
-        tot = n + e
-        v0 = 0.1 # local constant
-        return tot > 0 ? (n * v0 + e * 0.0) / tot : v0
+        return v∞(x, z, t, global_params)
     end
 else
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         n = north_mask(x, y, z)
         s = south_mask(x, y, z)
-        e = east_mask(x, y, z)
-        tot = n + s + e
-        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+        tot = n + s
+        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
         n = north_mask(x, y, z)
         s = south_mask(x, y, z)
-        e = east_mask(x, y, z)
-        tot = n + s + e
-        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+        tot = n + s
+        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        s = south_mask(x, y, z)
-        e = east_mask_uvw(x, y, z)
-        tot = n + s + e
-        v0 = 0.1 # local constant
-        return tot > 0 ? (n * v0 + s * v0 + e * 0.0) / tot : v0
+        return v∞(x, z, t, global_params)
     end
 end
 
