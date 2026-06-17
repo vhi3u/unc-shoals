@@ -428,14 +428,13 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=200),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -463,7 +462,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -524,6 +523,13 @@ simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
     filename="midx_$(run_tag).nc",
     schedule=TimeInterval(callback_interval),
     indices=(round(Int, params.Nx / 5), :, :),
+    overwrite_existing=overwrite_existing)
+
+# z slice at z = -20 m 
+simulation.output_writers[:midz_slice] = NetCDFWriter(model, slice_fields,
+    filename="midz_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    indices=(:, :, round(Int, params.Nz * 0.6)),
     overwrite_existing=overwrite_existing)
 
 # # (2) 3D snapshots (every 20 days)
