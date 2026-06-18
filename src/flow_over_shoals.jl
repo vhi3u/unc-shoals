@@ -45,7 +45,7 @@ mass_flux = true
 periodic_y = true
 gradient_IC = true
 sigmoid_v_bc = true
-sigmoid_ic = true
+sigmoid_ic = false
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
@@ -58,7 +58,7 @@ end
 include("dshoal_vn_param.jl")
 
 # simulation knobs
-run_number = 1 # <-- change this for each new run
+run_number = 3 # <-- change this for each new run
 sim_runtime = 30days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"  # e.g. "periodic_run1"
@@ -260,26 +260,11 @@ drag_bc_v = FluxBoundaryCondition(drag_v, field_dependencies=(:u, :v), parameter
 immersed_drag_bc_u = FluxBoundaryCondition(immersed_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
 immersed_drag_bc_v = FluxBoundaryCondition(immersed_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
 if LES
-    @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
-    @inline tnbc(x, z, t) = T_north_pwl(z, T_north_v1)
-    @inline ssbc(x, z, t) = S_south_pwl(z, S_south_v1)
-    @inline snbc(x, z, t) = S_north_pwl(z, S_north_v1)
+    @inline tsbc(x, z, t) = T_south_pwl(z, global_params.T_south_v1)
+    @inline tnbc(x, z, t) = T_north_pwl(z, global_params.T_north_v1)
+    @inline ssbc(x, z, t) = S_south_pwl(z, global_params.S_south_v1)
+    @inline snbc(x, z, t) = S_north_pwl(z, global_params.S_north_v1)
 end
-
-# wind stress BCs from wind speed (bulk formula, cf. kencode.jl)
-# Ramp up over τ_ramp to suppress near-inertial oscillations from impulsive start
-# ρₐ = 1.225   # kg m⁻³, average density of air at sea-level
-# ρₒ = 1028.0  # kg m⁻³, average density of seawater
-# u_w = 0.0    # m s⁻¹, 10-m wind speed (cross-shore)
-# v_w = 10.0   # m s⁻¹, 10-m wind speed (along-shore)
-# const Qu_wind_full = -ρₐ / ρₒ * cᴰ * u_w * abs(u_w)  # m² s⁻²
-# const Qv_wind_full = -ρₐ / ρₒ * cᴰ * v_w * abs(v_w)  # m² s⁻²
-# const τ_ramp = 2 * 86400.0  # ramp-up time in seconds (~2 days ≈ 2 inertial periods)
-# @inline wind_ramp(t) = tanh(t / τ_ramp)
-# @inline wind_flux_u(x, y, t) = Qu_wind_full * wind_ramp(t)
-# @inline wind_flux_v(x, y, t) = Qv_wind_full * wind_ramp(t)
-# wind_bc_u = FluxBoundaryCondition(wind_flux_u)
-# wind_bc_v = FluxBoundaryCondition(wind_flux_v)
 
 # new sponge masks using built-in functions from Oceananigans
 
@@ -384,8 +369,8 @@ else
     coriolis = nothing
 end
 
-# reltol = 1e-5
-# maxiter = 500  # prevent CG solver from grinding millions of iters if convergence stalls
+reltol = sqrt(eps(grid))
+abstol = sqrt(eps(grid))
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
@@ -393,7 +378,7 @@ if periodic_y
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -405,7 +390,8 @@ else
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
         closure=AnisotropicMinimumDissipation(),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid; reltol=reltol, maxiter=maxiter),
+        hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
@@ -538,19 +524,19 @@ if !pickup
     @info "No checkpoint found, setting initial conditions"
     # initial conditions
     if sigmoid_ic
-        v_init = (x, y, z) -> v∞(x, z, 0, params)
+        v_init = (x, y, z) -> v∞(x, z, 0, global_params)
     else
-        v_init = v₀
+        v_init = global_params.v₀
     end
 
     if gradient_IC
-        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+        @inline α_lin(y) = clamp(y / global_params.Ly, 0.0, 1.0)
         @inline blend(a, b, α) = (1 - α) * a + α * b
-        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
-        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
+        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, global_params.T_south_v1), T_north_pwl(z, global_params.T_north_v1), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y))
     else
-        @inline Tᵢ(x, y, z) = T_south_pwl(z, T_south_v1)
-        @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
+        @inline Tᵢ(x, y, z) = T_south_pwl(z, global_params.T_south_v1)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
     end
 
     set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
