@@ -38,10 +38,9 @@ sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
 sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
-sweep_strat = get(ENV, "SWEEP_STRAT", "default")
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
 
-@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, strat=$sweep_strat, wind_stress=$sweep_wind_stress"
+@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress"
 
 # build
 @info "building domain"
@@ -124,14 +123,6 @@ end
 # defaults
 T_north_v1, S_north_v1 = 20.5389, 32.6264
 T_south_v1, S_south_v1 = 24.5378, 35.5830
-
-if sweep_strat == "winter"
-    T_north_v1, S_north_v1 = 13.17, 34.54
-    T_south_v1, S_south_v1 = 20.37, 36.28
-elseif sweep_strat == "summer"
-    T_north_v1, S_north_v1 = 24.45, 32.74
-    T_south_v1, S_south_v1 = 27.34, 35.83
-end
 
 params = (; params...,
     v₀=v₀,
@@ -505,7 +496,6 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["shoal_length"] = sweep_shoal_length
     ds.attrib["shelf_depth"] = sweep_shelf_depth
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
-    ds.attrib["strat"] = sweep_strat
     ds.attrib["wind_stress"] = sweep_wind_stress
 end
 
@@ -544,7 +534,6 @@ set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
  shoal_length:    $(sweep_shoal_length) m
  shelf_depth:     $(sweep_shelf_depth) m
  shelf_break_end: $(sweep_shelf_break_end) m
- strat:           $(sweep_strat)
  wind_stress:     $(sweep_wind_stress) N/m^2
 
  ── Switches ──
