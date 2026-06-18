@@ -299,11 +299,12 @@ end
 const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+@inline offshore_mask_uvw(x, y, z) = 0.5 * (1.0 + tanh((x - 65e3) / 10e3))
 const global_params = params
 
 if periodic_y
     @inline sponge_mask(x, y, z) = north_mask(x, y, z)
-    @inline sponge_mask_uvw(x, y, z) = north_mask(x, y, z)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         return T_south_pwl(z)
@@ -318,7 +319,7 @@ if periodic_y
     end
 else
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         n = north_mask(x, y, z)

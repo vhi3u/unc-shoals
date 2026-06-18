@@ -43,7 +43,7 @@ using CUDA: has_cuda_gpu, allowscalar
 LES = true
 mass_flux = true
 periodic_y = true
-gradient_IC = false
+gradient_IC = true
 sigmoid_v_bc = true
 sigmoid_ic = true
 is_coriolis = true
@@ -71,7 +71,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=400, Ny=400, Nz=50)
+    params = (; params..., Nx=200, Ny=200, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -291,7 +291,7 @@ const global_params = params
 
 if periodic_y
     @inline sponge_mask(x, y, z) = north_mask(x, y, z)
-    @inline sponge_mask_uvw(x, y, z) = north_mask(x, y, z)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         return T_south_pwl(z)
@@ -306,7 +306,7 @@ if periodic_y
     end
 else
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         n = north_mask(x, y, z)
@@ -334,7 +334,7 @@ if sigmoid_v_bc
         xS = 65e3
         Lw = p.Lx
         k1 = 80 / Lw
-        k2 = 40 / Lw
+        k2 = 20 / Lw
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
         s2 = 1 / (1 + exp(k2 * (x - xS)))
@@ -512,11 +512,11 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
 #     schedule=TimeInterval(20days),
 #     overwrite_existing=overwrite_existing)
 
-# (3) 3D Time Averages (10 day window)
-simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
-    schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
+# # (3) 3D Time Averages (10 day window)
+# simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
+#     filename="time_avg_3d_$(run_tag).nc",
+#     schedule=AveragedTimeInterval(10days, window=10days),
+#     overwrite_existing=overwrite_existing)
 
 # # Domain-integrated KE time series
 # ∫KE = Integral(KE)
@@ -537,18 +537,10 @@ end
 if !pickup
     @info "No checkpoint found, setting initial conditions"
     # initial conditions
-    uᵢ = 0.005 * rand(size(u)...)
-    vᵢ = 0.005 * rand(size(v)...)
-    wᵢ = 0.005 * rand(size(w)...)
-    uᵢ .-= mean(uᵢ)
-    vᵢ .-= mean(vᵢ)
-    wᵢ .-= mean(wᵢ)
-    uᵢ .+= 0
     if sigmoid_ic
-        xv, yv, zv = nodes(v, reshape=true)
-        vᵢ .+= v∞.(xv, zv, 0, Ref(params))
+        v_init = (x, y, z) -> v∞(x, z, 0, params)
     else
-        vᵢ .+= v₀
+        v_init = v₀
     end
 
     if gradient_IC
@@ -561,8 +553,7 @@ if !pickup
         @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
     end
 
-    # set!(model, v=(x, y, z) -> v∞(x, y, z, params), T=Tᵢ, S=Sᵢ)
-    set!(model, u=uᵢ, v=vᵢ, w=wᵢ, T=Tᵢ, S=Sᵢ)
+    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
 end
 
 # run simulation
