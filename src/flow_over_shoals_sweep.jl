@@ -264,17 +264,20 @@ end
 ρ₀ = 1024.0
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
+@inline function sigmoidal_s2(x, Lx)
+    xS = 65e3
+    k2 = 40 / Lx
+    return 1 / (1 + exp(k2 * (x - xS)))
+end
+
 # velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        xS = 65e3
-        Lw = p.Lx
-        k1 = 80 / Lw
-        k2 = 40 / Lw
+        k1 = 80 / p.Lx
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
-        s2 = 1 / (1 + exp(k2 * (x - xS)))
+        s2 = sigmoidal_s2(x, p.Lx)
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
         return p.v₀ * sc
@@ -290,12 +293,14 @@ end
 const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
-@inline offshore_mask_uvw(x, y, z) = 0.5 * (1.0 + tanh((x - 65e3) / 10e3))
 const global_params = params
+# We shift the mask evaluation by 30km so that the sponge layer only turns on 
+# *after* the velocity has safely tapered to 0. This prevents artificial vorticity generation!
+@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 30e3, global_params.Lx)
 
 if periodic_y
-    @inline sponge_mask(x, y, z) = north_mask(x, y, z)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         return T_south_pwl(z)
