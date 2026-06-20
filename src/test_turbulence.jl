@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# flow_over_shoals.jl
+# test_turbulence.jl
 # ═══════════════════════════════════════════════════════════════════════════
 # Main simulation script for flow over shoals.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -49,11 +49,118 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Global Helper Functions
+# ═══════════════════════════════════════════════════════════════════════════
+
+# GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
+const δ_smooth = 2.5
+
+@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+
+@inline function T_north_pwl(z, v1=20.5389)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v2, v3 = 17.8875, 14.3323
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function T_south_pwl(z, v1=24.5378)
+    z1, z2, z3 = -5.0, -15.0, -30.0
+    v2, v3 = 24.3073, 23.4116
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function S_north_pwl(z, v1=32.6264)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v2, v3 = 33.7062, 33.2648
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function S_south_pwl(z, v1=35.5830)
+    z1, z2, z3 = -5.0, -15.0, -30.0
+    v2, v3 = 35.9986, 36.1776
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Temperature at East boundary (Offshore) - STRATIFIED
+@inline function T_east_pwl(z)
+    z1, z2, z3 = -5.0, -25.0, -45.0
+    v1, v2, v3 = 25.0, 23.0, 21.0
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+# Salinity at East boundary (Offshore) - STABLE (Saltier at depth)
+@inline function S_east_pwl(z)
+    z1, z2, z3 = -5.0, -25.0, -45.0
+    v1, v2, v3 = 35.8, 36.0, 36.2      # Flipped: 35.8 at surface, 36.2 at bottom
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function sigmoidal_s2(x, Lx)
+    xS = 65e3
+    k2 = 20 / Lx
+    return 1 / (1 + exp(k2 * (x - xS)))
+end
+
+# ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 function run_turbulence_test(ν_val, κ_val)
 
-    run_number = 3
+    run_number = 5
     sim_runtime = 10days
     callback_interval = 86400seconds
     run_tag = @sprintf("periodic_shoals%d_nu%.1e_ka%.1e", run_number, ν_val, κ_val)
@@ -109,111 +216,15 @@ function run_turbulence_test(ν_val, κ_val)
 
     params = (; params...,
         v₀=v₀,
-        Ls=20e3,
+        Ls=40e3,
         Le=100e3,
         Lw=10e3,
-        τ=24hours,
+        τ=1days,
         T_north_v1=T_north_v1,
         T_south_v1=T_south_v1,
         S_north_v1=S_north_v1,
         S_south_v1=S_south_v1,
         wind_stress=0.0)
-
-    # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
-    δ_smooth = 2.5  # smoothing length scale in meter
-    @inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
-
-    @inline function T_north_pwl(z, v1=20.5389)
-        z1, z2, z3 = -5.0, -15.0, -35.0
-        v2, v3 = 17.8875, 14.3323
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
-
-    @inline function T_south_pwl(z, v1=24.5378)
-        z1, z2, z3 = -5.0, -15.0, -30.0
-        v2, v3 = 24.3073, 23.4116
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
-
-    @inline function S_north_pwl(z, v1=32.6264)
-        z1, z2, z3 = -5.0, -15.0, -35.0
-        v2, v3 = 33.7062, 33.2648
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
-
-    @inline function S_south_pwl(z, v1=35.5830)
-        z1, z2, z3 = -5.0, -15.0, -30.0
-        v2, v3 = 35.9986, 36.1776
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
-
-    # Temperature at East boundary (Offshore) - STRATIFIED
-    @inline function T_east_pwl(z)
-        z1, z2, z3 = -5.0, -25.0, -45.0
-        v1, v2, v3 = 25.0, 23.0, 21.0
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
-
-    # Salinity at East boundary (Offshore) - STABLE (Saltier at depth)
-    @inline function S_east_pwl(z)
-        z1, z2, z3 = -5.0, -25.0, -45.0
-        v1, v2, v3 = 35.8, 36.0, 36.2      # Flipped: 35.8 at surface, 36.2 at bottom
-        m12 = (v2 - v1) / (z2 - z1)
-        m23 = (v3 - v2) / (z3 - z2)
-        val1 = v1
-        val2 = v1 + m12 * (z - z1)
-        val3 = v2 + m23 * (z - z2)
-        val4 = v3
-        w1 = smooth_step(z, z1)
-        w2 = smooth_step(z, z2)
-        w3 = smooth_step(z, z3)
-        return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-    end
 
     # Eastern boundary targets are now functions of z
     params = (; params...)
@@ -247,24 +258,20 @@ function run_turbulence_test(ν_val, κ_val)
     wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
 
     # velocity function
+    local v∞
     if sigmoid_v_bc
-        @inline function v∞(x, z, t, p)
+        v∞ = (x, z, t, p) -> begin
             xC = 3e3
-            xS = 65e3
-            Lw = p.Lx
-            k1 = 80 / Lw
-            k2 = 40 / Lw
+            k1 = 80 / p.Lx
 
             s1 = 1 / (1 + exp(-k1 * (x - xC)))
-            s2 = 1 / (1 + exp(k2 * (x - xS)))
+            s2 = sigmoidal_s2(x, p.Lx)
             s = (s1 - 1) + s2
             sc = clamp(s, 0.0, 1.0)
             return p.v₀ * sc
         end
     else
-        @inline function v∞(x, z, t, p)
-            return p.v₀
-        end
+        v∞ = (x, z, t, p) -> p.v₀
     end
 
     # new sponge masks using built-in functions from Oceananigans
@@ -272,45 +279,38 @@ function run_turbulence_test(ν_val, κ_val)
     north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
     south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
     east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
-    @inline offshore_mask_uvw(x, y, z) = 0.5 * (1.0 + tanh((x - 65e3) / 10e3))
     global_params = params
+    # We shift the mask evaluation by 30km so that the sponge layer only turns on 
+    # *after* the velocity has safely tapered to 0. This prevents artificial vorticity generation!
+    @inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 80e3, global_params.Lx)
 
+    local sponge_mask, sponge_mask_uvw, T_target, S_target, v_target
     if periodic_y
-        @inline sponge_mask(x, y, z) = north_mask(x, y, z)
-        @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+        sponge_mask = (x, y, z) -> min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+        sponge_mask_uvw = (x, y, z) -> min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
-        @inline function T_target(x, y, z, t)
-            return T_south_pwl(z)
-        end
-
-        @inline function S_target(x, y, z, t)
-            return S_south_pwl(z)
-        end
-
-        @inline function v_target(x, y, z, t)
-            return v∞(x, z, t, global_params)
-        end
+        T_target = (x, y, z, t) -> T_south_pwl(z)
+        S_target = (x, y, z, t) -> S_south_pwl(z)
+        v_target = (x, y, z, t) -> v∞(x, z, t, global_params)
     else
-        @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-        @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+        sponge_mask = (x, y, z) -> min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+        sponge_mask_uvw = (x, y, z) -> min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
-        @inline function T_target(x, y, z, t)
+        T_target = (x, y, z, t) -> begin
             n = north_mask(x, y, z)
             s = south_mask(x, y, z)
             tot = n + s
             return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
         end
 
-        @inline function S_target(x, y, z, t)
+        S_target = (x, y, z, t) -> begin
             n = north_mask(x, y, z)
             s = south_mask(x, y, z)
             tot = n + s
             return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
         end
 
-        @inline function v_target(x, y, z, t)
-            return v∞(x, z, t, global_params)
-        end
+        v_target = (x, y, z, t) -> v∞(x, z, t, global_params)
     end
 
     u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
@@ -413,20 +413,7 @@ function run_turbulence_test(ν_val, κ_val)
     v_c = @at (Center, Center, Center) v
     w_c = @at (Center, Center, Center) w
 
-    # Cross-correlations for EKE and Fluxes
-    # EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
-    uu = Field(u_c * u_c)
-    vv = Field(v_c * v_c)
-    ww = Field(w_c * w_c)
-    uT = Field(u_c * T)
-    uS = Field(u_c * S)
-    vT = Field(v_c * T)
-    vS = Field(v_c * S)
-    wT = Field(w_c * T)
-    wS = Field(w_c * S)
-
     slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
-    tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 
     # (1) 2D snapshots (every 1 day)
     # Surface XY slice (top layer)
@@ -442,33 +429,6 @@ function run_turbulence_test(ν_val, κ_val)
         schedule=TimeInterval(callback_interval),
         indices=(:, round(Int, params.Ny / 2), :),
         overwrite_existing=overwrite_existing)
-
-    # Mid-x YZ slice (along-shore transect at domain center)
-    # simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-    #     filename="midx_$(run_tag).nc",
-    #     schedule=TimeInterval(callback_interval),
-    #     indices=(round(Int, params.Nx / 5), :, :),
-    #     overwrite_existing=overwrite_existing)
-
-    # # (2) 3D snapshots (every 20 days)
-    # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-    #     filename="snapshots_3d_$(run_tag).nc",
-    #     schedule=TimeInterval(20days),
-    #     overwrite_existing=overwrite_existing)
-
-    # # (3) 3D Time Averages (10 day window)
-    # simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    #     filename="time_avg_3d_$(run_tag).nc",
-    #     schedule=AveragedTimeInterval(10days, window=10days),
-    #     overwrite_existing=overwrite_existing)
-
-    # # Domain-integrated KE time series
-    # ∫KE = Integral(KE)
-    # simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-    #     schedule=TimeInterval(callback_interval),
-    #     filename="KE_$(run_tag).nc",
-    #     overwrite_existing=overwrite_existing)
-
 
 
     if checkpointing
@@ -488,17 +448,18 @@ function run_turbulence_test(ν_val, κ_val)
         v_init = v₀
     end
 
+    local Tᵢ, Sᵢ
     if gradient_IC
-        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-        @inline blend(a, b, α) = (1 - α) * a + α * b
-        T_init = (x, y, z) -> blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
-        S_init = (x, y, z) -> blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
-        set!(model, u=0.0, v=v_init, w=0.0, T=T_init, S=S_init)
+        α_lin = y -> clamp(y / params.Ly, 0.0, 1.0)
+        blend = (a, b, α) -> (1 - α) * a + α * b
+        Tᵢ = (x, y, z) -> blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
+        Sᵢ = (x, y, z) -> blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
     else
-        T_init = (x, y, z) -> T_south_pwl(z, T_south_v1)
-        S_init = (x, y, z) -> S_south_pwl(z, S_south_v1)
-        set!(model, u=0.0, v=v_init, w=0.0, T=T_init, S=S_init)
+        Tᵢ = (x, y, z) -> T_south_pwl(z, T_south_v1)
+        Sᵢ = (x, y, z) -> S_south_pwl(z, S_south_v1)
     end
+
+    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
 
     # run simulation
     @info """
@@ -531,11 +492,12 @@ function run_turbulence_test(ν_val, κ_val)
 
 end # function run_turbulence_test
 
-test_nus = [1e-5, 1e-4, 1e-3]
-test_kappas = [1e-6, 1e-5, 1e-4]
+test_pairs = [
+    (1e-7, 1e-7),
+    (1e-5, 1e-5),
+    (1e-3, 1e-3)
+]
 
-for ν in test_nus
-    for κ in test_kappas
-        run_turbulence_test(ν, κ)
-    end
+for (ν, κ) in test_pairs
+    run_turbulence_test(ν, κ)
 end
