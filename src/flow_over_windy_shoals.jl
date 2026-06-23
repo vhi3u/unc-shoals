@@ -78,13 +78,14 @@ end
 
 # model parameters
 if shoal_bath
-    slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=15.0,
-        shoal_length=20000.0,
-        sigma=8000.0,
-        shelf_depth=-25.0,
-        shelf_break_end=12000.0)
-    GFB = GridFittedBottom(slope_bottom)
+    @inline function seamount_bottom(x, y)
+        xc = 50e3
+        yc = 100e3
+        R = 20e3
+        H = 35.0
+        return -50.0 + H * exp(-((x - xc)^2 + (y - yc)^2) / R^2)
+    end
+    GFB = GridFittedBottom(seamount_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
     ib_grid = grid
@@ -248,8 +249,7 @@ end
 end
 
 # wind stress BC
-ρ₀ = 1024.0
-@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / ρ₀) * sigmoidal_s2(x, p.Lx)
+@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / 1024.0) * sigmoidal_s2(x, p.Lx)
 wind_bc_v = FluxBoundaryCondition(surface_wind_stress_v, parameters=params)
 
 # velocity function
@@ -526,10 +526,11 @@ set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
  Architecture:    $(arch)
 
  ── Model Parameters ──
- Hs:              $(15.0) m
- shoal_length:    $(20000.0) m
- shelf_depth:     $(-25.0) m
- shelf_break_end: $(12000.0) m
+ Bathymetry:      Seamount
+ seamount_xc:     $(50e3) m
+ seamount_yc:     $(100e3) m
+ seamount_radius: $(20e3) m
+ seamount_height: $(35.0) m
  wind_stress:     $(params.wind_stress) N/m^2
 
  ── Switches ──
