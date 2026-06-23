@@ -64,7 +64,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=30, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=200, Ny=400, Nz=50)
+    params = (; params..., Nx=50, Ny=100, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -78,14 +78,13 @@ end
 
 # model parameters
 if shoal_bath
-    @inline function seamount_bottom(x, y)
-        xc = 50e3
-        yc = 100e3
-        R = 20e3
-        H = 35.0
-        return -50.0 + H * exp(-((x - xc)^2 + (y - yc)^2) / R^2)
-    end
-    GFB = GridFittedBottom(seamount_bottom)
+    slope_bottom = dshoal_param_bottom(params.Ly;
+        Hs=15.0,
+        shoal_length=20000.0,
+        sigma=8000.0,
+        shelf_depth=-25.0,
+        shelf_break_end=12000.0)
+    GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
     ib_grid = grid
@@ -248,9 +247,7 @@ end
     return 1 / (1 + exp(k2 * (x - xS)))
 end
 
-# wind stress BC
-@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / 1024.0) * sigmoidal_s2(x, p.Lx)
-wind_bc_v = FluxBoundaryCondition(surface_wind_stress_v, parameters=params)
+# (Wind stress BC moved down after mask definitions)
 
 # velocity function
 if sigmoid_v_bc
@@ -279,8 +276,11 @@ const global_params = params
 # We shift the mask evaluation by 15km so that the sponge layer ramps up 
 # right after the shelf. This allows eddies to form physically over the shoal 
 # but quickly damps anything that propagates offshore into the deep basin!
-@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 15e3, global_params.Lx)
+@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x, global_params.Lx)
 
+# wind stress BC (masked out in north/south sponge layers)
+@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / 1024.0) * sigmoidal_s2(x, p.Lx) * (1.0 - north_mask(x, y, 0.0) - south_mask(x, y, 0.0))
+wind_bc_v = FluxBoundaryCondition(surface_wind_stress_v, parameters=params)
 if periodic_y
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
     @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
@@ -526,11 +526,10 @@ set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
  Architecture:    $(arch)
 
  ── Model Parameters ──
- Bathymetry:      Seamount
- seamount_xc:     $(50e3) m
- seamount_yc:     $(100e3) m
- seamount_radius: $(20e3) m
- seamount_height: $(35.0) m
+ Hs:              $(15.0) m
+ shoal_length:    $(20000.0) m
+ shelf_depth:     $(-25.0) m
+ shelf_break_end: $(12000.0) m
  wind_stress:     $(params.wind_stress) N/m^2
 
  ── Switches ──
