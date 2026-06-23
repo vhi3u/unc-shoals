@@ -62,7 +62,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10)
+    params = (; params..., Nx=30, Ny=60, Nz=10)
 else
     params = (; params..., Nx=200, Ny=400, Nz=50)
 end
@@ -111,12 +111,12 @@ params = (; params...,
     Ls=20e3,
     Le=40e3,
     Lw=10e3,
-    τ=1days,
+    τ=10days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
-    wind_stress=1.225 * 1.5e-3 * 10.0^2) # ~0.18 N/m² for 10 m/s wind
+    wind_stress=-1.225 * 1.5e-3 * 10.0^2) # ~0.18 N/m² for 10 m/s wind
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
