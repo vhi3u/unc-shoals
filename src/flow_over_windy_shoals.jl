@@ -115,7 +115,7 @@ params = (; params...,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
-    wind_stress=-1.225 * 1.5e-3 * 10.0^2) # ~0.18 N/m² for 10 m/s wind
+    wind_stress=-0.05)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -279,7 +279,7 @@ const global_params = params
 @inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x, global_params.Lx)
 
 # wind stress BC (masked out in north/south sponge layers)
-@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / 1024.0) * sigmoidal_s2(x, p.Lx) * (1.0 - north_mask(x, y, 0.0) - south_mask(x, y, 0.0))
+@inline surface_wind_stress_v(x, y, t, p) = (p.wind_stress / 1024.0) * sigmoidal_s2(x, p.Lx)
 wind_bc_v = FluxBoundaryCondition(surface_wind_stress_v, parameters=params)
 if periodic_y
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
