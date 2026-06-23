@@ -51,8 +51,8 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 5
-sim_runtime = 100days
+run_number = 9
+sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -247,7 +247,7 @@ wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
-    k2 = 20 / Lx
+    k2 = 40 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
 end
 
@@ -275,41 +275,52 @@ const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const global_params = params
-# We shift the mask evaluation by 30km so that the sponge layer only turns on 
-# *after* the velocity has safely tapered to 0. This prevents artificial vorticity generation!
-@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 80e3, global_params.Lx)
+# We shift the mask evaluation by 15km so that the sponge layer ramps up 
+# right after the shelf. This allows eddies to form physically over the shoal 
+# but quickly damps anything that propagates offshore into the deep basin!
+@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 15e3, global_params.Lx)
 
 if periodic_y
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
     @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
-        return T_south_pwl(z)
+        n = north_mask(x, y, z)
+        s = south_mask(x, y, z)
+        e = offshore_mask_uvw(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * T_south_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
-        return S_south_pwl(z)
+        n = north_mask(x, y, z)
+        s = south_mask(x, y, z)
+        e = offshore_mask_uvw(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * S_south_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
         return v∞(x, z, t, global_params)
     end
 else
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
     @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         n = north_mask(x, y, z)
         s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
+        e = offshore_mask_uvw(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
         n = north_mask(x, y, z)
         s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
+        e = offshore_mask_uvw(x, y, z)
+        tot = n + s + e
+        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
