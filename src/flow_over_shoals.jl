@@ -52,7 +52,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = 11
-sim_runtime = 25days
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
