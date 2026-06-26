@@ -51,20 +51,20 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 10
+run_number = 11
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
 if LES
-    params = (; Lx=200e3, Ly=200e3, Lz=50)
+    params = (; Lx=100e3, Ly=200e3, Lz=50)
 else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=400, Ny=400, Nz=50)
+    params = (; params..., Nx=200, Ny=400, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -80,7 +80,7 @@ end
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
         Hs=15.0,
-        shoal_length=20000.0,
+        shoal_length=40000.0,
         sigma=8000.0,
         shelf_depth=-25.0,
         shelf_break_end=12000.0)
@@ -107,10 +107,10 @@ T_south_v1, S_south_v1 = 24.5378, 35.5830
 
 params = (; params...,
     v₀=v₀,
-    Ls=40e3,
-    Le=100e3,
+    Ls=20e3,
+    Le=40e3,
     Lw=10e3,
-    τ=1days,
+    τ=5days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -278,7 +278,7 @@ const global_params = params
 # We shift the mask evaluation by 15km so that the sponge layer ramps up 
 # right after the shelf. This allows eddies to form physically over the shoal 
 # but quickly damps anything that propagates offshore into the deep basin!
-@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 15e3, global_params.Lx)
+@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x, global_params.Lx)
 
 if periodic_y
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
