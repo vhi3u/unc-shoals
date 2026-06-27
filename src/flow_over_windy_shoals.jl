@@ -51,7 +51,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 3
+run_number = 4
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_windy$(run_number)"
@@ -80,7 +80,7 @@ end
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
         Hs=15.0,
-        shoal_length=20000.0,
+        shoal_length=40000.0,
         sigma=8000.0,
         shelf_depth=-25.0,
         shelf_break_end=12000.0)
