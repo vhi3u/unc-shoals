@@ -51,8 +51,8 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 22
-sim_runtime = 30days
+run_number = 23
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -372,8 +372,8 @@ if periodic_y
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=5, κ=5), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
-        #closure=AnisotropicMinimumDissipation(),
+        # closure=(HorizontalScalarDiffusivity(ν=5, κ=5), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
+        closure=TKEDissipationVerticalDiffusivity(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
