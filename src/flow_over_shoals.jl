@@ -51,7 +51,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 24
+run_number = 25
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
@@ -246,7 +246,7 @@ end
 wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
-    xS = 65e3
+    xS = 85e3
     k2 = 40 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
 end
