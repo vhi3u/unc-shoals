@@ -51,8 +51,8 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 25
-sim_runtime = 100days
+run_number = 26
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -182,39 +182,7 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Temperature at East boundary (Offshore) - STRATIFIED
-@inline function T_east_pwl(z)
-    z1, z2, z3 = -5.0, -25.0, -45.0
-    v1, v2, v3 = 25.0, 23.0, 21.0
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
 
-# Salinity at East boundary (Offshore) - STABLE (Saltier at depth)
-@inline function S_east_pwl(z)
-    z1, z2, z3 = -5.0, -25.0, -45.0
-    v1, v2, v3 = 35.8, 36.0, 36.2      # Flipped: 35.8 at surface, 36.2 at bottom
-    m12 = (v2 - v1) / (z2 - z1)
-    m23 = (v3 - v2) / (z3 - z2)
-    val1 = v1
-    val2 = v1 + m12 * (z - z1)
-    val3 = v2 + m23 * (z - z2)
-    val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
-    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
-end
-
-# Eastern boundary targets are now functions of z
 params = (; params...)
 
 #+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
@@ -289,7 +257,7 @@ if periodic_y
         s = south_mask(x, y, z)
         e = offshore_mask_uvw(x, y, z)
         tot = n + s + e
-        return tot > 0 ? (n * T_south_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+        return tot > 0 ? (n * T_south_pwl(z) + s * T_south_pwl(z) + e * T_south_pwl(z)) / tot : T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
@@ -297,7 +265,7 @@ if periodic_y
         s = south_mask(x, y, z)
         e = offshore_mask_uvw(x, y, z)
         tot = n + s + e
-        return tot > 0 ? (n * S_south_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+        return tot > 0 ? (n * S_south_pwl(z) + s * S_south_pwl(z) + e * S_south_pwl(z)) / tot : S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
@@ -312,7 +280,7 @@ else
         s = south_mask(x, y, z)
         e = offshore_mask_uvw(x, y, z)
         tot = n + s + e
-        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z) + e * T_east_pwl(z)) / tot : T_south_pwl(z)
+        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z) + e * T_south_pwl(z)) / tot : T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
@@ -320,7 +288,7 @@ else
         s = south_mask(x, y, z)
         e = offshore_mask_uvw(x, y, z)
         tot = n + s + e
-        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z) + e * S_east_pwl(z)) / tot : S_south_pwl(z)
+        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z) + e * S_south_pwl(z)) / tot : S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
