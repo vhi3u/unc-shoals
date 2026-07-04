@@ -1,73 +1,75 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# plot_sponge_comparison.jl
+# plot_sponge_logic.jl
 # ═══════════════════════════════════════════════════════════════════════════
-# This script visualizes the difference between -min(...) and -(... + ...)
-# sponge formulations to see their spatial impact on the simulation domain.
+# This script visualizes the spatial impact of the current sponge masks
+# and evaluates the boundary nudging targets.
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Plots
 
-# Simulation Domain Parameters
+# Simulation Domain Parameters (Updated to match flow_over_shoals.jl)
 Lx = 100e3
-Ly = 300e3
-Ls = 50e3  # North/South sponge width
-Le = 60e3  # East sponge width
-τ_s = τ_n = τ_e = 1.0  # Normalized timescales for visualization
+Ly = 200e3
+Ls = 20e3  # North/South sponge width
+τ = 1.0    # Normalized timescale
 
-# Mask Functions (consistent with flow_over_shoals_sweep.jl)
+# Mask Functions
 function south_mask(y)
-    y0, y1 = 0.0, Ls
-    return (0 <= y <= y1) ? (1 - y / y1) : 0.0
+    return (0 <= y <= Ls) ? (1.0 - y / Ls) : 0.0
 end
 
 function north_mask(y)
-    y0, y1 = Ly - Ls, Ly
-    return (y0 <= y <= y1) ? ((y - y0) / (y1 - y0)) : 0.0
+    return (Ly - Ls <= y <= Ly) ? (1.0 - (Ly - y) / Ls) : 0.0
+end
+
+function sigmoidal_s2(x, Lx)
+    xS = 65e3
+    k2 = 40 / Lx
+    return 1 / (1 + exp(k2 * (x - xS)))
 end
 
 function east_mask(x)
-    x0, x1 = Lx - Le, Lx
-    return (x0 <= x <= x1) ? ((x - x0) / (x1 - x0)) : 0.0
+    # Using the updated logic: x + 20e3
+    return 1.0 - sigmoidal_s2(x + 20e3, Lx)
 end
 
 # Range of coordinates
 xs = range(0, Lx, length=200)
 ys = range(0, Ly, length=200)
 
-# Evaluate sponge terms at constant u = 1.0
-u = 1.0
+# Evaluate sponge mask
+# Current logic: min(n + s + e, 1.0)
+mask_east_boundary = [min(south_mask(y) + north_mask(y) + east_mask(Lx), 1.0) for y in ys]
+mask_mid_y = [min(south_mask(y) + north_mask(y) + east_mask(Lx / 2), 1.0) for y in ys]
+mask_mid_x = [min(south_mask(Ly / 2) + north_mask(Ly / 2) + east_mask(x), 1.0) for x in xs]
 
-# Case 1: Transect along Y at the eastern boundary (x = Lx)
-x_val = Lx
-y_sum = [-(south_mask(y)/τ_s + north_mask(y)/τ_n + east_mask(x_val)/τ_e) for y in ys]
-y_min = [-min(south_mask(y)/τ_s, north_mask(y)/τ_n, east_mask(x_val)/τ_e) for y in ys]
+p1 = plot(ys / 1000, mask_east_boundary, label="Sponge Mask (x=Lx)", title="Along Y at East Boundary",
+    ylabel="Mask Value", xlabel="y [km]", lw=2, ylims=(-0.1, 1.1))
 
-# Case 2: Transect along Y in the middle (x = Lx/2)
-x_mid = Lx / 2
-y_sum_mid = [-(south_mask(y)/τ_s + north_mask(y)/τ_n + east_mask(x_mid)/τ_e) for y in ys]
-y_min_mid = [-min(south_mask(y)/τ_s, north_mask(y)/τ_n, east_mask(x_mid)/τ_e) for y in ys]
+p2 = plot(ys / 1000, mask_mid_y, label="Sponge Mask (x=Lx/2)", title="Along Y in Middle",
+    ylabel="Mask Value", xlabel="y [km]", lw=2, ylims=(-0.1, 1.1))
 
-# Plotting
-p1 = plot(ys / 1000, y_sum, label="Sum logic (-(s+n+e))", title="Sponge Comparison at East Boundary (x=Lx)",
-          ylabel="Sponge Strength", xlabel="y [km]", lw=2)
-plot!(p1, ys / 1000, y_min, label="Min logic (-min(s,n,e))", lw=2, linestyle=:dash)
+p3 = plot(xs / 1000, mask_mid_x, label="Sponge Mask (y=Ly/2)", title="Cross-shore at y=Ly/2",
+    ylabel="Mask Value", xlabel="x [km]", lw=2, ylims=(-0.1, 1.1))
 
-p2 = plot(ys / 1000, y_sum_mid, label="Sum logic", title="Sponge Comparison in Middle (x=Lx/2)",
-          ylabel="Sponge Strength", xlabel="y [km]", lw=2)
-plot!(p2, ys / 1000, y_min_mid, label="Min logic", lw=2, linestyle=:dash)
+# T_target fixed visualization
+T_south_val = 24.5
+function T_target_user(x, y)
+    n = north_mask(y)
+    s = south_mask(y)
+    tot = n + s
+    # Fixed code from flow_over_shoals.jl:
+    return tot > 0 ? (n * T_south_val + s * T_south_val) / tot : T_south_val
+end
 
-# Cross-shore transect at Ly/2 (where s=0, n=0)
-x_sum = [-(south_mask(Ly/2)/τ_s + north_mask(Ly/2)/τ_n + east_mask(x)/τ_e) for x in xs]
-x_min = [-min(south_mask(Ly/2)/τ_s, north_mask(Ly/2)/τ_n, east_mask(x)/τ_e) for x in xs]
+T_target_mid_x = [T_target_user(x, Ly / 2) for x in xs]
 
-p3 = plot(xs / 1000, x_sum, label="Sum logic", title="Cross-shore at y=Ly/2",
-          ylabel="Sponge Strength", xlabel="x [km]", lw=2)
-plot!(p3, xs / 1000, x_min, label="Min logic", lw=2, linestyle=:dash)
+p4 = plot(xs / 1000, T_target_mid_x, label="T_target", title="T_target at y=Ly/2\n(Fixed: Target remains T_south)",
+    ylabel="Temperature [°C]", xlabel="x [km]", lw=2, color=:green)
 
-l = @layout [p1 p2; p3]
-plot(p1, p2, p3, layout=l, size=(1000, 700))
+l = @layout [p1 p2; p3 p4]
+plot(p1, p2, p3, p4, layout=l, size=(1000, 700))
 
 # Save output
-savefig("sponge_logic_comparison.png")
-@info "Plots saved to sponge_logic_comparison.png"
-@info "Observation: Min logic is zero if any one of the masks is zero."
+savefig("sponge_logic.png")
+@info "Plots saved to sponge_logic.png"
