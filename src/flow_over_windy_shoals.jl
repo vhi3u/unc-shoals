@@ -46,20 +46,20 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 # Bathymetry (shared with flow_over_shoals.jl)
 # ═══════════════════════════════════════════════════════════════════════════
-include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+include(joinpath(@__DIR__, "dshoal_100.jl"))
 
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 5
+run_number = 6
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_windy$(run_number)"
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50)
+    params = (; Lx=100e3, Ly=200e3, Lz=100)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50)
+    params = (; Lx=100000, Ly=200000, Lz=100)
 end
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10)
@@ -108,14 +108,14 @@ T_south_v1, S_south_v1 = 24.5378, 35.5830
 params = (; params...,
     v₀=v₀,
     Ls=20e3,
-    Le=40e3,
+    Le=15e3,
     Lw=10e3,
     τ=1days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
-    wind_stress=0.001)
+    wind_stress=0.01)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -201,6 +201,7 @@ params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag co
 immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
 immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
 immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+bottom_drag = BulkDrag(coefficient=params.c_dz)
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -211,11 +212,11 @@ end
 
 # wind stress BC
 ρ₀ = 1024.0
-wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
+wind_bc_v = FluxBoundaryCondition(-params.wind_stress / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
-    k2 = 40 / Lx
+    k2 = 20 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
 end
 
@@ -243,14 +244,13 @@ const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const global_params = params
-# We shift the mask evaluation by 15km so that the sponge layer ramps up 
-# right after the shelf. This allows eddies to form physically over the shoal 
-# but quickly damps anything that propagates offshore into the deep basin!
-@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x + 20e3, global_params.Lx)
+# We apply a 15km sponge layer at the eastern boundary to absorb outgoing waves and 
+# enforce a resting state in the far-field, while leaving the deep basin (65km - 85km) 
+# free to evolve under wind forcing and bathymetric changes.
 
 if periodic_y
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + east_mask(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         return T_south_pwl(z)
@@ -265,7 +265,7 @@ if periodic_y
     end
 else
     @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         n = north_mask(x, y, z)
@@ -302,16 +302,16 @@ end
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_u)
+    v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_v, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_u)
+    v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
 end
 
