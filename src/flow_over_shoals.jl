@@ -253,11 +253,11 @@ if periodic_y
     @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
-        return T_north_pwl(z)
+        return T_south_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
-        return S_north_pwl(z)
+        return S_south_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
