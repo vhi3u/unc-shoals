@@ -51,8 +51,8 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 27
-sim_runtime = 50days
+run_number = 28
+sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -249,21 +249,15 @@ const global_params = params
 @inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x + 20e3, global_params.Lx)
 
 if periodic_y
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * T_south_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
+        return T_north_pwl(z)
     end
 
     @inline function S_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * S_south_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
+        return S_north_pwl(z)
     end
 
     @inline function v_target(x, y, z, t)
@@ -436,11 +430,11 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
 #     schedule=TimeInterval(20days),
 #     overwrite_existing=overwrite_existing)
 
-# (3) 3D Time Averages (10 day window)
-simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
-    schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
+# # (3) 3D Time Averages (10 day window)
+# simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
+#     filename="time_avg_3d_$(run_tag).nc",
+#     schedule=AveragedTimeInterval(10days, window=10days),
+#     overwrite_existing=overwrite_existing)
 
 # # Domain-integrated KE time series
 # ∫KE = Integral(KE)
