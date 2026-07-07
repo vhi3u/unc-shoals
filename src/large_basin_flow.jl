@@ -14,7 +14,7 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using CUDA: has_cuda_gpu, allowscalar
 
 # naming 
-run_number = 3
+run_number = 4
 
 # Domain parameters
 const Lx = 100e3 # 100 km
@@ -178,20 +178,20 @@ const north_mask = PiecewiseLinearMask{:y}(center=Ly, width=L_sponge)
 @inline sponge_mask(x, y, z) = min(east_mask(x, y, z) + south_mask(x, y, z) + north_mask(x, y, z), 1.0)
 @inline v_target(x, y, z, t) = v_sigmoidal(x, z, t)
 
-const τ_sponge = 24hours # timescale for relaxation
+const τ_sponge = 5days # timescale for relaxation
 
 @inline function T_target(x, y, z, t)
     n = north_mask(x, y, z)
     s = south_mask(x, y, z)
     tot = n + s
-    return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
+    return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_north_pwl(z)
 end
 
 @inline function S_target(x, y, z, t)
     n = north_mask(x, y, z)
     s = south_mask(x, y, z)
     tot = n + s
-    return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
+    return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_north_pwl(z)
 end
 
 u_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=0.0)
@@ -213,11 +213,9 @@ model = NonhydrostaticModel(ib_grid,
     coriolis=FPlane(latitude=35.2480),
     forcing=forcings)
 
-# Stratification based on blended profiles
-@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
-@inline blend(a, b, α) = (1 - α) * a + α * b
-@inline T_initial(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
-@inline S_initial(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
+# Initial stratification (start entirely cold/fresh, warm current intrudes from south)
+@inline T_initial(x, y, z) = T_north_pwl(z)
+@inline S_initial(x, y, z) = S_north_pwl(z)
 
 # Set initial conditions (start with uniform flow to match boundaries and linear T/S)
 @inline v_initial(x, y, z) = v_sigmoidal(x, z, 0.0)
