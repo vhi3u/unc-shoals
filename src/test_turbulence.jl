@@ -1,10 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# flow_over_shoals_sweep.jl
+# test_turbulence.jl
 # ═══════════════════════════════════════════════════════════════════════════
-# Modified version of flow_over_shoals.jl for parameter sweeps.
-# Reads sweep parameters from environment variables set by sweep_driver.jl:
-#   SWEEP_Hs, SWEEP_SHOAL_LENGTH, SWEEP_SHELF_DEPTH, SWEEP_SHELF_BREAK_END,
-#   SWEEP_RUN_LABEL, SWEEP_RUN_INDEX
+# Main simulation script for flow over shoals.
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
@@ -27,22 +24,6 @@ using NCDatasets
 using DataFrames
 using CUDA: has_cuda_gpu, allowscalar
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Read sweep parameters from environment (set by sweep_driver.jl)
-# Falls back to defaults so script can also be run standalone.
-# ═══════════════════════════════════════════════════════════════════════════
-sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "15.0"))
-sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "20000.0"))
-sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
-sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
-sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
-sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
-sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
-sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
-
-@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress"
-
-# build
 @info "building domain"
 
 # switches
@@ -68,73 +49,8 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # ═══════════════════════════════════════════════════════════════════════════
-# simulation knobs
+# Global Helper Functions
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = sweep_run_index
-sim_runtime = 100days
-callback_interval = 86400seconds
-run_tag = "sweep_$(sweep_run_label)"
-
-if LES
-    params = (; Lx=200e3, Ly=200e3, Lz=50)
-else
-    params = (; Lx=100000, Ly=200000, Lz=50)
-end
-if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10)
-else
-    params = (; params..., Nx=400, Ny=400, Nz=50)
-end
-
-x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
-
-# grid  
-if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
-else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
-end
-
-# model parameters
-if shoal_bath
-    slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=sweep_Hs,
-        shoal_length=sweep_shoal_length,
-        sigma=sweep_sigma,
-        shelf_depth=sweep_shelf_depth,
-        shelf_break_end=sweep_shelf_break_end)
-    GFB = GridFittedBottom(slope_bottom)
-    ib_grid = ImmersedBoundaryGrid(grid, GFB)
-else
-    ib_grid = grid
-end
-
-@info ib_grid
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Stratification and Wind Setup
-# ═══════════════════════════════════════════════════════════════════════════
-if mass_flux
-    v₀ = 0.10
-else
-    v₀ = 0.0
-end
-
-# defaults
-T_north_v1, S_north_v1 = 20.5389, 32.6264
-T_south_v1, S_south_v1 = 24.5378, 35.5830
-
-params = (; params...,
-    v₀=v₀,
-    Ls=20e3,
-    Le=100e3,
-    Lw=10e3,
-    τ=24hours,
-    T_north_v1=T_north_v1,
-    T_south_v1=T_south_v1,
-    S_north_v1=S_north_v1,
-    S_south_v1=S_south_v1,
-    wind_stress=sweep_wind_stress)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -233,8 +149,71 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-# Eastern boundary targets are now functions of z
-params = (; params...)
+@inline function sigmoidal_s2(x, Lx)
+    xS = 65e3
+    k2 = 20 / Lx
+    return 1 / (1 + exp(k2 * (x - xS)))
+end
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Global Configuration & Setup
+# ═══════════════════════════════════════════════════════════════════════════
+
+if LES
+    params_base = (; Lx=200e3, Ly=200e3, Lz=50)
+else
+    params_base = (; Lx=100000, Ly=200000, Lz=50)
+end
+if arch == CPU()
+    params_base = (; params_base..., Nx=60, Ny=60, Nz=10)
+else
+    params_base = (; params_base..., Nx=400, Ny=400, Nz=50)
+end
+
+if mass_flux
+    v₀ = 0.10
+else
+    v₀ = 0.0
+end
+
+T_north_v1, S_north_v1 = 20.5389, 32.6264
+T_south_v1, S_south_v1 = 24.5378, 35.5830
+
+params = (; params_base...,
+    v₀=v₀,
+    Ls=40e3,
+    Le=100e3,
+    Lw=10e3,
+    τ=5days,
+    T_north_v1=T_north_v1,
+    T_south_v1=T_south_v1,
+    S_north_v1=S_north_v1,
+    S_south_v1=S_south_v1,
+    wind_stress=0.0)
+
+x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
+
+# grid  
+if periodic_y
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
+else
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
+end
+
+if shoal_bath
+    slope_bottom = dshoal_param_bottom(params.Ly;
+        Hs=15.0,
+        shoal_length=20000.0,
+        sigma=8000.0,
+        shelf_depth=-25.0,
+        shelf_break_end=12000.0)
+    GFB = GridFittedBottom(slope_bottom)
+    ib_grid = ImmersedBoundaryGrid(grid, GFB)
+else
+    ib_grid = grid
+end
+
+@info ib_grid
 
 #+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
 z₀ = 2.5e-4 # roughness length
@@ -262,19 +241,16 @@ end
 
 # wind stress BC
 ρ₀ = 1024.0
-wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
+wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
 
 # velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        xS = 65e3
-        Lw = p.Lx
-        k1 = 80 / Lw
-        k2 = 40 / Lw
+        k1 = 80 / p.Lx
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
-        s2 = 1 / (1 + exp(k2 * (x - xS)))
+        s2 = sigmoidal_s2(x, p.Lx)
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
         return p.v₀ * sc
@@ -290,12 +266,15 @@ end
 const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
-@inline offshore_mask_uvw(x, y, z) = 0.5 * (1.0 + tanh((x - 65e3) / 10e3))
 const global_params = params
 
+# We shift the mask evaluation by 30km so that the sponge layer only turns on 
+# *after* the velocity has safely tapered to 0. This prevents artificial vorticity generation!
+@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 80e3, global_params.Lx)
+
 if periodic_y
-    @inline sponge_mask(x, y, z) = north_mask(x, y, z)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
+    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
+    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
 
     @inline function T_target(x, y, z, t)
         return T_south_pwl(z)
@@ -370,137 +349,6 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-
-if periodic_y
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-else
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
-end
-
-@info "" model
-
-pickup = isfile("checkpoint_$(run_tag).jld2")
-overwrite_existing = !pickup
-
-simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.4)
-
-progress = TimedMessenger()
-simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
-
-function print_solver_iterations(sim)
-    solver = sim.model.pressure_solver
-    if hasproperty(solver, :conjugate_gradient_solver)
-        cg = solver.conjugate_gradient_solver
-        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
-            cg.iteration, time(sim) / 86400)
-    end
-end
-simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
-
-u, v, w = model.velocities
-T = model.tracers.T
-S = model.tracers.S
-Ro = @at (Center, Center, Center) RossbyNumber(model)
-KE = @at (Center, Center, Center) KineticEnergy(model)
-
-# Centered velocities for consistency
-u_c = @at (Center, Center, Center) u
-v_c = @at (Center, Center, Center) v
-w_c = @at (Center, Center, Center) w
-
-# Cross-correlations for EKE and Fluxes
-# EKE = 0.5 * (⟨uu⟩ - ⟨u⟩² + ⟨vv⟩ - ⟨v⟩² + ⟨ww⟩ - ⟨w⟩²)  — computed in post-processing from tavg_fields
-uu = Field(u_c * u_c)
-vv = Field(v_c * v_c)
-ww = Field(w_c * w_c)
-uT = Field(u_c * T)
-uS = Field(u_c * S)
-vT = Field(v_c * T)
-vS = Field(v_c * S)
-wT = Field(w_c * T)
-wS = Field(w_c * S)
-
-slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
-tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
-
-# (1) 2D snapshots (every 1 day)
-# Surface XY slice (top layer)
-simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
-    filename="top_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(:, :, params.Nz),
-    overwrite_existing=overwrite_existing)
-
-# Mid-y XZ slice (cross-shore transect at domain center)
-simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
-    filename="midy_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(:, round(Int, params.Ny / 2), :),
-    overwrite_existing=overwrite_existing)
-
-# Mid-x YZ slice (along-shore transect at domain center)
-simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-    filename="midx_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
-    indices=(round(Int, params.Nx / 5), :, :),
-    overwrite_existing=overwrite_existing)
-
-# # (2) 3D snapshots (every 20 days)
-# simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-#     filename="snapshots_3d_$(run_tag).nc",
-#     schedule=TimeInterval(20days),
-#     overwrite_existing=overwrite_existing)
-
-# (3) 3D Time Averages (10 day window)
-simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
-    schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
-
-# # Domain-integrated KE time series
-# ∫KE = Integral(KE)
-# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-#     schedule=TimeInterval(callback_interval),
-#     filename="KE_$(run_tag).nc",
-#     overwrite_existing=overwrite_existing)
-
-# ── Save sweep metadata to a small NetCDF file for postprocessing ──────
-using NCDatasets
-NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
-    ds.attrib["run_label"] = sweep_run_label
-    ds.attrib["run_index"] = sweep_run_index
-    ds.attrib["Hs"] = sweep_Hs
-    ds.attrib["shoal_length"] = sweep_shoal_length
-    ds.attrib["shelf_depth"] = sweep_shelf_depth
-    ds.attrib["shelf_break_end"] = sweep_shelf_break_end
-    ds.attrib["wind_stress"] = sweep_wind_stress
-end
-
-# initial conditions
-@info "Setting initial conditions"
 if sigmoid_ic
     v_init = (x, y, z) -> v∞(x, z, 0, params)
 else
@@ -517,34 +365,130 @@ else
     @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
 end
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
 
-# run simulation
-@info """
-════════════════════════════════════════════════════════
- SWEEP SIMULATION: $(run_tag)
-════════════════════════════════════════════════════════
- Run label:       $(sweep_run_label)
- Run index:       $(sweep_run_index)
- Runtime:         $(sim_runtime)
- Architecture:    $(arch)
+# ═══════════════════════════════════════════════════════════════════════════
+# simulation knobs & runner
+# ═══════════════════════════════════════════════════════════════════════════
+function run_turbulence_test(ν_val, κ_val)
 
- ── Sweep Parameters ──
- Hs:              $(sweep_Hs) m
- shoal_length:    $(sweep_shoal_length) m
- shelf_depth:     $(sweep_shelf_depth) m
- shelf_break_end: $(sweep_shelf_break_end) m
- wind_stress:     $(sweep_wind_stress) N/m^2
+    run_number = 5
+    sim_runtime = 10days
+    callback_interval = 86400seconds
+    run_tag = @sprintf("periodic_shoals%d_nu%.1e_ka%.1e", run_number, ν_val, κ_val)
 
- ── Switches ──
- LES:             $(LES)
- mass_flux:       $(mass_flux)
- periodic_y:      $(periodic_y)
- gradient_IC:     $(gradient_IC)
- sigmoid_v_bc:    $(sigmoid_v_bc)
- sigmoid_ic:      $(sigmoid_ic)
- is_coriolis:     $(is_coriolis)
- shoal_bath:      $(shoal_bath)
-════════════════════════════════════════════════════════
-"""
-run!(simulation, pickup=pickup)
+    model = NonhydrostaticModel(ib_grid;
+        timestepper=:RungeKutta3,
+        advection=WENO(order=5),
+        closure=VerticalScalarDiffusivity(ν=ν_val, κ=κ_val),
+        hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
+        tracers=(:T, :S),
+        buoyancy=SeawaterBuoyancy(),
+        coriolis=coriolis,
+        boundary_conditions=bcs,
+        forcing=forcings
+    )
+
+    @info "" model
+
+    pickup = isfile("checkpoint_$(run_tag).jld2")
+    overwrite_existing = !pickup
+
+    simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
+    conjure_time_step_wizard!(simulation, cfl=0.4)
+
+    progress = TimedMessenger()
+    simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
+
+    function print_solver_iterations(sim)
+        solver = sim.model.pressure_solver
+        if hasproperty(solver, :conjugate_gradient_solver)
+            cg = solver.conjugate_gradient_solver
+            @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
+                cg.iteration, time(sim) / 86400)
+        end
+    end
+    simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
+
+    u, v, w = model.velocities
+    T = model.tracers.T
+    S = model.tracers.S
+    Ro = @at (Center, Center, Center) RossbyNumber(model)
+    KE = @at (Center, Center, Center) KineticEnergy(model)
+
+    # Centered velocities for consistency
+    u_c = @at (Center, Center, Center) u
+    v_c = @at (Center, Center, Center) v
+    w_c = @at (Center, Center, Center) w
+
+    slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+
+    # (1) 2D snapshots (every 1 day)
+    # Surface XY slice (top layer)
+    simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
+        filename="top_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, :, params.Nz),
+        overwrite_existing=overwrite_existing)
+
+    # Mid-y XZ slice (cross-shore transect at domain center)
+    simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
+        filename="midy_$(run_tag).nc",
+        schedule=TimeInterval(callback_interval),
+        indices=(:, round(Int, params.Ny / 2), :),
+        overwrite_existing=overwrite_existing)
+
+
+    if checkpointing
+        checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
+        simulation.output_writers[:checkpointer] = Checkpointer(model,
+            schedule=TimeInterval(5days),
+            prefix=checkpoint_prefix,
+            overwrite_existing=true,
+            cleanup=true)
+    end
+
+    # initial conditions
+    @info "Setting initial conditions"
+    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+
+    # run simulation
+    @info """
+    ════════════════════════════════════════════════════════
+     SIMULATION CONFIGURATION: $(run_tag)
+    ════════════════════════════════════════════════════════
+     Run number:      $(run_number)
+     Runtime:         $(sim_runtime)
+     Architecture:    $(arch)
+
+     ── Model Parameters ──
+     Hs:              $(15.0) m
+     shoal_length:    $(20000.0) m
+     shelf_depth:     $(-25.0) m
+     shelf_break_end: $(12000.0) m
+     wind_stress:     $(0.0) N/m^2
+
+     ── Switches ──
+     LES:             $(LES)
+     mass_flux:       $(mass_flux)
+     periodic_y:      $(periodic_y)
+     gradient_IC:     $(gradient_IC)
+     sigmoid_v_bc:    $(sigmoid_v_bc)
+     sigmoid_ic:      $(sigmoid_ic)
+     is_coriolis:     $(is_coriolis)
+     shoal_bath:      $(shoal_bath)
+    ════════════════════════════════════════════════════════
+    """
+    run!(simulation, pickup=pickup)
+
+end # function run_turbulence_test
+
+test_pairs = [
+    (1e-7, 1e-7),
+    (1e-5, 1e-5),
+    (1e-3, 1e-3)
+]
+
+for (ν, κ) in test_pairs
+    run_turbulence_test(ν, κ)
+end
