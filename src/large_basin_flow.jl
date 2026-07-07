@@ -14,7 +14,7 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using CUDA: has_cuda_gpu, allowscalar
 
 # naming 
-run_number = 1
+run_number = 2
 
 # Domain parameters
 const Lx = 100e3 # 100 km
@@ -74,7 +74,8 @@ value_zero = ValueBoundaryCondition(0.0)
 # Use PerturbationAdvection to make the northern boundary purely a relaxation one 
 # (outflow_timescale=0.0) and the southern boundary a radiation one (outflow_timescale=Inf).
 northern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
-southern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
+southern_bc = NormalFlowBoundaryCondition(v_sigmoidal)
+# southern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
 
 # Bottom Drag Formulation
 z₀ = 2.5e-4 # roughness length
