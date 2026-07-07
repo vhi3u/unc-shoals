@@ -11,18 +11,29 @@ using Oceananigans.Models: SeawaterBuoyancy
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Forcings
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
+using CUDA: has_cuda_gpu, allowscalar
+
+# naming 
+run_number = 1
 
 # Domain parameters
 Lx = 100e3 # 100 km
 Ly = 200e3 # 200 km
 Lz = 50    # 50 m
 
-
-Nx, Ny, Nz = 50, 50, 10
+if has_cuda_gpu()
+    arch = GPU()
+    Nx, Ny, Nz = 200, 400, 50
+else
+    arch = CPU()
+    Nx, Ny, Nz = 50, 50, 10
+end
+@info "architecture = $(arch)"
 
 # Grid
 # Topology is Bounded in all directions to represent a closed basin with open boundaries in y
-grid = RectilinearGrid(size=(Nx, Ny, Nz),
+grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
+    halo=(4, 4, 4),
     x=(0, Lx),
     y=(0, Ly),
     z=(-Lz, 0),
@@ -56,13 +67,14 @@ end
 
 # zero BC
 
-open_zero = ValueBoundaryCondition(0.0; scheme=PerturbationAdvection())
+flux_zero = FluxBoundaryCondition(0.0)
+value_zero = ValueBoundaryCondition(0.0)
 
 # Boundary conditions for northward flow
 # Use PerturbationAdvection to make the northern boundary purely a relaxation one 
 # (outflow_timescale=0.0) and the southern boundary a radiation one (outflow_timescale=Inf).
-northern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection())
-southern_bc = NormalFlowBoundaryCondition(v_sigmoidal)
+northern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
+southern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
 
 # Bottom Drag Formulation
 z₀ = 2.5e-4 # roughness length
@@ -79,9 +91,9 @@ immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :
 immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=(; c_dz=c_dz))
 
 # Apply the boundary conditions to the velocity fields
-u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, north=open_zero)
+u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, north=flux_zero, south=value_zero)
 v_bcs = FieldBoundaryConditions(south=southern_bc, north=northern_bc, immersed=immersed_drag_bc_v)
-w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w, north=open_zero)
+w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w, north=flux_zero, south=value_zero)
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
 
 reltol = sqrt(eps(grid))
@@ -127,7 +139,7 @@ end
 set!(model, v=v_initial, T=T_initial, S=S_initial)
 
 # Simulation setup
-simulation = Simulation(model, Δt=15minutes, stop_time=10days)
+simulation = Simulation(model, Δt=15minutes, stop_time=100days)
 conjure_time_step_wizard!(simulation, cfl=0.8)
 
 # Logging progress
@@ -169,7 +181,7 @@ ww = Field(w_c * w_c)
 slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
 tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S)
 
-run_tag = "large_basin_flow"
+run_tag = "bounded_shoals$(run_number)"
 
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
     filename="top_$(run_tag).nc",
