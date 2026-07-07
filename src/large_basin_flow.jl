@@ -14,7 +14,7 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using CUDA: has_cuda_gpu, allowscalar
 
 # naming 
-run_number = 2
+run_number = 3
 
 # Domain parameters
 const Lx = 100e3 # 100 km
@@ -65,17 +65,77 @@ const v₀ = 0.1 # m/s (northward flow max)
     return v₀ * sc
 end
 
+# T/S profiles
+const δ_smooth = 2.5
+@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+
+@inline function T_north_pwl(z, v1=20.5389)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v2, v3 = 17.8875, 14.3323
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function T_south_pwl(z, v1=24.5378)
+    z1, z2, z3 = -5.0, -15.0, -30.0
+    v2, v3 = 24.3073, 23.4116
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function S_north_pwl(z, v1=32.6264)
+    z1, z2, z3 = -5.0, -15.0, -35.0
+    v2, v3 = 33.7062, 33.2648
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
+@inline function S_south_pwl(z, v1=35.5830)
+    z1, z2, z3 = -5.0, -15.0, -30.0
+    v2, v3 = 35.9986, 36.1776
+    m12 = (v2 - v1) / (z2 - z1)
+    m23 = (v3 - v2) / (z3 - z2)
+    val1 = v1
+    val2 = v1 + m12 * (z - z1)
+    val3 = v2 + m23 * (z - z2)
+    val4 = v3
+    w1 = smooth_step(z, z1)
+    w2 = smooth_step(z, z2)
+    w3 = smooth_step(z, z3)
+    return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
+end
+
 # zero BC
 
 flux_zero = FluxBoundaryCondition(0.0)
 value_zero = ValueBoundaryCondition(0.0)
 
-# Boundary conditions for northward flow
-# Use PerturbationAdvection to make the northern boundary purely a relaxation one 
-# (outflow_timescale=0.0) and the southern boundary a radiation one (outflow_timescale=Inf).
 northern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
 southern_bc = NormalFlowBoundaryCondition(v_sigmoidal)
-# southern_bc = NormalFlowBoundaryCondition(v_sigmoidal; scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
 
 # Bottom Drag Formulation
 z₀ = 2.5e-4 # roughness length
@@ -95,21 +155,52 @@ immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v
 u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u, north=flux_zero, south=value_zero)
 v_bcs = FieldBoundaryConditions(south=southern_bc, north=northern_bc, immersed=immersed_drag_bc_v)
 w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w, north=flux_zero, south=value_zero)
-bcs = (u=u_bcs, v=v_bcs, w=w_bcs)
+
+@inline tsbc(x, z, t) = T_south_pwl(z)
+@inline tnbc(x, z, t) = T_north_pwl(z)
+@inline ssbc(x, z, t) = S_south_pwl(z)
+@inline snbc(x, z, t) = S_north_pwl(z)
+
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
+
+bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-# Sponge layer on the eastern boundary to damp out Coriolis-driven wave reflections
-const L_sponge = 20e3 # 20 km width for the sponge layer
+# Sponge layers for the boundaries to damp out Coriolis-driven waves and adjustment shock
+const L_sponge = 20e3 # 20 km width for the sponge layers
 const east_mask = PiecewiseLinearMask{:x}(center=Lx, width=L_sponge)
+const south_mask = PiecewiseLinearMask{:y}(center=0, width=L_sponge)
+const north_mask = PiecewiseLinearMask{:y}(center=Ly, width=L_sponge)
+
+@inline sponge_mask(x, y, z) = min(east_mask(x, y, z) + south_mask(x, y, z) + north_mask(x, y, z), 1.0)
+@inline v_target(x, y, z, t) = v_sigmoidal(x, z, t)
+
 const τ_sponge = 24hours # timescale for relaxation
 
-u_nudging = Relaxation(rate=1 / τ_sponge, mask=east_mask, target=0.0)
-v_nudging = Relaxation(rate=1 / τ_sponge, mask=east_mask, target=0.0)
-w_nudging = Relaxation(rate=1 / τ_sponge, mask=east_mask, target=0.0)
+@inline function T_target(x, y, z, t)
+    n = north_mask(x, y, z)
+    s = south_mask(x, y, z)
+    tot = n + s
+    return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
+end
 
-forcings = (u=u_nudging, v=v_nudging, w=w_nudging)
+@inline function S_target(x, y, z, t)
+    n = north_mask(x, y, z)
+    s = south_mask(x, y, z)
+    tot = n + s
+    return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
+end
+
+u_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=0.0)
+v_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=v_target)
+w_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=0.0)
+T_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=T_target)
+S_nudging = Relaxation(rate=1 / τ_sponge, mask=sponge_mask, target=S_target)
+
+forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
 # Model
 model = NonhydrostaticModel(ib_grid,
@@ -122,18 +213,11 @@ model = NonhydrostaticModel(ib_grid,
     coriolis=FPlane(latitude=35.2480),
     forcing=forcings)
 
-# Linear stratification based on South profiles
-@inline function T_initial(x, y, z)
-    v1 = 24.5378
-    v_bot = 23.4116
-    return v1 + (v_bot - v1) * (z / -50.0)
-end
-
-@inline function S_initial(x, y, z)
-    v1 = 35.5830
-    v_bot = 36.1776
-    return v1 + (v_bot - v1) * (z / -50.0)
-end
+# Stratification based on blended profiles
+@inline α_lin(y) = clamp(y / Ly, 0.0, 1.0)
+@inline blend(a, b, α) = (1 - α) * a + α * b
+@inline T_initial(x, y, z) = blend(T_south_pwl(z), T_north_pwl(z), α_lin(y))
+@inline S_initial(x, y, z) = blend(S_south_pwl(z), S_north_pwl(z), α_lin(y))
 
 # Set initial conditions (start with uniform flow to match boundaries and linear T/S)
 @inline v_initial(x, y, z) = v_sigmoidal(x, z, 0.0)
