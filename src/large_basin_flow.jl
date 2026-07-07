@@ -17,9 +17,9 @@ using CUDA: has_cuda_gpu, allowscalar
 run_number = 1
 
 # Domain parameters
-Lx = 100e3 # 100 km
-Ly = 200e3 # 200 km
-Lz = 50    # 50 m
+const Lx = 100e3 # 100 km
+const Ly = 200e3 # 200 km
+const Lz = 50    # 50 m
 
 if has_cuda_gpu()
     arch = GPU()
@@ -50,7 +50,7 @@ GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 # Flow parameters
-v₀ = 0.1 # m/s (northward flow max)
+const v₀ = 0.1 # m/s (northward flow max)
 
 @inline function v_sigmoidal(x, z, t)
     xC = 3e3
