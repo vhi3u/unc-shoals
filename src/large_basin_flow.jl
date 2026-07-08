@@ -14,7 +14,7 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using CUDA: has_cuda_gpu, allowscalar
 
 # naming 
-run_number = 4
+run_number = 5
 
 # Domain parameters
 const Lx = 100e3 # 100 km
@@ -161,8 +161,8 @@ w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w, north=flux_zero, so
 @inline ssbc(x, z, t) = S_south_pwl(z)
 @inline snbc(x, z, t) = S_north_pwl(z)
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc; scheme=PerturbationAdvection()), north=flux_zero)
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc; scheme=PerturbationAdvection()), north=flux_zero)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
@@ -222,7 +222,7 @@ model = NonhydrostaticModel(ib_grid,
 set!(model, v=v_initial, T=T_initial, S=S_initial)
 
 # Simulation setup
-simulation = Simulation(model, Δt=15minutes, stop_time=100days)
+simulation = Simulation(model, Δt=15minutes, stop_time=50days)
 conjure_time_step_wizard!(simulation, cfl=0.8)
 
 # Logging progress
