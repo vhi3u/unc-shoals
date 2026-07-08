@@ -161,8 +161,8 @@ w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w, north=flux_zero, so
 @inline ssbc(x, z, t) = S_south_pwl(z)
 @inline snbc(x, z, t) = S_north_pwl(z)
 
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc; scheme=PerturbationAdvection()), north=flux_zero)
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc; scheme=PerturbationAdvection()), north=flux_zero)
+T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=flux_zero)
+S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=flux_zero)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 
