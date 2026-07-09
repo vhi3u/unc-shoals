@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 8
+run_number = 9
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -129,7 +129,13 @@ bottom_drag = BulkDrag(coefficient=params.c_dz)
 
 # wind stress BC
 ρ₀ = 1024.0
-wind_bc_v = FluxBoundaryCondition(-params.wind_stress / ρ₀)
+
+@inline function wind_stress_ramp(x, y, t, p)
+    # Ramps up wind stress over the first 2 days to avoid massive inertial ringing
+    return -(p.wind_stress / 1024.0) * (1 - exp(-t / 2days))
+end
+
+wind_bc_v = FluxBoundaryCondition(wind_stress_ramp, parameters=params)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
@@ -199,7 +205,7 @@ abstol = sqrt(eps(grid))
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
-    closure=(HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
+    closure=(HorizontalScalarDiffusivity(ν=10.0, κ=10.0), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S),
