@@ -39,10 +39,10 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 7
+run_number = 8
 sim_runtime = 25days
 callback_interval = 86400seconds
-run_tag = "periodic_windy_shoals_$(run_number)"
+run_tag = "periodic_windy_shoals$(run_number)"
 
 params = (; Lx=150e3, Ly=200e3, Lz=50)
 if arch == CPU()
@@ -199,7 +199,7 @@ abstol = sqrt(eps(grid))
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
-    closure=(HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)),
+    closure=(HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S),
