@@ -34,7 +34,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 # Bathymetry
 # ═══════════════════════════════════════════════════════════════════════════
-include(joinpath(@__DIR__, "dshoal_100.jl"))
+include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
@@ -44,7 +44,7 @@ sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals_$(run_number)"
 
-params = (; Lx=150e3, Ly=200e3, Lz=100)
+params = (; Lx=150e3, Ly=200e3, Lz=50)
 if arch == CPU()
     params = (; params..., Nx=90, Ny=60, Nz=10)
 else
@@ -124,13 +124,6 @@ const κᵛᵏ = 0.4 # von Karman constant
 params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" params.c_dz
 
-@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
-@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
-@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
-
-immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
 bottom_drag = BulkDrag(coefficient=params.c_dz)
 #---
 
@@ -193,9 +186,9 @@ forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_u)
-v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=immersed_drag_bc_v, top=wind_bc_v)
-w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag)
+v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v)
+w_bcs = FieldBoundaryConditions(immersed=bottom_drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
@@ -259,13 +252,38 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_existing=true)
 
+# -----------------------------------------------------------------------------
+# Momentum Balance Diagnostics
+# -----------------------------------------------------------------------------
+V_tot = Integral(v)
+U_tot = Integral(u)
+
+Coriolis_v = Integral(-coriolis.f * u)
+
+nudging_coeff = CenterField(ib_grid)
+set!(nudging_coeff, (x, y, z) -> (-1 / global_params.τ) * sponge_mask_uvw(x, y, z))
+
+target_v_field = CenterField(ib_grid)
+set!(target_v_field, (x, y, z) -> v_target(x, y, z, 0.0))
+
+Nudging_v_op = nudging_coeff * (v - target_v_field)
+Nudging_v = Integral(Nudging_v_op)
+
+balance_fields = (; V_tot, U_tot, Coriolis_v, Nudging_v)
+
+simulation.output_writers[:momentum_balance] = NetCDFWriter(model, balance_fields,
+    filename="momentum_balance_$(run_tag).nc",
+    schedule=TimeInterval(callback_interval),
+    overwrite_existing=true)
+
+
 # initial conditions
 @info "Setting initial conditions"
 @inline Tᵢ(x, y, z) = T_south_pwl(z, params.T_south_v1)
 @inline Sᵢ(x, y, z) = S_south_pwl(z, params.S_south_v1)
 @inline v_init(x, y, z) = v∞(x, z, 0, params)
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=0.0, w=0.0, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
