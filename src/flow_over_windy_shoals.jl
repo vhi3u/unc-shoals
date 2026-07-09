@@ -74,7 +74,7 @@ ib_grid = ImmersedBoundaryGrid(grid, GFB)
 params = (; params...,
     v₀=0.10,
     Ls=20e3,   # North nudging region width
-    Le=50e3,   # East nudging region width
+    Le=20e3,   # East nudging region width
     τ=1days,
     T_south_v1=24.5378,
     S_south_v1=35.5830,
@@ -355,7 +355,7 @@ simulation.output_writers[:momentum_balance] = NetCDFWriter(model, balance_field
 @inline Sᵢ(x, y, z) = S_north_pwl(z)
 @inline v_init(x, y, z) = v∞(x, z, 0, params)
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+set!(model, u=0.0, v=0.0, w=0.0, T=Tᵢ, S=Sᵢ)
 
 # run simulation
 @info """
