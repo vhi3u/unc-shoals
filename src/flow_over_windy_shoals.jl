@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 9
+run_number = 10
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -182,9 +182,9 @@ end
     end
 end
 
-u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
-v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=v_target)
-w_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
+u_nudging = Relaxation(; rate=1 / 1hour, mask=sponge_mask_uvw, target=0.0)
+v_nudging = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=v_target)
+w_nudging = Relaxation(; rate=1 / 1hour, mask=sponge_mask_uvw, target=0.0)
 T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_TS, target=T_target)
 S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_TS, target=S_target)
 
