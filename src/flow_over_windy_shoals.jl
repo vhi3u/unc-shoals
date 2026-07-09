@@ -7,7 +7,7 @@
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: FieldBoundaryConditions, FluxBoundaryCondition
+using Oceananigans.BoundaryConditions: FieldBoundaryConditions, FluxBoundaryCondition, ValueBoundaryCondition
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using Oceananigans.Models: buoyancy_operation
@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 10
+run_number = 11
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -115,16 +115,8 @@ end
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
-#+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
-z₀ = 2.5e-4 # roughness length
-z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) / 2
-@info "Using z₁ =" z₁
-
-const κᵛᵏ = 0.4 # von Karman constant
-params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
-@info "Defining momentum BCs with Cᴰ =" params.c_dz
-
-bottom_drag = BulkDrag(coefficient=params.c_dz)
+#+++ No-slip boundary condition
+no_slip = ValueBoundaryCondition(0.0)
 #---
 
 # wind stress BC
@@ -192,9 +184,9 @@ forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag)
-v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v)
-w_bcs = FieldBoundaryConditions(immersed=bottom_drag)
+u_bcs = FieldBoundaryConditions(bottom=no_slip, immersed=no_slip)
+v_bcs = FieldBoundaryConditions(bottom=no_slip, immersed=no_slip, top=wind_bc_v)
+w_bcs = FieldBoundaryConditions(immersed=no_slip)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
