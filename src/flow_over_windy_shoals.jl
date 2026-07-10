@@ -7,7 +7,7 @@
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: FieldBoundaryConditions, FluxBoundaryCondition, ValueBoundaryCondition, NormalFlowBoundaryCondition, PerturbationAdvection
+using Oceananigans.BoundaryConditions: FieldBoundaryConditions, FluxBoundaryCondition, ValueBoundaryCondition
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using Oceananigans.Models: buoyancy_operation
@@ -39,14 +39,14 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 12
-sim_runtime = 25days
+run_number = 18
+sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
 
-params = (; Lx=100e3, Ly=200e3, Lz=50)
+params = (; Lx=150e3, Ly=200e3, Lz=50)
 if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10)
+    params = (; params..., Nx=50, Ny=50, Nz=10)
 else
     params = (; params..., Nx=200, Ny=400, Nz=50)
 end
@@ -54,7 +54,7 @@ end
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # grid  
-grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 
 # model parameters
 slope_bottom = dshoal_param_bottom(params.Ly;
@@ -74,7 +74,7 @@ ib_grid = ImmersedBoundaryGrid(grid, GFB)
 params = (; params...,
     v₀=0.10,
     Ls=20e3,   # North nudging region width
-    Le=20e3,   # East nudging region width
+    Le=50e3,   # East nudging region width
     τ=1days,
     T_south_v1=24.5378,
     S_south_v1=35.5830,
@@ -212,55 +212,35 @@ end
 end
 
 # new sponge masks using built-in functions from Oceananigans
-const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
 const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const global_params = params
 
-@inline sponge_mask_ns(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-@inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + east_mask(x, y, z), 1.0)
+@inline sponge_mask_all(x, y, z) = min(north_mask(x, y, z) + east_mask(x, y, z), 1.0)
 
 @inline function T_target(x, y, z, t)
-    n = north_mask(x, y, z)
-    s = south_mask(x, y, z)
-    tot = n + s
-    return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_north_pwl(z)
+    return T_south_pwl(z, global_params.T_south_v1)
 end
 
 @inline function S_target(x, y, z, t)
-    n = north_mask(x, y, z)
-    s = south_mask(x, y, z)
-    tot = n + s
-    return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_north_pwl(z)
+    return S_south_pwl(z, global_params.S_south_v1)
 end
 
 @inline v_target(x, y, z, t) = v∞(x, z, t, global_params)
 
-u_nudging = Relaxation(; rate=1 / 1hour, mask=sponge_mask_uvw, target=0.0)
-v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_ns, target=v_target)
-w_nudging = Relaxation(; rate=1 / 1hour, mask=sponge_mask_uvw, target=0.0)
-T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_ns, target=T_target)
-S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_ns, target=S_target)
+u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=0.0)
+v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=v_target)
+w_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=0.0)
+T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=T_target)
+S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=S_target)
 
 forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
-flux_zero = FluxBoundaryCondition(0.0)
-value_zero = ValueBoundaryCondition(0.0)
-
-northern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=2minutes, outflow_timescale=30minutes))
-southern_bc = NormalFlowBoundaryCondition(v∞; parameters=params)
-
-u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, north=flux_zero, south=value_zero)
-v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v, south=southern_bc, north=northern_bc)
-w_bcs = FieldBoundaryConditions(immersed=bottom_drag, north=flux_zero, south=value_zero)
-
-@inline tsbc(x, z, t) = T_south_pwl(z)
-@inline tnbc(x, z, t) = T_north_pwl(z)
-@inline ssbc(x, z, t) = S_south_pwl(z)
-@inline snbc(x, z, t) = S_north_pwl(z)
-
-T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=flux_zero)
-S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=flux_zero)
+T_bcs = FieldBoundaryConditions()
+S_bcs = FieldBoundaryConditions()
+u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag)
+v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v)
+w_bcs = FieldBoundaryConditions(immersed=bottom_drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 coriolis = FPlane(latitude=35.2480)
@@ -284,7 +264,7 @@ model = NonhydrostaticModel(ib_grid;
 @info "" model
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.4)
+conjure_time_step_wizard!(simulation, cfl=0.3)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -351,8 +331,8 @@ simulation.output_writers[:momentum_balance] = NetCDFWriter(model, balance_field
 
 # initial conditions
 @info "Setting initial conditions"
-@inline Tᵢ(x, y, z) = T_north_pwl(z)
-@inline Sᵢ(x, y, z) = S_north_pwl(z)
+@inline Tᵢ(x, y, z) = T_south_pwl(z, params.T_south_v1)
+@inline Sᵢ(x, y, z) = S_south_pwl(z, params.S_south_v1)
 @inline v_init(x, y, z) = v∞(x, z, 0, params)
 
 set!(model, u=0.0, v=0.0, w=0.0, T=Tᵢ, S=Sᵢ)
