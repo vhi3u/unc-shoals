@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 18
+run_number = 22
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -78,7 +78,9 @@ params = (; params...,
     τ=1days,
     T_south_v1=24.5378,
     S_south_v1=35.5830,
-    wind_stress=0.05) # 0.05 N/m^2 northward
+    u_b=0.0,
+    v_b=4.04, # average wind velocity 10 meters above the ocean
+    τ_mom=6hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -183,15 +185,15 @@ params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag co
 bottom_drag = BulkDrag(coefficient=params.c_dz)
 #---
 
-# wind stress BC
-ρ₀ = 1024.0
+# surface wind stresses
+cᴰ_wind = 2.5e-3 # dimensionless drag coefficient
+ρₐ = 1.225       # kg m⁻³, average density of air at sea-level
+ρₒ = 1028.0      # kg m⁻³, average density of seawater
+Qu = -ρₐ / ρₒ * cᴰ_wind * params.u_b * abs(params.u_b) # m² s⁻²
+Qv = -ρₐ / ρₒ * cᴰ_wind * params.v_b * abs(params.v_b) # m² s⁻²
 
-@inline function wind_stress_ramp(x, y, t, p)
-    # Ramps up wind stress over the first 2 days to avoid massive inertial ringing
-    return -(p.wind_stress / 1024.0) * (1 - exp(-t / 2days))
-end
-
-wind_bc_v = FluxBoundaryCondition(wind_stress_ramp, parameters=params)
+wind_bc_u = FluxBoundaryCondition(Qu)
+wind_bc_v = FluxBoundaryCondition(Qv)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
@@ -212,11 +214,10 @@ end
 end
 
 # new sponge masks using built-in functions from Oceananigans
-const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 const global_params = params
 
-@inline sponge_mask_all(x, y, z) = min(north_mask(x, y, z) + east_mask(x, y, z), 1.0)
+@inline sponge_mask_all(x, y, z) = min(east_mask(x, y, z), 1.0)
 
 @inline function T_target(x, y, z, t)
     return T_south_pwl(z, global_params.T_south_v1)
@@ -228,8 +229,8 @@ end
 
 @inline v_target(x, y, z, t) = v∞(x, z, t, global_params)
 
-u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=0.0)
-v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=v_target)
+u_nudging = Relaxation(; rate=1 / global_params.τ_mom, mask=sponge_mask_all, target=0.0)
+v_nudging = Relaxation(; rate=1 / global_params.τ_mom, mask=sponge_mask_all, target=v_target)
 w_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=0.0)
 T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=T_target)
 S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_all, target=S_target)
@@ -238,7 +239,7 @@ forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag)
+u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_u)
 v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v)
 w_bcs = FieldBoundaryConditions(immersed=bottom_drag)
 
@@ -251,7 +252,7 @@ abstol = sqrt(eps(grid))
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
-    closure=(HorizontalScalarDiffusivity(ν=1.0, κ=1.0), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)),
+    closure=(ScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1e-2, κ=(T=1.3e-7, S=7.2e-10)), HorizontalScalarDiffusivity(ν=10.0, κ=10.0)),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S),
@@ -313,7 +314,7 @@ U_tot = Integral(u)
 Coriolis_v = Integral(-coriolis.f * u)
 
 nudging_coeff = CenterField(ib_grid)
-set!(nudging_coeff, (x, y, z) -> (-1 / global_params.τ) * sponge_mask_uvw(x, y, z))
+set!(nudging_coeff, (x, y, z) -> (-1 / global_params.τ) * sponge_mask_all(x, y, z))
 
 target_v_field = CenterField(ib_grid)
 set!(target_v_field, (x, y, z) -> v_target(x, y, z, 0.0))
@@ -347,7 +348,7 @@ set!(model, u=0.0, v=0.0, w=0.0, T=Tᵢ, S=Sᵢ)
  Architecture:    $(arch)
  Lx, Ly:          $(params.Lx), $(params.Ly)
  Nudging (N/E):   $(params.Ls), $(params.Le)
- Wind stress:     $(params.wind_stress) N/m²
+ Wind velocity:   u=$(params.u_b), v=$(params.v_b) m/s
 ════════════════════════════════════════════════════════
 """
 run!(simulation)
