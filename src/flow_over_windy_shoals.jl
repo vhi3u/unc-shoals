@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 23
+run_number = 24
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -249,10 +249,16 @@ coriolis = FPlane(latitude=35.2480)
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
+Δx_eff = min(params.Lx / params.Nx, params.Ly / params.Ny)
+ν_h = Δx_eff^2 / 10days
+
+vertical_closure = ScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1e-3, κ=(T=1e-5, S=1e-5))
+horizontal_closure = HorizontalScalarDiffusivity(ν=ν_h, κ=ν_h)
+
 model = NonhydrostaticModel(ib_grid;
     timestepper=:RungeKutta3,
     advection=WENO(order=5),
-    closure=(ScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1e-2, κ=(T=1.3e-7, S=7.2e-10)), HorizontalScalarDiffusivity(ν=10.0, κ=10.0)),
+    closure=(vertical_closure, horizontal_closure),
     hydrostatic_pressure_anomaly=CenterField(ib_grid),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S),
