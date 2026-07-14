@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 22
+run_number = 23
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -80,7 +80,7 @@ params = (; params...,
     S_south_v1=35.5830,
     u_b=0.0,
     v_b=4.04, # average wind velocity 10 meters above the ocean
-    τ_mom=6hours)
+    τ_mom=12hours)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
