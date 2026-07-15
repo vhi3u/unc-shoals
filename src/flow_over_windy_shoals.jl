@@ -39,7 +39,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 24
+run_number = 25
 sim_runtime = 100days
 callback_interval = 86400seconds
 run_tag = "periodic_windy_shoals$(run_number)"
@@ -239,8 +239,8 @@ forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
 
 T_bcs = FieldBoundaryConditions()
 S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_u)
-v_bcs = FieldBoundaryConditions(bottom=bottom_drag, immersed=bottom_drag, top=wind_bc_v)
+u_bcs = FieldBoundaryConditions(immersed=bottom_drag, top=wind_bc_u)# , bottom=bottom_drag),
+v_bcs = FieldBoundaryConditions(immersed=bottom_drag, top=wind_bc_v)# , bottom=bottom_drag),
 w_bcs = FieldBoundaryConditions(immersed=bottom_drag)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
