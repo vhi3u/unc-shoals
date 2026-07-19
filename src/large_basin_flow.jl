@@ -48,7 +48,7 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 const slope_bottom = dshoal_param_bottom(Ly;
-    Hs=15.0,
+    Hs=20.0,
     shoal_length=40000.0,
     sigma=8000.0,
     shelf_depth=-25.0,
