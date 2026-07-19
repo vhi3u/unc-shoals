@@ -20,9 +20,9 @@ using SeawaterPolynomials.TEOS10
 run_number = 6
 
 # Domain parameters
-const Lx = 100e3 # 100 km
-const Ly = 100e3 # 100 km
-const Lz = 50    # 50 m
+Lx = 100e3 # 100 km
+Ly = 200e3 # 100 km
+Lz = 50    # 50 m
 
 if has_cuda_gpu()
     arch = GPU()
@@ -47,7 +47,7 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
     topology=(Bounded, Bounded, Bounded))
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
-const slope_bottom = dshoal_param_bottom(Ly;
+slope_bottom = dshoal_param_bottom(Ly;
     Hs=15.0,
     shoal_length=40000.0,
     sigma=8000.0,
@@ -58,8 +58,7 @@ ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 # Flow parameters
 const v₀ = 0.1 # m/s (northward flow max)
-
-
+prebalance = true
 
 # zero BC
 
@@ -67,7 +66,11 @@ flux_zero = FluxBoundaryCondition(0.0)
 value_zero = ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 
 # Spatially-varying inflow proportional to sqrt(depth) to perfectly balance bottom friction
-@inline v_inflow(x, y, t) = v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0)
+if prebalance
+    @inline v_inflow(x, y, t) = v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0)
+else
+    @inline v_inflow(x, y, t) = v₀
+end
 
 northern_bc = NormalFlowBoundaryCondition(v_inflow; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
 southern_bc = NormalFlowBoundaryCondition(v_inflow)
@@ -135,8 +138,12 @@ model = NonhydrostaticModel(ib_grid,
     coriolis=FPlane(latitude=35.2480)
 )
 
-# Set initial conditions (start with the perfectly balanced flow and stratification)
-set!(model, v=(x, y, z) -> v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0), T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
+# Set initial conditions
+if prebalance
+    set!(model, v=(x, y, z) -> v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0), T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
+else
+    set!(model, v=v₀, T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
+end
 
 # Simulation setup
 simulation = Simulation(model, Δt=15minutes, stop_time=50days)
