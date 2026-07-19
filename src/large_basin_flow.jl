@@ -1,3 +1,6 @@
+using Pkg
+Pkg.instantiate()
+
 using Oceananigans
 using Oceananigans.Units
 using Oceananigans.Grids: Bounded
@@ -13,21 +16,19 @@ using Oceananigans.Solvers: ConjugateGradientPoissonSolver
 using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
-using Pkg
-Pkg.instantiate()
 # naming 
-run_number = 5
+run_number = 6
 
 # Domain parameters
 const Lx = 100e3 # 100 km
-const Ly = 200e3 # 200 km
+const Ly = 100e3 # 100 km
 const Lz = 50    # 50 m
 
 if has_cuda_gpu()
     arch = GPU()
-    Nx, Ny, Nz = 200, 400, 50
-    νh = 1e-4
-    κh = 1e-4
+    Nx, Ny, Nz = 200, 200, 50
+    νh = 1e-5
+    κh = 1e-5
 else
     arch = CPU()
     Nx, Ny, Nz = 50, 50, 10
@@ -46,7 +47,7 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
     topology=(Bounded, Bounded, Bounded))
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
-slope_bottom = dshoal_param_bottom(Ly;
+const slope_bottom = dshoal_param_bottom(Ly;
     Hs=15.0,
     shoal_length=40000.0,
     sigma=8000.0,
