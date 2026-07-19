@@ -1024,9 +1024,9 @@ version = "1.2.0"
 
 [[deps.Oceananigans]]
 deps = ["Adapt", "BFloat16s", "Crayons", "CubedSphere", "Dates", "Distances", "DocStringExtensions", "FFTW", "GPUArraysCore", "Glob", "InteractiveUtils", "JLD2", "KernelAbstractions", "Krylov", "LinearAlgebra", "Logging", "MPI", "MuladdMacro", "OffsetArrays", "OrderedCollections", "Pkg", "Printf", "ReactantCore", "Rotations", "SeawaterPolynomials", "SparseArrays", "StaticArrays", "Statistics", "StructArrays"]
-git-tree-sha1 = "daaef494b99d4e78a03972156bf6db05435eb6dc"
+git-tree-sha1 = "72cef881b394fc1b75cbee0408ebf7a9926c73da"
 uuid = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
-version = "0.110.8"
+version = "0.110.11"
 
     [deps.Oceananigans.extensions]
     OceananigansAMDGPUExt = ["AMDGPU", "AbstractFFTs"]
