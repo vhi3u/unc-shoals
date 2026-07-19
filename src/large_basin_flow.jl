@@ -17,7 +17,7 @@ using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
 # naming 
-run_number = 7
+run_number = 9
 
 # Domain parameters
 Lx = 100e3 # 100 km
@@ -26,7 +26,7 @@ Lz = 50    # 50 m
 
 if has_cuda_gpu()
     arch = GPU()
-    Nx, Ny, Nz = 200, 200, 50
+    Nx, Ny, Nz = 200, 400, 50
     νh = 1e-5
     κh = 1e-5
 else
@@ -48,10 +48,10 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 const slope_bottom = dshoal_param_bottom(Ly;
-    Hs=20.0,
+    Hs=15.0,
     shoal_length=40000.0,
     sigma=8000.0,
-    shelf_depth=-25.0,
+    shelf_depth=-20.0,
     shelf_break_end=12000.0)
 GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
