@@ -17,7 +17,7 @@ using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
 # naming 
-run_number = 6
+run_number = 7
 
 # Domain parameters
 Lx = 100e3 # 100 km
