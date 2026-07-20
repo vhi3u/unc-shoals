@@ -17,7 +17,7 @@ using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
 # naming 
-run_number = 10
+run_number = 11
 
 # Domain parameters
 Lx = 100e3 # 100 km
@@ -57,7 +57,7 @@ GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 # Flow parameters
-const v₀ = 0.4 # m/s (northward flow max)
+const v₀ = 0.1 # m/s (northward flow max)
 prebalance = true
 
 # zero BC
@@ -116,9 +116,16 @@ c_dz = (κᵛᵏ / log(z₁ / z₀))^2 # quadratic drag coefficient
 
 drag = BulkDrag(coefficient=c_dz)
 
+# Wind stress BC
+ρ₀ = 1024.0
+wind_stress_u = 0.0
+wind_stress_v = 0.05 # N/m²
+wind_bc_u = FluxBoundaryCondition(-wind_stress_u / ρ₀)
+wind_bc_v = FluxBoundaryCondition(-wind_stress_v / ρ₀)
+
 # Apply the boundary conditions to the velocity fields
-u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=flux_zero, south=value_zero, east=eastern_bc)
-v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=northern_bc, south=southern_bc, east=flux_zero)
+u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=flux_zero, south=value_zero, east=eastern_bc, top=wind_bc_u)
+v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=northern_bc, south=southern_bc, east=flux_zero, top=wind_bc_v)
 w_bcs = FieldBoundaryConditions(immersed=drag, north=flux_zero, south=value_zero, east=flux_zero)
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
