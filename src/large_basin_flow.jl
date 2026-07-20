@@ -1,5 +1,5 @@
-using Pkg
-Pkg.instantiate()
+# using Pkg
+# Pkg.instantiate()
 
 using Oceananigans
 using Oceananigans.Units
@@ -17,7 +17,7 @@ using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
 # naming 
-run_number = 11
+run_number = 12
 
 # Domain parameters
 Lx = 100e3 # 100 km
@@ -32,8 +32,8 @@ if has_cuda_gpu()
 else
     arch = CPU()
     Nx, Ny, Nz = 50, 50, 10
-    νh = 1.0
-    κh = 1.0
+    νh = 100.0
+    κh = 100.0
 end
 @info "architecture = $(arch)"
 
@@ -48,7 +48,7 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 const slope_bottom = dshoal_param_bottom(Ly;
-    Hs=20.0,
+    Hs=15.0,
     shoal_length=40000.0,
     sigma=5000.0,
     shelf_depth=-25.0,
@@ -58,22 +58,35 @@ ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 # Flow parameters
 const v₀ = 0.1 # m/s (northward flow max)
-prebalance = true
-
 # zero BC
 
 flux_zero = FluxBoundaryCondition(0.0)
 value_zero = ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
 
-# Spatially-varying inflow proportional to sqrt(depth) to perfectly balance bottom friction
-if prebalance
-    @inline v_inflow(x, y, t) = v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0)
-else
-    @inline v_inflow(x, y, t) = v₀
+@inline function sigmoidal_s2(x, Lx)
+    xS = 65e3
+    k2 = 20 / Lx
+    return 1 / (1 + exp(k2 * (x - xS)))
 end
 
-northern_bc = NormalFlowBoundaryCondition(v_inflow; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
-southern_bc = NormalFlowBoundaryCondition(v_inflow)
+@inline function v_inflow(x, z, t)
+    xC = 3e3
+    k1 = 80 / Lx
+    s1 = 1 / (1 + exp(-k1 * (x - xC)))
+    s2 = sigmoidal_s2(x, Lx)
+    s = (s1 - 1) + s2
+    sc = clamp(s, 0.0, 1.0)
+    return v₀ * sc
+end
+
+# Calculate target transport scaled by the northward wind forcing (Ekman transport)
+f_coriolis = 2 * 7.292115e-5 * sind(35.2480)
+ρ₀ = 1024.0
+wind_stress_v = 0.05 # N/m²
+Q_target = -(wind_stress_v / (ρ₀ * f_coriolis)) * Lx # [m³/s]
+
+northern_bc = NormalFlowBoundaryCondition(v_inflow; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0)) #, target_transport=Q_target))
+southern_bc = NormalFlowBoundaryCondition(v_inflow; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0)) #, target_transport=Q_target))
 eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
 
 # Stratification Profiles (T/S)
@@ -109,7 +122,7 @@ T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=flux_z
 S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=flux_zero)
 
 # Bottom Drag Formulation
-z₀ = 2.5e-4 # roughness length
+z₀ = 2.5e-3 # roughness length
 z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) / 2
 const κᵛᵏ = 0.4 # von Karman constant
 c_dz = (κᵛᵏ / log(z₁ / z₀))^2 # quadratic drag coefficient  
@@ -133,24 +146,19 @@ bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-
 # Model
 model = NonhydrostaticModel(ib_grid,
     advection=WENO(order=5),
     pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
     tracers=(:T, :S),
     buoyancy=SeawaterBuoyancy(),
-    closure=(HorizontalScalarDiffusivity(ν=νh, κ=κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)),
+    closure=(HorizontalScalarDiffusivity(ν=νh, κ=κh), VerticalScalarDiffusivity(ν=1e-5, κ=1e-5)),
     boundary_conditions=bcs,
     coriolis=FPlane(latitude=35.2480)
 )
 
 # Set initial conditions
-if prebalance
-    set!(model, v=(x, y, z) -> v₀ * sqrt(abs(slope_bottom(x, y)) / 50.0), T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
-else
-    set!(model, v=v₀, T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
-end
+set!(model, v=(x, y, z) -> v_inflow(x, z, 0.0), T=(x, y, z) -> T_south_pwl(z), S=(x, y, z) -> S_south_pwl(z))
 
 # Simulation setup
 simulation = Simulation(model, Δt=15minutes, stop_time=20days)
