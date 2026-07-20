@@ -27,8 +27,8 @@ Lz = 50    # 50 m
 if has_cuda_gpu()
     arch = GPU()
     Nx, Ny, Nz = 200, 400, 50
-    νh = 1e-5
-    κh = 1e-5
+    νh = 1e-2
+    κh = 1e-2
 else
     arch = CPU()
     Nx, Ny, Nz = 50, 50, 10
@@ -80,9 +80,9 @@ eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflo
 const δ_smooth = 2.5
 @inline smooth_step_z(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
-@inline function T_south_pwl(z, v1=28.0)
+@inline function T_south_pwl(z, v1=24.5378)
     z1, z2, z3 = -5.0, -15.0, -30.0
-    v2, v3 = 22.0, 15.0
+    v2, v3 = 24.3073, 23.4116
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     w1 = smooth_step_z(z, z1)
@@ -91,9 +91,9 @@ const δ_smooth = 2.5
     return v1 * (1 - w1) + (v1 + m12 * (z - z1)) * (w1 - w2) + (v2 + m23 * (z - z2)) * (w2 - w3) + v3 * w3
 end
 
-@inline function S_south_pwl(z, v1=34.0)
+@inline function S_south_pwl(z, v1=35.5830)
     z1, z2, z3 = -5.0, -15.0, -30.0
-    v2, v3 = 35.5, 37.0
+    v2, v3 = 35.9986, 36.1776
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     w1 = smooth_step_z(z, z1)
