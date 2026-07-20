@@ -51,7 +51,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
-run_number = 33
+run_number = 34
 sim_runtime = 25days
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
@@ -64,7 +64,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=50, Ny=50, Nz=10, νh=1.0, κh=1.0)
 else
-    params = (; params..., Nx=200, Ny=400, Nz=50, νh=1e-4, κh=1e-4)
+    params = (; params..., Nx=400, Ny=800, Nz=50, νh=1e-4, κh=1e-4)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -113,7 +113,7 @@ params = (; params...,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
     S_south_v1=S_south_v1,
-    wind_stress=0.0)
+    u_b=0.0, v_b=4.0)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -201,8 +201,15 @@ if LES
 end
 
 # wind stress BC
-ρ₀ = 1024.0
-wind_bc_v = FluxBoundaryCondition(-0.0 / ρ₀)
+# surface wind stresses
+cᴰ_wind = 2.5e-3 # dimensionless drag coefficient
+ρₐ = 1.225       # kg m⁻³, average density of air at sea-level
+ρₒ = 1028.0      # kg m⁻³, average density of seawater
+Qu = -ρₐ / ρₒ * cᴰ_wind * params.u_b * abs(params.u_b) # m² s⁻²
+Qv = -ρₐ / ρₒ * cᴰ_wind * params.v_b * abs(params.v_b) # m² s⁻²
+
+wind_bc_u = FluxBoundaryCondition(Qu)
+wind_bc_v = FluxBoundaryCondition(Qv)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
@@ -232,15 +239,15 @@ end
 
 # forcing functions
 if periodic_y
-    @inline v_target_func(x, y, z, t, p) = v∞(x, z, t, p)
-    v_forcing = Relaxation(; rate=1 / 1days, target=(x, y, z, t) -> v_target_func(x, y, z, t, params))
+    @inline v_relaxation_forcing(x, y, z, t, v, p) = (1 / 5days) * (v∞(x, z, t, p) - v)
+    v_forcing = Forcing(v_relaxation_forcing, field_dependencies=:v, parameters=params)
     forcings = (v=v_forcing,)
 end
 
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag)
+    u_bcs = FieldBoundaryConditions(immersed=drag, top=wind_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=drag, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions(immersed=drag)
 else
@@ -296,7 +303,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.4)
+conjure_time_step_wizard!(simulation, cfl=0.7)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
