@@ -17,7 +17,7 @@ using CUDA: has_cuda_gpu, allowscalar
 using SeawaterPolynomials.TEOS10
 
 # naming 
-run_number = 9
+run_number = 10
 
 # Domain parameters
 Lx = 100e3 # 100 km
@@ -48,16 +48,16 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz),
 
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 const slope_bottom = dshoal_param_bottom(Ly;
-    Hs=15.0,
+    Hs=20.0,
     shoal_length=40000.0,
-    sigma=8000.0,
-    shelf_depth=-20.0,
+    sigma=5000.0,
+    shelf_depth=-25.0,
     shelf_break_end=12000.0)
 GFB = GridFittedBottom(slope_bottom)
 ib_grid = ImmersedBoundaryGrid(grid, GFB)
 
 # Flow parameters
-const v₀ = 0.1 # m/s (northward flow max)
+const v₀ = 0.4 # m/s (northward flow max)
 prebalance = true
 
 # zero BC
@@ -80,9 +80,9 @@ eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflo
 const δ_smooth = 2.5
 @inline smooth_step_z(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
-@inline function T_south_pwl(z, v1=24.5378)
+@inline function T_south_pwl(z, v1=28.0)
     z1, z2, z3 = -5.0, -15.0, -30.0
-    v2, v3 = 24.3073, 23.4116
+    v2, v3 = 22.0, 15.0
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     w1 = smooth_step_z(z, z1)
@@ -91,9 +91,9 @@ const δ_smooth = 2.5
     return v1 * (1 - w1) + (v1 + m12 * (z - z1)) * (w1 - w2) + (v2 + m23 * (z - z2)) * (w2 - w3) + v3 * w3
 end
 
-@inline function S_south_pwl(z, v1=35.5830)
+@inline function S_south_pwl(z, v1=34.0)
     z1, z2, z3 = -5.0, -15.0, -30.0
-    v2, v3 = 35.9986, 36.1776
+    v2, v3 = 35.5, 37.0
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     w1 = smooth_step_z(z, z1)
@@ -146,7 +146,7 @@ else
 end
 
 # Simulation setup
-simulation = Simulation(model, Δt=15minutes, stop_time=50days)
+simulation = Simulation(model, Δt=15minutes, stop_time=20days)
 conjure_time_step_wizard!(simulation, cfl=0.8)
 
 # Logging progress
