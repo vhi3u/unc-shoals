@@ -83,7 +83,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10, νh=1.0, κh=1.0)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50, νh=2.0, κh=2.0)
+    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -386,7 +386,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
