@@ -57,14 +57,14 @@ callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
 if LES
-    params = (; Lx=100e3, Ly=200e3, Lz=50)
+    params = (; Lx=150e3, Ly=200e3, Lz=50)
 else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
     params = (; params..., Nx=50, Ny=50, Nz=10, νh=1.0, κh=1.0)
 else
-    params = (; params..., Nx=200, Ny=400, Nz=50, νh=1e-4, κh=1e-4)
+    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -108,6 +108,7 @@ T_south_v1, S_south_v1 = 24.5378, 35.5830
 params = (; params...,
     v₀=v₀,
     Ls=20e3,
+    Le=50e3,
     τ=1days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
@@ -237,18 +238,45 @@ end
 
 
 
+# built-in masks
+const south_mask = PiecewiseLinearMask{:y}(center=0.0, width=params.Ls)
+const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+
+# targets
+const global_params = params
+@inline v_target_south(x, y, z, t) = v∞(x, z, t, global_params)
+@inline T_target(x, y, z, t) = T_south_pwl(z, 24.5378)
+@inline S_target(x, y, z, t) = S_south_pwl(z, 35.5830)
+
 # forcing functions
 if periodic_y
-    @inline v_relaxation_forcing(x, y, z, t, v, p) = (1 / 5days) * (v∞(x, z, t, p) - v)
-    v_forcing = Forcing(v_relaxation_forcing, field_dependencies=:v, parameters=params)
-    forcings = (v=v_forcing,)
+    u_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    v_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=v_target_south)
+    v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    T_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=T_target)
+    T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
+
+    S_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=S_target)
+    S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
+
+    forcings = (u=(u_sponge_s, u_sponge_e),
+        v=(v_sponge_s, v_sponge_e),
+        w=(w_sponge_s, w_sponge_e),
+        T=(T_sponge_s, T_sponge_e),
+        S=(S_sponge_s, S_sponge_e))
 end
 
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions(immersed=drag)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
@@ -261,6 +289,7 @@ else
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
+@info "Boundary Conditions:" bcs
 if is_coriolis
     coriolis = FPlane(latitude=35.2480)
 else
