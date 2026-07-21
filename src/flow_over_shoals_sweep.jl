@@ -32,7 +32,7 @@ using CUDA: has_cuda_gpu, allowscalar
 # Falls back to defaults so script can also be run standalone.
 # ═══════════════════════════════════════════════════════════════════════════
 sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "15.0"))
-sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "20000.0"))
+sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "40000.0"))
 sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
 sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
 sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
@@ -236,22 +236,15 @@ end
 # Eastern boundary targets are now functions of z
 params = (; params...)
 
-#+++ Drag (Implemented as in https://doi.org/10.1029/2005WR004685)
+#+++ Drag 
 z₀ = 2.5e-4 # roughness length
 z₁ = Oceananigans.Grids.minimum_zspacing(grid, Center(), Center(), Center()) / 2
 @info "Using z₁ =" z₁
 
 const κᵛᵏ = 0.4 # von Karman constant
-params = (; params..., c_dz=(κᵛᵏ / log(z₁ / z₀))^2) # quadratic drag coefficient
-@info "Defining momentum BCs with Cᴰ =" params.c_dz
-
-@inline τᵘ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * u * √(u^2 + v^2 + w^2)
-@inline τᵛ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * v * √(u^2 + v^2 + w^2)
-@inline τʷ_drag(x, y, z, t, u, v, w, p) = -p.c_dz * w * √(u^2 + v^2 + w^2)
-
-immersed_drag_bc_u = FluxBoundaryCondition(τᵘ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_v = FluxBoundaryCondition(τᵛ_drag, field_dependencies=(:u, :v, :w), parameters=params)
-immersed_drag_bc_w = FluxBoundaryCondition(τʷ_drag, field_dependencies=(:u, :v, :w), parameters=params)
+c_dz = (κᵛᵏ / log(z₁ / z₀))^2 # quadratic drag coefficient
+@info "Defining momentum BCs with Cᴰ =" c_dz
+drag = BulkDrag(coefficient=c_dz)
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -262,6 +255,7 @@ end
 
 # wind stress BC
 ρ₀ = 1024.0
+wind_bc_u = FluxBoundaryCondition(0.0)
 wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
@@ -288,81 +282,58 @@ else
     end
 end
 
-# new sponge masks using built-in functions from Oceananigans
-
-const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
-const south_mask = PiecewiseLinearMask{:y}(center=0, width=params.Ls)
+# built-in masks
+const south_mask = PiecewiseLinearMask{:y}(center=0.0, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
+
+# targets
 const global_params = params
-# We shift the mask evaluation by 30km so that the sponge layer only turns on 
-# *after* the velocity has safely tapered to 0. This prevents artificial vorticity generation!
-@inline offshore_mask_uvw(x, y, z) = 1.0 - sigmoidal_s2(x - 30e3, global_params.Lx)
-
-if periodic_y
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
-
-    @inline function T_target(x, y, z, t)
-        return T_south_pwl(z)
-    end
-
-    @inline function S_target(x, y, z, t)
-        return S_south_pwl(z)
-    end
-
-    @inline function v_target(x, y, z, t)
-        return v∞(x, z, t, global_params)
-    end
-else
-    @inline sponge_mask(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z), 1.0)
-    @inline sponge_mask_uvw(x, y, z) = min(north_mask(x, y, z) + south_mask(x, y, z) + offshore_mask_uvw(x, y, z), 1.0)
-
-    @inline function T_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * T_north_pwl(z) + s * T_south_pwl(z)) / tot : T_south_pwl(z)
-    end
-
-    @inline function S_target(x, y, z, t)
-        n = north_mask(x, y, z)
-        s = south_mask(x, y, z)
-        tot = n + s
-        return tot > 0 ? (n * S_north_pwl(z) + s * S_south_pwl(z)) / tot : S_south_pwl(z)
-    end
-
-    @inline function v_target(x, y, z, t)
-        return v∞(x, z, t, global_params)
-    end
-end
-
-u_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
-v_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=v_target)
-w_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask_uvw, target=0.0)
-T_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask, target=T_target)
-S_nudging = Relaxation(; rate=1 / global_params.τ, mask=sponge_mask, target=S_target)
+@inline v_target_south(x, y, z, t) = v∞(x, z, t, global_params)
+@inline T_target(x, y, z, t) = T_south_pwl(z, 24.5378)
+@inline S_target(x, y, z, t) = S_south_pwl(z, 35.5830)
 
 # forcing functions
-if mass_flux
-    forcings = (u=u_nudging, v=v_nudging, w=w_nudging, T=T_nudging, S=S_nudging)
-else
-    forcings = (T=T_nudging, S=S_nudging)
+if periodic_y
+    u_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    v_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=v_target_south)
+    v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
+
+    T_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=T_target)
+    T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
+
+    S_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=S_target)
+    S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
+
+    if mass_flux
+        forcings = (u=(u_sponge_s, u_sponge_e),
+            v=(v_sponge_s, v_sponge_e),
+            w=(w_sponge_s, w_sponge_e),
+            T=(T_sponge_s, T_sponge_e),
+            S=(S_sponge_s, S_sponge_e))
+    else
+        forcings = (T=(T_sponge_s, T_sponge_e), S=(S_sponge_s, S_sponge_e))
+    end
 end
 
 if periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag)
 else
     open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
     open_zero = OpenBoundaryCondition(0.0)
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_v, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=immersed_drag_bc_w)
+    u_bcs = FieldBoundaryConditions(immersed=drag)
+    v_bcs = FieldBoundaryConditions(immersed=drag, north=open_bc, south=open_bc, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -513,13 +484,13 @@ else
 end
 
 if gradient_IC
-    @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+    @inline α_lin(y) = clamp(y / global_params.Ly, 0.0, 1.0)
     @inline blend(a, b, α) = (1 - α) * a + α * b
-    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
-    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
+    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, global_params.T_south_v1), T_north_pwl(z, global_params.T_north_v1), α_lin(y))
+    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y))
 else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z, T_south_v1)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
+    @inline Tᵢ(x, y, z) = T_south_pwl(z, global_params.T_south_v1)
+    @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
 end
 
 set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
