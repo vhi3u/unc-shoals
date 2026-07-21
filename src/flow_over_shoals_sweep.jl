@@ -71,19 +71,19 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 100days
+sim_runtime = 50days
 callback_interval = 86400seconds
 run_tag = "sweep_$(sweep_run_label)"
 
 if LES
-    params = (; Lx=200e3, Ly=200e3, Lz=50)
+    params = (; Lx=150e3, Ly=200e3, Lz=50)
 else
-    params = (; Lx=100000, Ly=200000, Lz=50)
+    params = (; Lx=150000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10)
+    params = (; params..., Nx=60, Ny=60, Nz=10, νh=1.0, κh=1.0)
 else
-    params = (; params..., Nx=400, Ny=400, Nz=50)
+    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -347,12 +347,17 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 
+if sweep_wind_stress != 0.0
+    v_closure = RiBasedVerticalDiffusivity()
+else
+    v_closure = VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)
+end
+turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), v_closure)
+
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
+        closure=turbulent_closure,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
@@ -364,7 +369,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=AnisotropicMinimumDissipation(),
+        closure=turbulent_closure,
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
@@ -381,7 +386,7 @@ pickup = isfile("checkpoint_$(run_tag).jld2")
 overwrite_existing = !pickup
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.4)
+conjure_time_step_wizard!(simulation, cfl=0.7)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))

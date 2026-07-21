@@ -6,7 +6,7 @@
 # Submit with:  qsub sweep/submit_sweep.pbs
 #
 # The array range should match the number of [[runs]] entries in params.toml.
-# Currently 14 runs → 1-14. Update if you add/remove entries.
+# Currently 11 runs → 1-11. Update if you add/remove entries.
 #═══════════════════════════════════════════════════════════════════════════
 
 #PBS -A ...
@@ -14,12 +14,12 @@
 #PBS -k eod
 #PBS -o sweep/logs/sweep.out
 #PBS -e sweep/logs/sweep.err
-#PBS -l walltime=08:00:00
+#PBS -l walltime=12:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
 #PBS -M ...
 #PBS -m abe
-#PBS -J 1-5
+#PBS -J 1-11
 
 # ── Modules ────────────────────────────────────────────────────────────
 module purge
