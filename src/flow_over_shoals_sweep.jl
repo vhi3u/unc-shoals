@@ -428,7 +428,8 @@ T = model.tracers.T
 S = model.tracers.S
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
-PV = @at (Center, Center, Center) ErtelPotentialVorticity(model)
+b_op = Oceananigans.Models.buoyancy_operation(model)
+PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b_op, model.coriolis)
 
 # Centered velocities for consistency
 u_c = @at (Center, Center, Center) u

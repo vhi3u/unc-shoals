@@ -350,6 +350,7 @@ simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInte
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
+PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, tracer_name=:T)
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
 
