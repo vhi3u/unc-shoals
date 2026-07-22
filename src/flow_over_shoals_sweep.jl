@@ -39,8 +39,9 @@ sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
+sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.1"))
 
-@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress"
+@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
 # build
 @info "building domain"
@@ -115,9 +116,15 @@ end
 # Stratification and Wind Setup
 # ═══════════════════════════════════════════════════════════════════════════
 if mass_flux
-    v₀ = 0.10
+    v₀ = sweep_v0
 else
     v₀ = 0.0
+end
+
+if sweep_wind_stress < 0.0
+    v₀ = -abs(v₀)
+else
+    v₀ = abs(v₀)
 end
 
 # defaults
@@ -284,39 +291,54 @@ end
 
 # built-in masks
 const south_mask = PiecewiseLinearMask{:y}(center=0.0, width=params.Ls)
+const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
 # targets
 const global_params = params
-@inline v_target_south(x, y, z, t) = v∞(x, z, t, global_params)
-@inline T_target(x, y, z, t) = T_south_pwl(z, 24.5378)
-@inline S_target(x, y, z, t) = S_south_pwl(z, 35.5830)
+@inline v_target_inflow(x, y, z, t) = v∞(x, z, t, global_params)
+
+@inline T_target_south(x, y, z, t) = T_south_pwl(z, global_params.T_south_v1)
+@inline S_target_south(x, y, z, t) = S_south_pwl(z, global_params.S_south_v1)
+
+@inline T_target_north(x, y, z, t) = T_north_pwl(z, global_params.T_north_v1)
+@inline S_target_north(x, y, z, t) = S_north_pwl(z, global_params.S_north_v1)
+
+if sweep_wind_stress < 0.0
+    const inflow_mask = north_mask
+    const T_target = T_target_north
+    const S_target = S_target_north
+else
+    const inflow_mask = south_mask
+    const T_target = T_target_south
+    const S_target = S_target_south
+end
 
 # forcing functions
 if periodic_y
-    u_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    v_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=v_target_south)
+    v_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=v_target_inflow)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    w_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    T_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=T_target)
+    T_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=T_target)
     T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
 
-    S_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=S_target)
+    S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
     if mass_flux
-        forcings = (u=(u_sponge_s, u_sponge_e),
-            v=(v_sponge_s, v_sponge_e),
-            w=(w_sponge_s, w_sponge_e),
-            T=(T_sponge_s, T_sponge_e),
-            S=(S_sponge_s, S_sponge_e))
+        forcings = (u=(u_sponge_inflow, u_sponge_e),
+            v=(v_sponge_inflow, v_sponge_e),
+            w=(w_sponge_inflow, w_sponge_e),
+            T=(T_sponge_inflow, T_sponge_e),
+            S=(S_sponge_inflow, S_sponge_e))
     else
-        forcings = (T=(T_sponge_s, T_sponge_e), S=(S_sponge_s, S_sponge_e))
+        forcings = (T=(T_sponge_inflow, T_sponge_e), S=(S_sponge_inflow, S_sponge_e))
     end
 end
 
@@ -406,6 +428,7 @@ T = model.tracers.T
 S = model.tracers.S
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
+PV = @at (Center, Center, Center) ErtelPotentialVorticity(model)
 
 # Centered velocities for consistency
 u_c = @at (Center, Center, Center) u
@@ -424,7 +447,7 @@ vS = Field(v_c * S)
 wT = Field(w_c * T)
 wS = Field(w_c * S)
 
-slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE, PV)
 tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 
 # (1) 2D snapshots (every 1 day)
@@ -449,24 +472,11 @@ simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
     indices=(round(Int, params.Nx / 5), :, :),
     overwrite_existing=overwrite_existing)
 
-# # (2) 3D snapshots (every 20 days)
-# simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-#     filename="snapshots_3d_$(run_tag).nc",
-#     schedule=TimeInterval(20days),
-#     overwrite_existing=overwrite_existing)
-
 # (3) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     filename="time_avg_3d_$(run_tag).nc",
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_existing=overwrite_existing)
-
-# # Domain-integrated KE time series
-# ∫KE = Integral(KE)
-# simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
-#     schedule=TimeInterval(callback_interval),
-#     filename="KE_$(run_tag).nc",
-#     overwrite_existing=overwrite_existing)
 
 # ── Save sweep metadata to a small NetCDF file for postprocessing ──────
 using NCDatasets
@@ -478,6 +488,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["shelf_depth"] = sweep_shelf_depth
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
     ds.attrib["wind_stress"] = sweep_wind_stress
+    ds.attrib["v0"] = sweep_v0
 end
 
 # initial conditions
@@ -516,6 +527,7 @@ set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
  shelf_depth:     $(sweep_shelf_depth) m
  shelf_break_end: $(sweep_shelf_break_end) m
  wind_stress:     $(sweep_wind_stress) N/m^2
+ v0:              $(sweep_v0) m/s
 
  ── Switches ──
  LES:             $(LES)

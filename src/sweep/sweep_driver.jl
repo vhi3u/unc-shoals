@@ -40,6 +40,7 @@ sweep_run_label = String(this_run["run_label"])
 # New parameters
 sweep_strat = String(get(this_run, "strat", "default"))
 sweep_wind_stress = Float64(get(this_run, "wind_stress", 0.0))
+sweep_v0 = Float64(get(this_run, "v0", 0.1))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -53,6 +54,7 @@ sweep_wind_stress = Float64(get(this_run, "wind_stress", 0.0))
  shelf_break_end: $sweep_shelf_break_end m
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2
+ v0:              $sweep_v0 m/s
 ════════════════════════════════════════════════════════
 """
 
@@ -71,6 +73,7 @@ ENV["SWEEP_SHELF_DEPTH"] = string(sweep_shelf_depth)
 ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
+ENV["SWEEP_V0"] = string(sweep_v0)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
 ENV["SWEEP_RUN_INDEX"] = string(run_index)
 

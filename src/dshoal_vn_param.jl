@@ -27,7 +27,7 @@ Shoal Geometry:
 # ── Background bathymetry ───────────────────────────────────────────────
 
 @inline function param_background_depth(x, shelf_depth, shelf_break_end)
-    h0, h1, h3, h4 = -5.0, -7.0, -30.0, -50.0
+    h0, h1, h4 = -5.0, -7.0, -50.0
     h2 = shelf_depth
 
     # 1. Coastal ramp (0-5km)
@@ -38,13 +38,9 @@ Shoal Geometry:
     sb_width = (shelf_break_end - 5.0e3) / 2.8
     h += (h2 - h1) * smooth_step(x, sb_mid, sb_width)
 
-    # 3. Shelf slope (shelf_break_end to 62km)
-    ss_mid = shelf_break_end + (62.0e3 - shelf_break_end) / 2.0
-    ss_width = (62.0e3 - shelf_break_end) / 3.3333333333333335
-    h += (h3 - h2) * smooth_step(x, ss_mid, ss_width)
-
-    # 4. Offshore ramp (62-65km)
-    h += (h4 - h3) * smooth_step(x, 63.5e3, 5.0e3)
+    # 3. Offshore ramp (62-65km)
+    # The shelf stays flat at `shelf_depth` until it reaches the offshore ramp.
+    h += (h4 - h2) * smooth_step(x, 63.5e3, 5.0e3)
 
     return h
 end
@@ -56,10 +52,10 @@ end
     rise_width = 0.5e3
     rise = smooth_step(x, x_start + rise_width, rise_width)
 
-    # Offshore taper (smooth cosine ramp) as indicated in provided snippet
-    # Using the specific ratios (20/30 and 36/30)
-    x_taper_start = x_start + shoal_length * (20.0 / 30.0)
-    x_taper_end = x_start + shoal_length * (36.0 / 30.0)
+    # The shoal remains fully elevated up to `shoal_length`.
+    # It then tapers down over 15 km
+    x_taper_start = shoal_length
+    x_taper_end = shoal_length + 15.0e3
 
     if x <= x_taper_start
         taper = 1.0
@@ -102,11 +98,10 @@ end
     window = param_shoal_window(y, y0, half_extent)
 
     # 3. Shoal geometry
-    # Taper (smooth cosine ramp) defines the offshore end.
-    # Widened the transition from 36/30 to 45/30 for a gentler offshore slope.
-    x_ref = 8.0e3
-    x_taper_start = x_ref + shoal_length * (20.0 / 30.0)
-    x_taper_end = x_ref + shoal_length * (45.0 / 30.0)
+    # The shoal remains fully elevated up to `shoal_length`.
+    # It then tapers down over 15 km
+    x_taper_start = shoal_length
+    x_taper_end = shoal_length + 15.0e3
 
     if x <= x_taper_start
         taper = 1.0
@@ -124,8 +119,8 @@ end
     # Hs is the height above the shelf_depth reference.
     elevation_target = shelf_depth + Hs
 
-    # Increased k from 0.2 to 2.0 to significantly round the connection to the shelf break.
-    potential_height = smooth_max(0.0, elevation_target - hw, 2.0)
+    # Take the exact max to perfectly match the coastal ramp without leakage
+    potential_height = max(0.0, elevation_target - hw)
 
     # Apply spatial factors and add to background
     return min(-5.0, hw + potential_height * factor)

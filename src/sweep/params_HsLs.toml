@@ -17,9 +17,9 @@
 
 # ── Shoal Geometry Sweep (Ls = 20-40 km, Hs = 5-15 m) ─────────────────
 [[runs]]
-run_label     = "Hs05_Ls40k"
-Hs            = 5.0
-shoal_length  = 40000.0
+run_label     = "Hs00_0k"
+Hs            = 0.0
+shoal_length  = 0.0
 
 [[runs]]
 run_label     = "Hs10_Ls40k"
@@ -59,21 +59,25 @@ Hs            = 15.0
 shoal_length  = 20000.0
 shelf_depth   = -40.0
 
-# ── Extended Shoal Geometry Sweep ──────────────────────────────────────
-
-[[runs]]
-run_label     = "sigma_5k"
-Hs            = 15.0
-shoal_length  = 40000.0
-sigma         = 5000.0
-
-[[runs]]
-run_label     = "sigma_20k"
-Hs            = 15.0
-shoal_length  = 40000.0
-sigma         = 20000.0
-
 # ── Wind Forcing Sweep ─────────────────────────────────────────────────
+
+[[runs]]
+run_label     = "wind_m0p05"
+wind_stress   = -0.05
+Hs            = 15.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_m0p03"
+wind_stress   = -0.03
+Hs            = 15.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_m0p01"
+wind_stress   = -0.01
+Hs            = 15.0
+shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_0p01"
@@ -82,7 +86,27 @@ Hs            = 15.0
 shoal_length  = 40000.0
 
 [[runs]]
+run_label     = "wind_0p03"
+wind_stress   = 0.03
+Hs            = 15.0
+shoal_length  = 40000.0
+
+[[runs]]
 run_label     = "wind_0p05"
 wind_stress   = 0.05
+Hs            = 15.0
+shoal_length  = 40000.0
+
+# ── Velocity Sweep ─────────────────────────────────────────────────────
+
+[[runs]]
+run_label     = "v0_0p15"
+v0            = 0.15
+Hs            = 15.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "v0_0p20"
+v0            = 0.2
 Hs            = 15.0
 shoal_length  = 40000.0
