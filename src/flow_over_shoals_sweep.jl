@@ -304,14 +304,12 @@ const global_params = params
 @inline T_target_north(x, y, z, t) = T_north_pwl(z, global_params.T_north_v1)
 @inline S_target_north(x, y, z, t) = S_north_pwl(z, global_params.S_north_v1)
 
+const T_target = T_target_south
+const S_target = S_target_south
 if sweep_wind_stress < 0.0
     const inflow_mask = north_mask
-    const T_target = T_target_north
-    const S_target = S_target_north
 else
     const inflow_mask = south_mask
-    const T_target = T_target_south
-    const S_target = S_target_south
 end
 
 # forcing functions
