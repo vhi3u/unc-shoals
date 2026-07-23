@@ -40,7 +40,7 @@ sweep_run_label = String(this_run["run_label"])
 # New parameters
 sweep_strat = String(get(this_run, "strat", "default"))
 sweep_wind_stress = Float64(get(this_run, "wind_stress", 0.0))
-sweep_v0 = Float64(get(this_run, "v0", 0.1))
+sweep_v0 = Float64(get(this_run, "v0", 0.2))
 
 @info """
 ════════════════════════════════════════════════════════
