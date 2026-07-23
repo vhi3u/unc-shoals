@@ -31,7 +31,7 @@ using CUDA: has_cuda_gpu, allowscalar
 # Read sweep parameters from environment (set by sweep_driver.jl)
 # Falls back to defaults so script can also be run standalone.
 # ═══════════════════════════════════════════════════════════════════════════
-sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "15.0"))
+sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "20.0"))
 sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "40000.0"))
 sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
 sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
@@ -39,7 +39,7 @@ sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
-sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.1"))
+sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
 
 @info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
@@ -121,11 +121,7 @@ else
     v₀ = 0.0
 end
 
-if sweep_wind_stress < 0.0
-    v₀ = -abs(v₀)
-else
-    v₀ = abs(v₀)
-end
+v₀ = abs(v₀)
 
 # defaults
 T_north_v1, S_north_v1 = 20.5389, 32.6264
@@ -306,11 +302,7 @@ const global_params = params
 
 const T_target = T_target_south
 const S_target = S_target_south
-if sweep_wind_stress < 0.0
-    const inflow_mask = north_mask
-else
-    const inflow_mask = south_mask
-end
+const inflow_mask = south_mask
 
 # forcing functions
 if periodic_y
