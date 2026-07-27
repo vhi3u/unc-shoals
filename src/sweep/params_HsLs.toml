@@ -46,13 +46,13 @@ shoal_length  = 30000.0
 [[runs]]
 run_label     = "ShelfH_m10"
 Hs            = 20.0
-shoal_length  = 20000.0
+shoal_length  = 40000.0
 shelf_depth   = -10.0
 
 [[runs]]
 run_label     = "ShelfH_m40"
 Hs            = 20.0
-shoal_length  = 20000.0
+shoal_length  = 40000.0
 shelf_depth   = -40.0
 
 # ── Wind Forcing Sweep ─────────────────────────────────────────────────

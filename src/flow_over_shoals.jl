@@ -96,7 +96,7 @@ end
 # Stratification and Wind Setup
 # ═══════════════════════════════════════════════════════════════════════════
 if mass_flux
-    v₀ = 0.10
+    v₀ = 0.20
 else
     v₀ = 0.0
 end
@@ -203,14 +203,10 @@ end
 
 # wind stress BC
 # surface wind stresses
-cᴰ_wind = 2.5e-3 # dimensionless drag coefficient
-ρₐ = 1.225       # kg m⁻³, average density of air at sea-level
-ρₒ = 1028.0      # kg m⁻³, average density of seawater
-Qu = -ρₐ / ρₒ * cᴰ_wind * params.u_b * abs(params.u_b) # m² s⁻²
-Qv = -ρₐ / ρₒ * cᴰ_wind * params.v_b * abs(params.v_b) # m² s⁻²
-
-wind_bc_u = FluxBoundaryCondition(Qu)
-wind_bc_v = FluxBoundaryCondition(Qv)
+ρ₀ = 1024.0
+wind_stress = -0.05
+wind_bc_u = FluxBoundaryCondition(0.0)
+wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
@@ -240,6 +236,7 @@ end
 
 # built-in masks
 const south_mask = PiecewiseLinearMask{:y}(center=0.0, width=params.Ls)
+const north_mask = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
 const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
 # targets
@@ -251,25 +248,33 @@ const global_params = params
 # forcing functions
 if periodic_y
     u_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    u_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
     v_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=v_target_south)
+    v_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=v_target_south)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
+    @inline v_body_force_func(x, y, z, t) = 5.0e-6 # balances 0.05 wind stress and 0.2 m/s bottom drag
+    v_body_forcing = Forcing(v_body_force_func)
+
     w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
+    w_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=0.0)
     w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
     T_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=T_target)
+    T_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=T_target)
     T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
 
     S_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=S_target)
+    S_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
-    forcings = (u=(u_sponge_s, u_sponge_e),
-        v=(v_sponge_s, v_sponge_e),
-        w=(w_sponge_s, w_sponge_e),
-        T=(T_sponge_s, T_sponge_e),
-        S=(S_sponge_s, S_sponge_e))
+    forcings = (u=(u_sponge_s, u_sponge_n, u_sponge_e),
+        v=(v_sponge_s, v_sponge_n, v_sponge_e, v_body_forcing),
+        w=(w_sponge_s, w_sponge_n, w_sponge_e),
+        T=(T_sponge_s, T_sponge_n, T_sponge_e),
+        S=(S_sponge_s, S_sponge_n, S_sponge_e))
 end
 
 if periodic_y
@@ -279,13 +284,18 @@ if periodic_y
     v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_v)
     w_bcs = FieldBoundaryConditions(immersed=drag)
 else
-    open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
-    open_zero = OpenBoundaryCondition(0.0)
-    T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
-    S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=drag)
-    v_bcs = FieldBoundaryConditions(immersed=drag, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=drag)
+    flux_zero = FluxBoundaryCondition(0.0)
+    value_zero = ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0))
+    northern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
+    southern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
+    eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
+
+    T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=flux_zero)
+    S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=flux_zero)
+
+    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=flux_zero, south=value_zero, east=eastern_bc, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=northern_bc, south=southern_bc, east=flux_zero, top=wind_bc_v)
+    w_bcs = FieldBoundaryConditions(immersed=drag, north=flux_zero, south=value_zero, east=flux_zero)
 end
 
 bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
@@ -321,8 +331,7 @@ else
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
         coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
+        boundary_conditions=bcs
     )
 end
 
