@@ -257,39 +257,42 @@ const east_mask = PiecewiseLinearMask{:x}(center=params.Lx, width=params.Le)
 
 # targets
 const global_params = params
-@inline v_target_south(x, y, z, t) = v∞(x, z, t, global_params)
-@inline T_target(x, y, z, t) = T_south_pwl(z, 24.5378)
-@inline S_target(x, y, z, t) = S_south_pwl(z, 35.5830)
+@inline v_target_inflow(x, y, z, t) = v∞(x, z, t, global_params)
+@inline T_target_south(x, y, z, t) = T_south_pwl(z, 24.5378)
+@inline S_target_south(x, y, z, t) = S_south_pwl(z, 35.5830)
+
+const T_target = T_target_south
+const S_target = S_target_south
+const inflow_mask = south_mask
 
 # forcing functions
 if periodic_y
-    u_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
-    u_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=0.0)
+    u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    v_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=v_target_south)
-    v_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=v_target_south)
+    v_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=v_target_inflow)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-
-
-    w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
-    w_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=0.0)
+    w_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    T_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=T_target)
-    T_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=T_target)
+    T_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=T_target)
     T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
 
-    S_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=S_target)
-    S_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=S_target)
+    S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
-    forcings = (u=(u_sponge_s, u_sponge_n, u_sponge_e),
-        v=(v_sponge_s, v_sponge_n, v_sponge_e),
-        w=(w_sponge_s, w_sponge_n, w_sponge_e),
-        T=(T_sponge_s, T_sponge_n, T_sponge_e),
-        S=(S_sponge_s, S_sponge_n, S_sponge_e))
+    # Add geostrophic background pressure gradient to balance the target v-velocity
+    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
+    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
+    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
+    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
+
+    forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
+        v=(v_sponge_inflow, v_sponge_e),
+        w=(w_sponge_inflow, w_sponge_e),
+        T=(T_sponge_inflow, T_sponge_e),
+        S=(S_sponge_inflow, S_sponge_e))
 end
 
 if periodic_y

@@ -84,7 +84,7 @@ end
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10, νh=1.0, κh=1.0)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-1, κh=1e-1)
+    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
