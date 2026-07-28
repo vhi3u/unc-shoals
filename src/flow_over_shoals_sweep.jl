@@ -321,8 +321,14 @@ if periodic_y
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
+    # Add geostrophic background pressure gradient to balance the target v-velocity
+    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
+    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
+    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
+    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
+
     if mass_flux
-        forcings = (u=(u_sponge_inflow, u_sponge_e),
+        forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
             v=(v_sponge_inflow, v_sponge_e),
             w=(w_sponge_inflow, w_sponge_e),
             T=(T_sponge_inflow, T_sponge_e),
@@ -359,13 +365,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 
-if sweep_wind_stress != 0.0
-    v_closure = RiBasedVerticalDiffusivity()
-else
-    v_closure = VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)
-end
-turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), v_closure)
-
+turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
