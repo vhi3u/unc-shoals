@@ -33,6 +33,7 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
+sigmoid_wind = true
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
@@ -206,12 +207,27 @@ end
 ρ₀ = 1024.0
 wind_stress = -0.05
 wind_bc_u = FluxBoundaryCondition(0.0)
-wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
-
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
     k2 = 20 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
+end
+
+@inline function interior_wind_stress(x, y, t, p)
+    # Smoothly mask out the wind in the nudging (sponge) regions over a 2 km transition
+    w = 2e3
+    mask_x = 0.5 * (1.0 - tanh((x - (p.Lx - p.Le)) / w))     # 0 in eastern sponge
+    mask_y_s = 0.5 * (1.0 + tanh((y - p.Ls) / w))            # 0 in southern sponge
+    mask_y_n = 0.5 * (1.0 - tanh((y - (p.Ly - p.Ls)) / w))   # 0 in northern sponge
+    return (-p.wind_stress / 1024.0) * mask_x * mask_y_s * mask_y_n
+end
+
+if wind_stress == 0.0
+    wind_bc_v = FluxBoundaryCondition(0.0)
+elseif sigmoid_wind
+    wind_bc_v = FluxBoundaryCondition(interior_wind_stress, parameters=(Lx=params.Lx, Ly=params.Ly, Ls=params.Ls, Le=params.Le, wind_stress=wind_stress))
+else
+    wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
 end
 
 # velocity function
@@ -255,8 +271,7 @@ if periodic_y
     v_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=v_target_south)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    @inline v_body_force_func(x, y, z, t) = 5.0e-6 # balances 0.05 wind stress and 0.2 m/s bottom drag
-    v_body_forcing = Forcing(v_body_force_func)
+
 
     w_sponge_s = Relaxation(; rate=1 / global_params.τ, mask=south_mask, target=0.0)
     w_sponge_n = Relaxation(; rate=1 / global_params.τ, mask=north_mask, target=0.0)
@@ -271,7 +286,7 @@ if periodic_y
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
     forcings = (u=(u_sponge_s, u_sponge_n, u_sponge_e),
-        v=(v_sponge_s, v_sponge_n, v_sponge_e, v_body_forcing),
+        v=(v_sponge_s, v_sponge_n, v_sponge_e),
         w=(w_sponge_s, w_sponge_n, w_sponge_e),
         T=(T_sponge_s, T_sponge_n, T_sponge_e),
         S=(S_sponge_s, S_sponge_n, S_sponge_e))
