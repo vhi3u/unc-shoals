@@ -222,12 +222,17 @@ end
     return (-p.wind_stress / 1024.0) * mask_x * mask_y_s * mask_y_n
 end
 
+@inline function tapered_wind_stress(x, y, t, p)
+    s2 = sigmoidal_s2(x, p.Lx)
+    return (-p.wind_stress / 1024.0) * s2
+end
+
 if wind_stress == 0.0
     wind_bc_v = FluxBoundaryCondition(0.0)
 elseif sigmoid_wind
     wind_bc_v = FluxBoundaryCondition(interior_wind_stress, parameters=(Lx=params.Lx, Ly=params.Ly, Ls=params.Ls, Le=params.Le, wind_stress=wind_stress))
 else
-    wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
+    wind_bc_v = FluxBoundaryCondition(tapered_wind_stress, parameters=(Lx=params.Lx, wind_stress=wind_stress))
 end
 
 # velocity function
@@ -282,13 +287,7 @@ if periodic_y
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
-    # Add geostrophic background pressure gradient to balance the target v-velocity
-    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
-    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
-    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
-    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
-
-    forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
+    forcings = (u=(u_sponge_inflow, u_sponge_e),
         v=(v_sponge_inflow, v_sponge_e),
         w=(w_sponge_inflow, w_sponge_e),
         T=(T_sponge_inflow, T_sponge_e),
