@@ -259,21 +259,13 @@ end
 # wind stress BC
 ρ₀ = 1024.0
 wind_bc_u = FluxBoundaryCondition(0.0)
+wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
     k2 = 40 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
 end
-
-@inline function tapered_wind_stress(x, y, t, p)
-    s2 = sigmoidal_s2(x, p.Lx)
-    return (-p.sweep_wind_stress / 1024.0) * s2
-end
-
-wind_bc_v = FluxBoundaryCondition(tapered_wind_stress, parameters=(Lx=params.Lx, sweep_wind_stress=sweep_wind_stress))
-
-
 
 # velocity function
 if sigmoid_v_bc
@@ -329,8 +321,14 @@ if periodic_y
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
+    # Add geostrophic background pressure gradient to balance the target v-velocity
+    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
+    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
+    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
+    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
+
     if mass_flux
-        forcings = (u=(u_sponge_inflow, u_sponge_e),
+        forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
             v=(v_sponge_inflow, v_sponge_e),
             w=(w_sponge_inflow, w_sponge_e),
             T=(T_sponge_inflow, T_sponge_e),
@@ -367,7 +365,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 
-turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
+turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
