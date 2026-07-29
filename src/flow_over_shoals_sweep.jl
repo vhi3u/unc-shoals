@@ -328,7 +328,7 @@ if periodic_y
     u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
 
     if mass_flux
-        forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
+        forcings = (u=(u_sponge_inflow, u_sponge_e),
             v=(v_sponge_inflow, v_sponge_e),
             w=(w_sponge_inflow, w_sponge_e),
             T=(T_sponge_inflow, T_sponge_e),
