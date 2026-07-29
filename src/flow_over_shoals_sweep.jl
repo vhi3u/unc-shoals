@@ -365,7 +365,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 
-turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-4, κ=1e-4))
+turbulent_closure = (HorizontalScalarBiharmonicDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
