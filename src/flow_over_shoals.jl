@@ -416,11 +416,11 @@ simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
 #     schedule=TimeInterval(20days),
 #     overwrite_existing=overwrite_existing)
 
-# # (3) 3D Time Averages (10 day window)
-# simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-#     filename="time_avg_3d_$(run_tag).nc",
-#     schedule=AveragedTimeInterval(10days, window=10days),
-#     overwrite_existing=overwrite_existing)
+# (3) 3D Time Averages (10 day window)
+simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
+    filename="time_avg_3d_$(run_tag).nc",
+    schedule=AveragedTimeInterval(10days, window=10days),
+    overwrite_existing=overwrite_existing)
 
 # # Domain-integrated KE time series
 # ∫KE = Integral(KE)
