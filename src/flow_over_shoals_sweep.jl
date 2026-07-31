@@ -365,7 +365,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 
-turbulent_closure = (HorizontalScalarBiharmonicDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
+turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
@@ -394,8 +394,25 @@ end
 
 @info "" model
 
-pickup = isfile("checkpoint_$(run_tag).jld2")
-overwrite_existing = !pickup
+# Check for environment variable SWEEP_PICKUP or local checkpoint files
+sweep_pickup_env = get(ENV, "SWEEP_PICKUP", "")
+if !isempty(sweep_pickup_env) && isfile(sweep_pickup_env)
+    pickup = sweep_pickup_env
+    sim_runtime = 100days
+    @info "Picking up from specified checkpoint: $(pickup). Setting runtime to 100 days."
+else
+    checkpoint_files = filter(f -> startswith(f, "checkpoint_") && endswith(f, ".jld2"), readdir("."))
+    if !isempty(checkpoint_files)
+        pickup = last(sort(checkpoint_files))
+        sim_runtime = 100days
+        @info "Found local checkpoint: $(pickup). Setting runtime to 100 days."
+    else
+        pickup = false
+        sim_runtime = 50days
+        @info "No checkpoint found. Running 50-day run."
+    end
+end
+overwrite_existing = (pickup === false)
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, cfl=0.4)
@@ -483,24 +500,28 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
 end
 
 # initial conditions
-@info "Setting initial conditions"
-if sigmoid_ic
-    v_init = (x, y, z) -> v∞(x, z, 0, params)
-else
-    v_init = v₀
-end
+if pickup === false
+    @info "Setting initial conditions"
+    if sigmoid_ic
+        v_init = (x, y, z) -> v∞(x, z, 0, params)
+    else
+        v_init = v₀
+    end
 
-if gradient_IC
-    @inline α_lin(y) = clamp(y / global_params.Ly, 0.0, 1.0)
-    @inline blend(a, b, α) = (1 - α) * a + α * b
-    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, global_params.T_south_v1), T_north_pwl(z, global_params.T_north_v1), α_lin(y))
-    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y))
-else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z, global_params.T_south_v1)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
-end
+    if gradient_IC
+        @inline α_lin(y) = clamp(y / global_params.Ly, 0.0, 1.0)
+        @inline blend(a, b, α) = (1 - α) * a + α * b
+        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, global_params.T_south_v1), T_north_pwl(z, global_params.T_north_v1), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y))
+    else
+        @inline Tᵢ(x, y, z) = T_south_pwl(z, global_params.T_south_v1)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
+    end
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+else
+    @info "Skipping initial conditions setup — loading fields from checkpoint $(pickup)."
+end
 
 # run simulation
 @info """

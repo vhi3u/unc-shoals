@@ -35,7 +35,7 @@ sigmoid_v_bc = true
 sigmoid_ic = true
 sigmoid_wind = true
 is_coriolis = true
-checkpointing = false
+checkpointing = true
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -49,13 +49,25 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
-# ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
-# ═══════════════════════════════════════════════════════════════════════════
-run_number = 34
-sim_runtime = 25days
+run_number = 35
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
+
+# Automatic 2-Stage Run Checkpoint Detection:
+checkpoint_prefix = "checkpoint_$(run_tag)"
+checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2") && !endswith(f, "iteration0.jld2"), readdir("."))
+if !isempty(checkpoint_files)
+    pickup = last(sort(checkpoint_files))
+    wind_stress = 0.01   # Northward wind (+0.01 N/m^2) for 2nd run
+    sim_runtime = 100days
+    @info "Checkpoint found ($(pickup))! Applying +0.01 N/m^2 northward wind and extending to 100 days."
+else
+    pickup = false
+    wind_stress = 0.0    # No wind for 1st spin-up run
+    sim_runtime = 50days
+    @info "No checkpoint found for $(run_tag). Starting initial 50-day spin-up run with zero wind."
+end
 
 if LES
     params = (; Lx=150e3, Ly=200e3, Lz=50)
@@ -63,7 +75,7 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=50, Ny=50, Nz=10, νh=1.0, κh=1.0)
+    params = (; params..., Nx=50, Ny=50, Nz=10, νh=10.0, κh=10.0)
 else
     params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
@@ -80,7 +92,7 @@ end
 # model parameters
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=15.0,
+        Hs=20.0,
         shoal_length=40000.0,
         sigma=8000.0,
         shelf_depth=-25.0,
@@ -109,13 +121,12 @@ T_south_v1, S_south_v1 = 24.5378, 35.5830
 params = (; params...,
     v₀=v₀,
     Ls=20e3,
-    Le=50e3,
+    Le=70e3,
     τ=1days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
-    S_south_v1=S_south_v1,
-    u_b=0.0, v_b=4.0)
+    S_south_v1=S_south_v1)
 
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
@@ -203,34 +214,17 @@ if LES
 end
 
 # wind stress BC
-# surface wind stresses
 ρ₀ = 1024.0
-wind_stress = -0.05
 wind_bc_u = FluxBoundaryCondition(0.0)
+wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
+
+# velocity function
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
-    k2 = 20 / Lx
+    k2 = 40 / Lx
     return 1 / (1 + exp(k2 * (x - xS)))
 end
 
-@inline function interior_wind_stress(x, y, t, p)
-    # Smoothly mask out the wind in the nudging (sponge) regions over a 2 km transition
-    w = 2e3
-    mask_x = 0.5 * (1.0 - tanh((x - (p.Lx - p.Le)) / w))     # 0 in eastern sponge
-    mask_y_s = 0.5 * (1.0 + tanh((y - p.Ls) / w))            # 0 in southern sponge
-    mask_y_n = 0.5 * (1.0 - tanh((y - (p.Ly - p.Ls)) / w))   # 0 in northern sponge
-    return (-p.wind_stress / 1024.0) * mask_x * mask_y_s * mask_y_n
-end
-
-if wind_stress == 0.0
-    wind_bc_v = FluxBoundaryCondition(0.0)
-elseif sigmoid_wind
-    wind_bc_v = FluxBoundaryCondition(interior_wind_stress, parameters=(Lx=params.Lx, Ly=params.Ly, Ls=params.Ls, Le=params.Le, wind_stress=wind_stress))
-else
-    wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
-end
-
-# velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
@@ -282,13 +276,7 @@ if periodic_y
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
-    # Add geostrophic background pressure gradient to balance the target v-velocity
-    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
-    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
-    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
-    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
-
-    forcings = (u=(u_sponge_inflow, u_sponge_e, u_geostrophic_forcing),
+    forcings = (u=(u_sponge_inflow, u_sponge_e),
         v=(v_sponge_inflow, v_sponge_e),
         w=(w_sponge_inflow, w_sponge_e),
         T=(T_sponge_inflow, T_sponge_e),
@@ -355,11 +343,10 @@ end
 
 @info "" model
 
-pickup = isfile("checkpoint_$(run_tag).jld2")
-overwrite_existing = !pickup
+overwrite_existing = (pickup === false)
 
 simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -454,24 +441,28 @@ if checkpointing
 end
 
 # initial conditions
-@info "Setting initial conditions"
-if sigmoid_ic
-    v_init = (x, y, z) -> v∞(x, z, 0, params)
-else
-    v_init = v₀
-end
+if pickup === false
+    @info "Setting initial conditions"
+    if sigmoid_ic
+        v_init = (x, y, z) -> v∞(x, z, 0, params)
+    else
+        v_init = v₀
+    end
 
-if gradient_IC
-    @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
-    @inline blend(a, b, α) = (1 - α) * a + α * b
-    @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
-    @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
-else
-    @inline Tᵢ(x, y, z) = T_south_pwl(z, T_south_v1)
-    @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
-end
+    if gradient_IC
+        @inline α_lin(y) = clamp(y / params.Ly, 0.0, 1.0)
+        @inline blend(a, b, α) = (1 - α) * a + α * b
+        @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, T_south_v1), T_north_pwl(z, T_north_v1), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, S_south_v1), S_north_pwl(z, S_north_v1), α_lin(y))
+    else
+        @inline Tᵢ(x, y, z) = T_south_pwl(z, T_south_v1)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z, S_south_v1)
+    end
 
-set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+else
+    @info "Skipping initial conditions setup — picking up fields from $(pickup)."
+end
 
 # run simulation
 @info """
