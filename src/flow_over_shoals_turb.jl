@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# flow_over_shoals.jl
+# flow_over_shoals_turb.jl
 # ═══════════════════════════════════════════════════════════════════════════
-# Main simulation script for flow over shoals.
+# Main simulation script for flow over shoals. this "branch" is to test some different turbulence closures. 
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
@@ -52,7 +52,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 run_number = 35
 callback_interval = 86400seconds
-run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
+run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals_turb$(run_number)"
 
 # Automatic 2-Stage Run Checkpoint Detection:
 checkpoint_prefix = "checkpoint_$(run_tag)"
@@ -121,7 +121,7 @@ T_south_v1, S_south_v1 = 24.5378, 35.5830
 params = (; params...,
     v₀=v₀,
     Ls=20e3,
-    Le=50e3,
+    Le=70e3,
     τ=1days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
@@ -319,7 +319,7 @@ abstol = sqrt(eps(grid))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)),
+        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), RiBasedVerticalDiffusivity(ν=1e-6, κ=1e-6)),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
@@ -345,7 +345,7 @@ end
 
 overwrite_existing = (pickup === false)
 
-simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
+simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, cfl=0.4)
 
 progress = TimedMessenger()
