@@ -319,7 +319,7 @@ abstol = sqrt(eps(grid))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)),
+        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), RiBasedVerticalDiffusivity()),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
@@ -331,7 +331,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6)),
+        closure=RiBasedVerticalDiffusivity(),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
