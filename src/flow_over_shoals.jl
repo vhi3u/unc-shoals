@@ -35,7 +35,7 @@ sigmoid_v_bc = true
 sigmoid_ic = true
 sigmoid_wind = true
 is_coriolis = true
-checkpointing = true
+checkpointing = false
 shoal_bath = true
 if has_cuda_gpu()
     arch = GPU()
@@ -50,24 +50,30 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 35
+run_number = 38
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
-# Automatic 2-Stage Run Checkpoint Detection:
-checkpoint_prefix = "checkpoint_$(run_tag)"
-checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2") && !endswith(f, "iteration0.jld2"), readdir("."))
-if !isempty(checkpoint_files)
-    pickup = last(sort(checkpoint_files))
-    wind_stress = 0.01   # Northward wind (+0.01 N/m^2) for 2nd run
-    sim_runtime = 100days
-    @info "Checkpoint found ($(pickup))! Applying +0.01 N/m^2 northward wind and extending to 100 days."
-else
-    pickup = false
-    wind_stress = 0.0    # No wind for 1st spin-up run
-    sim_runtime = 50days
-    @info "No checkpoint found for $(run_tag). Starting initial 50-day spin-up run with zero wind."
-end
+# # Automatic 2-Stage Run Checkpoint Detection:
+# checkpoint_prefix = "checkpoint_$(run_tag)"
+# checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2") && !endswith(f, "iteration0.jld2"), readdir("."))
+# if !isempty(checkpoint_files)
+#     pickup = last(sort(checkpoint_files))
+#     wind_stress_env = get(ENV, "WIND_STRESS", "0.01")
+#     wind_stress = parse(Float64, wind_stress_env)
+#     sim_runtime = 100days
+#     @info "Checkpoint found ($(pickup))! Applying $(wind_stress) N/m^2 wind and extending to 100 days."
+# else
+#     pickup = false
+#     wind_stress = 0.05    # No wind for 1st spin-up run
+#     sim_runtime = 25days
+#     @info "No checkpoint found for $(run_tag). Starting initial 50-day spin-up run with zero wind."
+# end
+
+pickup = false
+wind_stress = 0.05    # No wind for 1st spin-up run
+sim_runtime = 25days
+@info "Starting initial 50-day spin-up run with zero wind."
 
 if LES
     params = (; Lx=150e3, Ly=200e3, Lz=50)
@@ -80,22 +86,39 @@ else
     params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
-x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
+x, y = (0, params.Lx), (0, params.Ly)
+
+# "Warped" height coordinate
+refinement = 1.8
+stretching = 12
+Nz_grid = params.Nz
+
+# Normalized height ranging from 0 to 1 (0 at bottom, 1 at top)
+h_grid(k) = (k - 1) / Nz_grid
+
+# Linear near-surface generator
+ζ₀(k) = 1 + (h_grid(k) - 1) / refinement
+
+# Bottom-intensified stretching function
+Σ(k) = (1 - exp(-stretching * h_grid(k))) / (1 - exp(-stretching))
+
+# Generating function (maps k=1 to -params.Lz and k=Nz_grid+1 to 0)
+z_faces(k) = params.Lz * (ζ₀(k) * Σ(k) - 1)
 
 # grid  
 if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z=z_faces, topology=(Bounded, Periodic, Bounded))
 else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z=z_faces, topology=(Bounded, Bounded, Bounded))
 end
 
 # model parameters
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=20.0,
+        Zs=-5.0,
         shoal_length=40000.0,
         sigma=8000.0,
-        shelf_depth=-25.0,
+        Zsh=-25.0,
         shelf_break_end=12000.0)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
@@ -122,7 +145,7 @@ params = (; params...,
     v₀=v₀,
     Ls=20e3,
     Le=50e3,
-    τ=1days,
+    τ=12hours,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -319,7 +342,7 @@ abstol = sqrt(eps(grid))
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
-        closure=(HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), RiBasedVerticalDiffusivity()),
+        closure=VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1e-3, κ=1e-3),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
@@ -331,7 +354,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=RiBasedVerticalDiffusivity(),
+        closure=VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν=1e-2, κ=1e-2),
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
@@ -474,9 +497,9 @@ end
  Architecture:    $(arch)
 
  ── Model Parameters ──
- Hs:              $(15.0) m
- shoal_length:    $(20000.0) m
- shelf_depth:     $(-25.0) m
+ Zs (shoal_depth):$(-5.0) m
+ shoal_length:    $(40000.0) m
+ Zsh (shelf_depth):$(-25.0) m
  shelf_break_end: $(12000.0) m
  wind_stress:     $(0.0) N/m^2
 

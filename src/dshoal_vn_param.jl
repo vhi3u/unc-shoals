@@ -5,13 +5,13 @@ Optimized for Conjugate Gradient pressure solver convergence by ensuring C1 cont
 Background Geometry (from Schematic):
 Background follows the specific piecewise definition:
 - 0 to 5 km:   coastal ramp (-3 m to -5 m)
-- 5 to shelf_break_end:  shelf break (-5 m to shelf_depth)
-- shelf_break_end to 62 km: shelf slope (shelf_depth to -30 m)
+- 5 to shelf_break_end:  shelf break (-5 m to Zsh)
+- shelf_break_end to 62 km: shelf slope (Zsh to -30 m)
 - 62 to 65 km: offshore ramp (-30 m to -50 m)
 - beyond 65 km: flat offshore (-50 m)
 
 Shoal Geometry:
-- Hs: Peak height elevated above the shelf_depth.
+- Zs: Absolute depth of the peak of the shoal.
 - Ls: Length of the elevated section, starting at x = 8km.
 - Taper: Smooth cosine ramp at the offshore end.
 """
@@ -26,9 +26,9 @@ Shoal Geometry:
 
 # ── Background bathymetry ───────────────────────────────────────────────
 
-@inline function param_background_depth(x, shelf_depth, shelf_break_end)
+@inline function param_background_depth(x, Zsh, shelf_break_end)
     h0, h1, h4 = -5.0, -7.0, -50.0
-    h2 = shelf_depth
+    h2 = Zsh
 
     # 1. Coastal ramp (0-5km)
     h = h0 + (h1 - h0) * smooth_step(x, 2.5e3, 1.5e3)
@@ -39,33 +39,10 @@ Shoal Geometry:
     h += (h2 - h1) * smooth_step(x, sb_mid, sb_width)
 
     # 3. Offshore ramp (62-65km)
-    # The shelf stays flat at `shelf_depth` until it reaches the offshore ramp.
+    # The shelf stays flat at `Zsh` until it reaches the offshore ramp.
     h += (h4 - h2) * smooth_step(x, 63.5e3, 5.0e3)
 
     return h
-end
-
-# ── Shoal x-profile: elevated slope with cosine taper ───────────────────
-
-@inline function param_shoal_xprofile(x, x_start, shoal_length, Hs)
-    # Rising slope (sigmoid) - sharpened to fill the nearshore gap
-    rise_width = 0.5e3
-    rise = smooth_step(x, x_start + rise_width, rise_width)
-
-    # The shoal remains fully elevated up to `shoal_length`.
-    # It then tapers down over 15 km
-    x_taper_start = shoal_length
-    x_taper_end = shoal_length + 15.0e3
-
-    if x <= x_taper_start
-        taper = 1.0
-    elseif x >= x_taper_end
-        taper = 0.0
-    else
-        taper = 0.5 * (1.0 + cos(π * (x - x_taper_start) / (x_taper_end - x_taper_start)))
-    end
-
-    return Hs * rise * taper
 end
 
 # ── Along-shore compact window ──────────────────────────────────────────
@@ -90,9 +67,9 @@ end
 
 # ── Combined bottom function ────────────────────────────────────────────
 
-@inline function _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, shelf_depth, shelf_break_end)
+@inline function _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh, shelf_break_end)
     # 1. Background depth
-    hw = param_background_depth(x, shelf_depth, shelf_break_end)
+    hw = param_background_depth(x, Zsh, shelf_break_end)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
@@ -116,8 +93,8 @@ end
     factor = taper * gauss_y * window
 
     # 5. Connection logic: 
-    # Hs is the height above the shelf_depth reference.
-    elevation_target = shelf_depth + Hs
+    # Zs is the absolute depth of the top of the shoal.
+    elevation_target = Zs
 
     # Take the exact max to perfectly match the coastal ramp without leakage
     potential_height = max(0.0, elevation_target - hw)
@@ -132,20 +109,21 @@ end
     dshoal_param_bottom(Ly; kwargs...)
 
 Returns a function `bottom(x, y)` for `GridFittedBottom`.
-Hs is peak height above the background shelf.
+Zs is the absolute depth of the peak of the shoal.
+Zsh is the absolute depth of the shelf.
 shoal_length (Ls) is the length scale for the x-profile ramp and taper.
 """
 function dshoal_param_bottom(Ly;
     sigma=8e3,
-    Hs=15.0,
+    Zs=-5.0,
     shoal_length=40e3,
     Ly_shoal=Ly,
-    shelf_depth=-25.0,
+    Zsh=-25.0,
     shelf_break_end=12.0e3)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
-    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Hs, half_extent, shoal_length, shelf_depth, shelf_break_end)
+    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh, shelf_break_end)
     return bottom
 end

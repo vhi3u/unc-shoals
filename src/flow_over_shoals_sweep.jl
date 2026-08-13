@@ -31,17 +31,17 @@ using CUDA: has_cuda_gpu, allowscalar
 # Read sweep parameters from environment (set by sweep_driver.jl)
 # Falls back to defaults so script can also be run standalone.
 # ═══════════════════════════════════════════════════════════════════════════
-sweep_Hs = parse(Float64, get(ENV, "SWEEP_Hs", "20.0"))
+sweep_Zs = parse(Float64, get(ENV, "SWEEP_Zs", "-5.0"))
 sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "40000.0"))
 sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
-sweep_shelf_depth = parse(Float64, get(ENV, "SWEEP_SHELF_DEPTH", "-25.0"))
+sweep_Zsh = parse(Float64, get(ENV, "SWEEP_Zsh", "-25.0"))
 sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
 sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
 
-@info "Sweep parameters: Hs=$sweep_Hs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, shelf_depth=$sweep_shelf_depth, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
+@info "Sweep parameters: Zs=$sweep_Zs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, Zsh=$sweep_Zsh, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
 # build
 @info "building domain"
@@ -99,10 +99,10 @@ end
 # model parameters
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
-        Hs=sweep_Hs,
+        Zs=sweep_Zs,
         shoal_length=sweep_shoal_length,
         sigma=sweep_sigma,
-        shelf_depth=sweep_shelf_depth,
+        Zsh=sweep_Zsh,
         shelf_break_end=sweep_shelf_break_end)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
@@ -491,9 +491,9 @@ using NCDatasets
 NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["run_label"] = sweep_run_label
     ds.attrib["run_index"] = sweep_run_index
-    ds.attrib["Hs"] = sweep_Hs
+    ds.attrib["Zs"] = sweep_Zs
     ds.attrib["shoal_length"] = sweep_shoal_length
-    ds.attrib["shelf_depth"] = sweep_shelf_depth
+    ds.attrib["Zsh"] = sweep_Zsh
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
@@ -534,9 +534,9 @@ end
  Architecture:    $(arch)
 
  ── Sweep Parameters ──
- Hs:              $(sweep_Hs) m
+ Zs (shoal_depth):$(sweep_Zs) m
  shoal_length:    $(sweep_shoal_length) m
- shelf_depth:     $(sweep_shelf_depth) m
+ Zsh (shelf_depth):$(sweep_Zsh) m
  shelf_break_end: $(sweep_shelf_break_end) m
  wind_stress:     $(sweep_wind_stress) N/m^2
  v0:              $(sweep_v0) m/s

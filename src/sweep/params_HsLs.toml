@@ -6,91 +6,91 @@
 # The PBS job array index (1-based) maps to the order of entries here.
 #
 # Parameters:
-#   Hs            - Shoal height above shelf [m]
+#   Zs            - Absolute depth of the peak of the shoal [m] (default: -5.0)
 #   shoal_length  - Horizontal extent of the shoal ridge [m]
 #   sigma         - Along-shore Gaussian width [m] (default: 8000.0)
-#   shelf_depth   - Background shelf depth [m] (default: -25.0)
+#   Zsh           - Background shelf depth [m] (default: -25.0)
 #   strat         - Stratification scenario ("default", "winter", "summer")
 #   wind_stress   - Surface wind stress [N/m^2] (default: 0.0)
 #   run_label     - A short label for output directory naming
 # ═══════════════════════════════════════════════════════════════════════════
 
-# ── Shoal Geometry Sweep (Ls = 20-40 km, Hs = 10-20 m) ─────────────────
+# ── Shoal Geometry Sweep (Ls = 20-40 km, Zs = -15 to -5 m) ─────────────────
 
 [[runs]]
-run_label     = "Hs10_Ls40k"
-Hs            = 10.0
+run_label     = "Zs15_Ls40k"
+Zs            = -15.0
 shoal_length  = 40000.0
 
 [[runs]]
-run_label     = "Hs15_Ls40k"
-Hs            = 15.0
+run_label     = "Zs10_Ls40k"
+Zs            = -10.0
 shoal_length  = 40000.0
 
 [[runs]]
-run_label     = "Hs20_Ls40k"
-Hs            = 20.0
+run_label     = "Zs5_Ls40k"
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
-run_label     = "Hs20_Ls20k"
-Hs            = 20.0
+run_label     = "Zs5_Ls20k"
+Zs            = -5.0
 shoal_length  = 20000.0
 
 [[runs]]
-run_label     = "Hs20_Ls30k"
-Hs            = 20.0
+run_label     = "Zs5_Ls30k"
+Zs            = -5.0
 shoal_length  = 30000.0
 
 # ── Shelf Depth Sweep ──────────────────────────────────────────────────
 [[runs]]
-run_label     = "ShelfH_m10"
-Hs            = 20.0
+run_label     = "Zsh_m10"
+Zs            = -5.0
 shoal_length  = 40000.0
-shelf_depth   = -10.0
+Zsh           = -10.0
 
 [[runs]]
-run_label     = "ShelfH_m50"
-Hs            = 20.0
+run_label     = "Zsh_m50"
+Zs            = -5.0
 shoal_length  = 40000.0
-shelf_depth   = -50.0
+Zsh           = -50.0
 
 # ── Wind Forcing Sweep ─────────────────────────────────────────────────
 
 [[runs]]
 run_label     = "wind_m0p05"
 wind_stress   = -0.05
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_m0p03"
 wind_stress   = -0.03
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_m0p01"
 wind_stress   = -0.01
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_0p01"
 wind_stress   = 0.01
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_0p03"
 wind_stress   = 0.03
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "wind_0p05"
 wind_stress   = 0.05
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 # ── Velocity Sweep ─────────────────────────────────────────────────────
@@ -98,11 +98,11 @@ shoal_length  = 40000.0
 [[runs]]
 run_label     = "v0_0p10"
 v0            = 0.10
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
 run_label     = "v0_0p15"
 v0            = 0.15
-Hs            = 20.0
+Zs            = -5.0
 shoal_length  = 40000.0
