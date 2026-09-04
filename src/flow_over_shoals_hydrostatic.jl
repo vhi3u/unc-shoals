@@ -99,7 +99,7 @@ else
     params = (; params..., Nx=300, Ny=400, Nz=50)
 end
 
-x, y = (0, params.Lx), (0, params.Ly)
+x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # # "Warped" height coordinate
 # refinement = 1.8
@@ -424,7 +424,7 @@ else
     error("closure_choice must be :catke, :ribased or :constant; got $(closure_choice)")
 end
 
-closure = (vertical_closure..., horizontal_closure)
+closure = (vertical_closure)
 @info "Closure ($(closure_choice)):" closure
 
 # ═══════════════════════════════════════════════════════════════════════════
