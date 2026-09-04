@@ -37,6 +37,7 @@ sigmoid_wind = true
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
+ramp_wind = true             # ramp τ over ~2 inertial periods
 if has_cuda_gpu()
     arch = GPU()
 else
@@ -50,7 +51,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 39
+run_number = 40
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -236,10 +237,41 @@ if LES
     @inline snbc(x, z, t) = S_north_pwl(z, S_north_v1)
 end
 
-# wind stress BC
+# ═══════════════════════════════════════════════════════════════════════════
+# Wind stress
+# ═══════════════════════════════════════════════════════════════════════════
+# A step-function wind at t = 0 over a 30,000 km² f-plane injects a
+# domain-filling inertial oscillation that has nothing to decay against (no β,
+# no interior dissipation) and just scatters off the shoal every 20.74 h.
+# Ramping with an e-folding time T ≫ 1/f suppresses that free inertial mode by
+# roughly 1/(fT)²: with T = 2 inertial periods, fT ≈ 12.6, so ~1%.
 ρ₀ = 1024.0
+const f₀ = 2 * 7.292115e-5 * sind(35.2480)          # 8.42e-5 s⁻¹
+const inertial_period = 2π / f₀                     # 20.74 h
+const T_ramp = ramp_wind ? 2 * inertial_period : 0.0
+const τ_kinematic = wind_stress / ρ₀                # m² s⁻²
+const Lx_c = params.Lx
+const Le_c = params.Le
+
+@info @sprintf("f = %.3e s⁻¹, inertial period = %.2f h, wind ramp = %.1f h",
+    f₀, inertial_period / 3600, T_ramp / 3600)
+
+# Offshore taper: the east sponge relaxes v → 0 over the outer Le = 50 km. If
+# the wind keeps accelerating v there, the sponge and the forcing fight each
+# other permanently. Taper the stress to zero across that same band so the wind
+# is uniform over the shelf and slope (0–100 km) and absent where the sponge
+# takes over. Set sigmoid_wind = false for a genuinely uniform wind.
+@inline wind_shape(x) = 0.5 * (1 - tanh((x - (Lx_c - Le_c)) / (0.25 * Le_c)))
+@inline wind_ramp(t) = ifelse(T_ramp > 0, 1 - exp(-t / T_ramp), one(t))
+
+if sigmoid_wind
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t) * wind_shape(x)
+else
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t)
+end
+
 wind_bc_u = FluxBoundaryCondition(0.0)
-wind_bc_v = FluxBoundaryCondition(-wind_stress / ρ₀)
+wind_bc_v = FluxBoundaryCondition(wind_v_flux)
 
 # velocity function
 @inline function sigmoidal_s2(x, Lx)
@@ -338,11 +370,12 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
+vertical_closure = VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
-        closure=RiBasedVerticalDiffusivity(),
+        closure=vertical_closure,
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
@@ -354,7 +387,7 @@ else
     model = NonhydrostaticModel(ib_grid;
         timestepper=:RungeKutta3,
         advection=WENO(order=5),
-        closure=RiBasedVerticalDiffusivity(),
+        closure=vertical_closure,
         hydrostatic_pressure_anomaly=CenterField(ib_grid),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),

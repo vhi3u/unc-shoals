@@ -451,7 +451,7 @@ overwrite_existing = (pickup === false)
 
 simulation = Simulation(model, Δt=initial_Δt, stop_time=sim_runtime)
 # max_Δt comes from the bottom-drag stability limit computed above, not a guess.
-conjure_time_step_wizard!(simulation, IterationInterval(10); cfl=0.5, max_Δt=max_Δt)
+conjure_time_step_wizard!(simulation, cfl=0.7, max_Δt=max_Δt)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
