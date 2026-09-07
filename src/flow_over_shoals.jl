@@ -51,7 +51,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 41
+run_number = 42
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -129,7 +129,7 @@ params = (; params...,
     v₀=v₀,
     Ls=20e3,
     Le=50e3,
-    τ=12hours,
+    τ=24hours,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -353,12 +353,13 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-vertical_closure = VerticalScalarDiffusivity(ν=1e-3, κ=1e-3)
+vertical_closure = VerticalScalarDiffusivity(ν=1e-5, κ=1e-5)
+horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
         advection=WENO(order=5),
-        closure=vertical_closure,
+        closure=(horizontal_closure, vertical_closure),
         pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
         tracers=(:T, :S),
         buoyancy=SeawaterBuoyancy(),
