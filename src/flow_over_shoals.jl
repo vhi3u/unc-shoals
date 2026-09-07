@@ -51,7 +51,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 40
+run_number = 41
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -87,30 +87,13 @@ else
     params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
 end
 
-x, y = (0, params.Lx), (0, params.Ly)
-
-# "Warped" height coordinate
-refinement = 1.8
-stretching = 12
-Nz_grid = params.Nz
-
-# Normalized height ranging from 0 to 1 (0 at bottom, 1 at top)
-h_grid(k) = (k - 1) / Nz_grid
-
-# Linear near-surface generator
-ζ₀(k) = 1 + (h_grid(k) - 1) / refinement
-
-# Bottom-intensified stretching function
-Σ(k) = (1 - exp(-stretching * h_grid(k))) / (1 - exp(-stretching))
-
-# Generating function (maps k=1 to -params.Lz and k=Nz_grid+1 to 0)
-z_faces(k) = params.Lz * (ζ₀(k) * Σ(k) - 1)
+x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # grid  
 if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z=z_faces, topology=(Bounded, Periodic, Bounded))
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z=z_faces, topology=(Bounded, Bounded, Bounded))
+    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
 end
 
 # model parameters
@@ -370,7 +353,7 @@ end
 reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
-vertical_closure = VerticalScalarDiffusivity(ν=1e-4, κ=1e-4)
+vertical_closure = VerticalScalarDiffusivity(ν=1e-3, κ=1e-3)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;
