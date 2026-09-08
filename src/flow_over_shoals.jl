@@ -51,7 +51,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 42
+run_number = 43
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
@@ -354,7 +354,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 vertical_closure = VerticalScalarDiffusivity(ν=1e-5, κ=1e-5)
-horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
+horizontal_closure = HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;

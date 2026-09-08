@@ -77,14 +77,14 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 45
+run_number = 46
 callback_interval = 1days
 snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
                                     # daily output aliases it into fake bands
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
 pickup = false
-wind_stress = 0.10                  # N m⁻²
+wind_stress = 0.0                  # N m⁻²
 sim_runtime = 25days
 @info "Starting hydrostatic run $(run_tag)."
 
@@ -158,7 +158,7 @@ params = (; params...,
     v₀=v₀,
     Ls=20e3,
     Le=50e3,
-    τ=24hours,
+    τ=6hours,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -332,7 +332,7 @@ const inflow_mask = south_mask
 # forcing functions — note there is no w sponge: w is diagnosed from continuity
 # in the hydrostatic model and cannot (and should not) be relaxed.
 
-inflow_scaling = 5 # use this if you want the southern inflow sponge nudging to be a lot stronger (to dissipate the downstream wake into the periodic boundary)
+sponge_scaling = 1 # use this if you want the southern inflow sponge nudging to be a lot stronger (to dissipate the downstream wake into the periodic boundary)
 u_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=0.0)
 u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
