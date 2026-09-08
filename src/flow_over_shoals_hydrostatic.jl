@@ -332,7 +332,7 @@ const inflow_mask = south_mask
 # forcing functions — note there is no w sponge: w is diagnosed from continuity
 # in the hydrostatic model and cannot (and should not) be relaxed.
 
-sponge_scaling = 1 # use this if you want the southern inflow sponge nudging to be a lot stronger (to dissipate the downstream wake into the periodic boundary)
+inflow_scaling = 1 # use this if you want the southern inflow sponge nudging to be a lot stronger (to dissipate the downstream wake into the periodic boundary)
 u_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=0.0)
 u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
