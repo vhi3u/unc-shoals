@@ -72,7 +72,7 @@ run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 # end
 
 pickup = false
-wind_stress = 0.05    # No wind for 1st spin-up run
+wind_stress = 0.00    # No wind for 1st spin-up run
 sim_runtime = 25days
 @info "Starting initial 50-day spin-up run with zero wind."
 
