@@ -445,8 +445,8 @@ else
 end
 overwrite_existing = (pickup === false)
 
-simulation = Simulation(model, Δt=initial_Δt, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7, max_Δt=max_Δt)
+simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
+conjure_time_step_wizard!(simulation, cfl=0.7)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
