@@ -58,38 +58,38 @@ Zsh           = -50.0
 # ── Wind Forcing Sweep ─────────────────────────────────────────────────
 
 [[runs]]
+run_label     = "wind_m0p15"
+wind_stress   = -0.15
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_m0p10"
+wind_stress   = -0.10
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
 run_label     = "wind_m0p05"
 wind_stress   = -0.05
 Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
-run_label     = "wind_m0p03"
-wind_stress   = -0.03
-Zs            = -5.0
-shoal_length  = 40000.0
-
-[[runs]]
-run_label     = "wind_m0p01"
-wind_stress   = -0.01
-Zs            = -5.0
-shoal_length  = 40000.0
-
-[[runs]]
-run_label     = "wind_0p01"
-wind_stress   = 0.01
-Zs            = -5.0
-shoal_length  = 40000.0
-
-[[runs]]
-run_label     = "wind_0p03"
-wind_stress   = 0.03
-Zs            = -5.0
-shoal_length  = 40000.0
-
-[[runs]]
 run_label     = "wind_0p05"
 wind_stress   = 0.05
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_0p10"
+wind_stress   = 0.10
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_0p15"
+wind_stress   = 0.15
 Zs            = -5.0
 shoal_length  = 40000.0
 
