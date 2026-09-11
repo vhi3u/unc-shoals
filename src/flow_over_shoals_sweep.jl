@@ -10,10 +10,8 @@
 using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: OpenBoundaryCondition, FieldBoundaryConditions
+using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
-using Oceananigans.Solvers: ConjugateGradientPoissonSolver, FFTBasedPoissonSolver
-using Oceananigans.Models: buoyancy_operation
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
@@ -53,9 +51,16 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
+sigmoid_wind = true          # taper wind to zero across the east sponge
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
+ramp_wind = true             # ramp τ over ~2 inertial periods
+
+# Vertical mixing closure. :catke is the recommended production choice;
+# :ribased and :constant exist so the wind run can be repeated against the
+# closure used in shoals38/39 without changing anything else.
+closure_choice = :catke      # :catke | :ribased | :constant
 if has_cuda_gpu()
     arch = GPU()
 else
@@ -132,7 +137,7 @@ params = (; params...,
     Ls=20e3,
     Le=50e3,
     Lw=10e3,
-    τ=24hours,
+    τ=6hours,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -256,10 +261,36 @@ if LES
     @inline snbc(x, z, t) = S_north_pwl(z, S_north_v1)
 end
 
-# wind stress BC
+# ═══════════════════════════════════════════════════════════════════════════
+# Wind stress
+# ═══════════════════════════════════════════════════════════════════════════
 ρ₀ = 1024.0
+const f₀ = 2 * 7.292115e-5 * sind(35.2480)          # 8.42e-5 s⁻¹
+const inertial_period = 2π / f₀                     # 20.74 h
+const T_ramp = ramp_wind ? 2 * inertial_period : 0.0
+const τ_kinematic = sweep_wind_stress / ρ₀         # m² s⁻²
+const Lx_c = params.Lx
+const Le_c = params.Le
+
+@info @sprintf("f = %.3e s⁻¹, inertial period = %.2f h, wind ramp = %.1f h",
+    f₀, inertial_period / 3600, T_ramp / 3600)
+
+# Offshore taper: the east sponge relaxes v → 0 over the outer Le = 50 km. If
+# the wind keeps accelerating v there, the sponge and the forcing fight each
+# other permanently. Taper the stress to zero across that same band so the wind
+# is uniform over the shelf and slope (0–100 km) and absent where the sponge
+# takes over. Set sigmoid_wind = false for a genuinely uniform wind.
+@inline wind_shape(x) = 0.5 * (1 - tanh((x - (Lx_c - Le_c)) / (0.25 * Le_c)))
+@inline wind_ramp(t) = ifelse(T_ramp > 0, 1 - exp(-t / T_ramp), one(t))
+
+if sigmoid_wind
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t) * wind_shape(x)
+else
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t)
+end
+
 wind_bc_u = FluxBoundaryCondition(0.0)
-wind_bc_v = FluxBoundaryCondition(-sweep_wind_stress / ρ₀)
+wind_bc_v = FluxBoundaryCondition(wind_v_flux)
 
 @inline function sigmoidal_s2(x, Lx)
     xS = 65e3
@@ -304,7 +335,8 @@ const T_target = T_target_south
 const S_target = S_target_south
 const inflow_mask = south_mask
 
-# forcing functions
+# forcing functions — note there is no w sponge: w is diagnosed from continuity
+# in the hydrostatic model and cannot (and should not) be relaxed.
 if periodic_y
     u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
@@ -312,25 +344,15 @@ if periodic_y
     v_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=v_target_inflow)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    w_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
-    w_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
-
     T_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=T_target)
     T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
 
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
-    # Add geostrophic background pressure gradient to balance the target v-velocity
-    # Equation: -fv = -(1/ρ)∂p/∂x  =>  F_u = -f * v_target
-    f_coriolis = 2 * (2 * pi / 86400) * sin(deg2rad(35.2480))
-    @inline geostrophic_pressure_gradient_x(x, y, z, t, p) = -p.f * v∞(x, z, t, p)
-    u_geostrophic_forcing = Forcing(geostrophic_pressure_gradient_x, parameters=(; global_params..., f=f_coriolis))
-
     if mass_flux
         forcings = (u=(u_sponge_inflow, u_sponge_e),
             v=(v_sponge_inflow, v_sponge_e),
-            w=(w_sponge_inflow, w_sponge_e),
             T=(T_sponge_inflow, T_sponge_e),
             S=(S_sponge_inflow, S_sponge_e))
     else
@@ -343,54 +365,63 @@ if periodic_y
     S_bcs = FieldBoundaryConditions()
     u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_u)
     v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=drag)
 else
-    open_bc = OpenBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection())
-    open_zero = OpenBoundaryCondition(0.0)
+    northern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
+    southern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
+    eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
+
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-    u_bcs = FieldBoundaryConditions(immersed=drag)
-    v_bcs = FieldBoundaryConditions(immersed=drag, north=open_bc, south=open_bc, top=wind_bc_v)
-    w_bcs = FieldBoundaryConditions(immersed=drag)
+
+    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, south=ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)), east=eastern_bc, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=northern_bc, south=southern_bc, east=ValueBoundaryCondition(0.0), top=wind_bc_v)
 end
 
-bcs = (u=u_bcs, v=v_bcs, w=w_bcs, T=T_bcs, S=S_bcs)
+bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+@info "Boundary Conditions:" bcs
+
 if is_coriolis
     coriolis = FPlane(latitude=35.2480)
 else
     coriolis = nothing
 end
 
-reltol = sqrt(eps(grid))
-abstol = sqrt(eps(grid))
-
-
-turbulent_closure = (HorizontalScalarDiffusivity(ν=params.νh, κ=params.κh), VerticalScalarDiffusivity(ν=1e-6, κ=1e-6))
-if periodic_y
-    model = NonhydrostaticModel(ib_grid;
-        advection=WENO(order=5),
-        closure=turbulent_closure,
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
+# ═══════════════════════════════════════════════════════════════════════════
+# Turbulence closure
+# ═══════════════════════════════════════════════════════════════════════════
+if closure_choice === :catke
+    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4)
+    vertical_closure = CATKEVerticalDiffusivity()
+    tracers = (:T, :S)
+elseif closure_choice === :ribased
+    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
+    vertical_closure = RiBasedVerticalDiffusivity()
+    tracers = (:T, :S)
+elseif closure_choice === :constant
+    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
+    vertical_closure = VerticalScalarDiffusivity(ν=1e-4, κ=1e-5)
+    tracers = (:T, :S)
 else
-    model = NonhydrostaticModel(ib_grid;
-        timestepper=:RungeKutta3,
-        advection=WENO(order=5),
-        closure=turbulent_closure,
-        hydrostatic_pressure_anomaly=CenterField(ib_grid),
-        pressure_solver=ConjugateGradientPoissonSolver(ib_grid, reltol=reltol, abstol=abstol, maxiter=100),
-        tracers=(:T, :S),
-        buoyancy=SeawaterBuoyancy(),
-        coriolis=coriolis,
-        boundary_conditions=bcs,
-        forcing=forcings
-    )
+    error("closure_choice must be :catke, :ribased or :constant; got $(closure_choice)")
 end
+
+closure = (horizontal_closure, vertical_closure)
+@info "Closure ($(closure_choice)):" closure
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Model
+# ═══════════════════════════════════════════════════════════════════════════
+model = HydrostaticFreeSurfaceModel(ib_grid;
+    momentum_advection=WENO(order=5),
+    tracer_advection=WENO(order=5),
+    free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
+    tracers=tracers,
+    buoyancy=SeawaterBuoyancy(),
+    coriolis=coriolis,
+    closure=closure,
+    boundary_conditions=bcs,
+    forcing=forcings
+)
 
 @info "" model
 
@@ -414,21 +445,11 @@ else
 end
 overwrite_existing = (pickup === false)
 
-simulation = Simulation(model, Δt=15minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.4)
+simulation = Simulation(model, Δt=initial_Δt, stop_time=sim_runtime)
+conjure_time_step_wizard!(simulation, cfl=0.7, max_Δt=max_Δt)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
-
-function print_solver_iterations(sim)
-    solver = sim.model.pressure_solver
-    if hasproperty(solver, :conjugate_gradient_solver)
-        cg = solver.conjugate_gradient_solver
-        @info @sprintf("Pressure solver: %d CG iterations (t = %.2f days)",
-            cg.iteration, time(sim) / 86400)
-    end
-end
-simulation.callbacks[:solver_iters] = Callback(print_solver_iterations, TimeInterval(callback_interval))
 
 u, v, w = model.velocities
 T = model.tracers.T
@@ -518,7 +539,11 @@ if pickup === false
         @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
     end
 
-    set!(model, u=0.0, v=v_init, w=0.0, T=Tᵢ, S=Sᵢ)
+    if closure_choice === :catke
+        set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ, e=1e-6)
+    else
+        set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
+    end
 else
     @info "Skipping initial conditions setup — loading fields from checkpoint $(pickup)."
 end
