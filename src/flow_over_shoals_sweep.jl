@@ -87,19 +87,46 @@ else
     params = (; Lx=150000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=60, Ny=60, Nz=10, νh=1.0, κh=1.0)
+    params = (; params..., Nx=60, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
+    params = (; params..., Nx=300, Ny=400, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
-# grid  
+# grid
 if periodic_y
     grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
 else
     grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
 end
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Horizontal closure coefficients: biharmonic (scale-selective), not Laplacian.
+#
+# A Laplacian closure damps a Fourier mode at rate ν·k²; biharmonic damps at
+# ν₄·k⁴. The k⁴ scaling makes it possible to strongly damp grid-scale noise
+# (large k) while barely touching resolved meso/submesoscale features (small
+# k) — a plain Laplacian can't do that without either being useless (as the
+# old ν=κ=1e-4 m²/s was here) or over-mixing the whole flow.
+#
+# Coefficient follows Griffies & Hallberg (2000): the grid Reynolds number
+#   Re4 = U_char * Δx^3 / ν4
+# should be ≲ 16 for the operator to adequately dissipate grid-scale noise;
+# smaller Re4 (larger ν4) damps more aggressively. ν4 is computed from the
+# ACTUAL grid spacing so it self-adapts between the CPU debug grid and GPU
+# production grid, rather than being hardcoded per architecture.
+# ═══════════════════════════════════════════════════════════════════════════
+biharmonic_Uchar = 0.5   # m/s, characteristic velocity
+biharmonic_Re4 = 8.0     # grid Reynolds number (≤16, Griffies & Hallberg 2000)
+
+const Δx_h = min(Oceananigans.Grids.minimum_xspacing(grid, Center(), Center(), Center()),
+    Oceananigans.Grids.minimum_yspacing(grid, Center(), Center(), Center()))
+const ν₄ = biharmonic_Uchar * Δx_h^3 / biharmonic_Re4
+const κ₄ = ν₄  # unit Prandtl number for the hyperviscous/hyperdiffusive operator
+
+@info @sprintf("Biharmonic horizontal closure: Δx=%.1f m, U_char=%.2f m/s, Re4=%.1f -> ν4=κ4=%.3e m^4/s",
+    Δx_h, biharmonic_Uchar, biharmonic_Re4, ν₄)
 
 # model parameters
 if shoal_bath
@@ -389,16 +416,15 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 # Turbulence closure
 # ═══════════════════════════════════════════════════════════════════════════
+horizontal_closure = HorizontalScalarBiharmonicDiffusivity(ν=ν₄, κ=κ₄)
+
 if closure_choice === :catke
-    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4)
     vertical_closure = CATKEVerticalDiffusivity()
     tracers = (:T, :S)
 elseif closure_choice === :ribased
-    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
     vertical_closure = RiBasedVerticalDiffusivity()
     tracers = (:T, :S)
 elseif closure_choice === :constant
-    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
     vertical_closure = VerticalScalarDiffusivity(ν=1e-4, κ=1e-5)
     tracers = (:T, :S)
 else
@@ -446,7 +472,10 @@ end
 overwrite_existing = (pickup === false)
 
 simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+# diffusive_cfl defaults to Inf in Oceananigans (i.e. unchecked) unless set
+# explicitly — without it, nothing limits Δt against the biharmonic term's
+# stability requirement (Δt ≲ Δx⁴/ν4), so it must be passed here.
+conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -518,6 +547,9 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
+    ds.attrib["biharmonic_Uchar"] = biharmonic_Uchar
+    ds.attrib["biharmonic_Re4"] = biharmonic_Re4
+    ds.attrib["nu4"] = ν₄
 end
 
 # initial conditions
@@ -565,6 +597,12 @@ end
  shelf_break_end: $(sweep_shelf_break_end) m
  wind_stress:     $(sweep_wind_stress) N/m^2
  v0:              $(sweep_v0) m/s
+
+ ── Biharmonic Horizontal Closure ──
+ Δx (min):        $(Δx_h) m
+ U_char:          $(biharmonic_Uchar) m/s
+ Re4:             $(biharmonic_Re4)
+ ν4 = κ4:         $(ν₄) m^4/s
 
  ── Switches ──
  LES:             $(LES)
