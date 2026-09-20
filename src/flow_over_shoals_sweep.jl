@@ -488,16 +488,16 @@ S = model.tracers.S
 # The built-in NaN checker only runs every 100 iterations by default — too
 # coarse to catch a fast-developing blow-up before it corrupts Δt and
 # crashes deep inside the free-surface solver with a cryptic InexactError.
-# Check every iteration and error immediately, naming the offending field.
 #
-# CATKE's diffusivities (κu, κc, κe) are also watched directly, not just the
-# prognostic fields: CATKE clips them with `min(κ, κ_max)`, but Julia's
-# min/max do NOT protect against NaN (min(NaN, 5.0) === NaN, verified), so a
-# NaN produced inside CATKE's mixing-length/turbulent-velocity calculation
-# sails straight through that "safety" clamp. Watching κu/κc/κe separately
-# from u/v/w/T/S tells us whether a blow-up starts inside CATKE's own
-# diffusivity calculation or directly in the momentum field from the new
-# biharmonic operator.
+# NaNChecker itself only reports the FIRST field (in listed order) that's
+# NaN, then throws — it never checks the rest in that call. That's not
+# enough to tell whether a blow-up starts inside CATKE's diffusivity
+# calculation (κu/κc/κe) and only reaches u/v afterward within the same
+# step, or starts directly in the momentum field from the biharmonic
+# operator. (CATKE clips its diffusivities with `min(κ, κ_max)`, but
+# min(NaN, 5.0) === NaN in Julia — verified — so that clamp doesn't stop a
+# NaN from propagating either way.) So check every iteration, but report
+# the FULL set of fields that are NaN, not just the first match.
 if closure_choice === :catke
     # Look up CATKE's fields by structure, not position: the biharmonic
     # closure's fields are always `nothing` (it's a prescribed diffusivity,
@@ -508,16 +508,23 @@ if closure_choice === :catke
     isnothing(catke_idx) && error("Expected one non-nothing entry in model.closure_fields " *
                                    "(CATKE's) but found none: $(model.closure_fields)")
     catke_fields = model.closure_fields[catke_idx]
-    simulation.callbacks[:nan_checker] = Callback(
-        NaNChecker(fields=(; u, v, w, e=model.tracers.e, T, S,
-                κu=catke_fields.κu, κc=catke_fields.κc, κe=catke_fields.κe),
-            erroring=true),
-        IterationInterval(1))
+    nan_check_fields = (; u, v, w, e=model.tracers.e, T, S,
+        κu=catke_fields.κu, κc=catke_fields.κc, κe=catke_fields.κe)
 else
-    simulation.callbacks[:nan_checker] = Callback(
-        NaNChecker(fields=(; u, v, w, T, S), erroring=true),
-        IterationInterval(1))
+    nan_check_fields = (; u, v, w, T, S)
 end
+
+function full_nan_report(simulation)
+    bad = [String(name) for (name, f) in pairs(nan_check_fields) if any(isnan, parent(f))]
+    if !isempty(bad)
+        simulation.running = false
+        t = simulation.model.clock.time
+        iter = simulation.model.clock.iteration
+        error("time = $t, iteration = $iter: NaN found in field(s) $(join(bad, ", ")). Aborting simulation.")
+    end
+    return nothing
+end
+simulation.callbacks[:nan_checker] = Callback(full_nan_report, IterationInterval(1))
 
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
