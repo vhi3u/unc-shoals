@@ -499,7 +499,15 @@ S = model.tracers.S
 # diffusivity calculation or directly in the momentum field from the new
 # biharmonic operator.
 if closure_choice === :catke
-    catke_fields = model.closure_fields[2]  # closure = (horizontal_closure, vertical_closure)
+    # Look up CATKE's fields by structure, not position: the biharmonic
+    # closure's fields are always `nothing` (it's a prescribed diffusivity,
+    # nothing to precompute), so CATKE's is simply the one non-nothing
+    # entry — this avoids assuming (and getting wrong) which tuple slot
+    # Oceananigans stores it in internally.
+    catke_idx = findfirst(cf -> cf !== nothing, model.closure_fields)
+    isnothing(catke_idx) && error("Expected one non-nothing entry in model.closure_fields " *
+                                   "(CATKE's) but found none: $(model.closure_fields)")
+    catke_fields = model.closure_fields[catke_idx]
     simulation.callbacks[:nan_checker] = Callback(
         NaNChecker(fields=(; u, v, w, e=model.tracers.e, T, S,
                 κu=catke_fields.κu, κc=catke_fields.κc, κe=catke_fields.κe),
