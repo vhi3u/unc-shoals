@@ -12,6 +12,7 @@ using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
+using Oceananigans.Diagnostics: NaNChecker
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
@@ -483,6 +484,33 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_inter
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
+
+# The built-in NaN checker only runs every 100 iterations by default — too
+# coarse to catch a fast-developing blow-up before it corrupts Δt and
+# crashes deep inside the free-surface solver with a cryptic InexactError.
+# Check every iteration and error immediately, naming the offending field.
+#
+# CATKE's diffusivities (κu, κc, κe) are also watched directly, not just the
+# prognostic fields: CATKE clips them with `min(κ, κ_max)`, but Julia's
+# min/max do NOT protect against NaN (min(NaN, 5.0) === NaN, verified), so a
+# NaN produced inside CATKE's mixing-length/turbulent-velocity calculation
+# sails straight through that "safety" clamp. Watching κu/κc/κe separately
+# from u/v/w/T/S tells us whether a blow-up starts inside CATKE's own
+# diffusivity calculation or directly in the momentum field from the new
+# biharmonic operator.
+if closure_choice === :catke
+    catke_fields = model.closure_fields[2]  # closure = (horizontal_closure, vertical_closure)
+    simulation.callbacks[:nan_checker] = Callback(
+        NaNChecker(fields=(; u, v, w, e=model.tracers.e, T, S,
+                κu=catke_fields.κu, κc=catke_fields.κc, κe=catke_fields.κe),
+            erroring=true),
+        IterationInterval(1))
+else
+    simulation.callbacks[:nan_checker] = Callback(
+        NaNChecker(fields=(; u, v, w, T, S), erroring=true),
+        IterationInterval(1))
+end
+
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
 b_op = Oceananigans.Models.buoyancy_operation(model)
