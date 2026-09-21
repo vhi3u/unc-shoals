@@ -12,7 +12,6 @@ using Oceananigans.Grids: Periodic, Bounded
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
-using Oceananigans.Diagnostics: NaNChecker
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
@@ -101,33 +100,6 @@ if periodic_y
 else
     grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
 end
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Horizontal closure coefficients: biharmonic (scale-selective), not Laplacian.
-#
-# A Laplacian closure damps a Fourier mode at rate ν·k²; biharmonic damps at
-# ν₄·k⁴. The k⁴ scaling makes it possible to strongly damp grid-scale noise
-# (large k) while barely touching resolved meso/submesoscale features (small
-# k) — a plain Laplacian can't do that without either being useless (as the
-# old ν=κ=1e-4 m²/s was here) or over-mixing the whole flow.
-#
-# Coefficient follows Griffies & Hallberg (2000): the grid Reynolds number
-#   Re4 = U_char * Δx^3 / ν4
-# should be ≲ 16 for the operator to adequately dissipate grid-scale noise;
-# smaller Re4 (larger ν4) damps more aggressively. ν4 is computed from the
-# ACTUAL grid spacing so it self-adapts between the CPU debug grid and GPU
-# production grid, rather than being hardcoded per architecture.
-# ═══════════════════════════════════════════════════════════════════════════
-biharmonic_Uchar = 0.5   # m/s, characteristic velocity
-biharmonic_Re4 = 8.0     # grid Reynolds number (≤16, Griffies & Hallberg 2000)
-
-const Δx_h = min(Oceananigans.Grids.minimum_xspacing(grid, Center(), Center(), Center()),
-    Oceananigans.Grids.minimum_yspacing(grid, Center(), Center(), Center()))
-const ν₄ = biharmonic_Uchar * Δx_h^3 / biharmonic_Re4
-const κ₄ = ν₄  # unit Prandtl number for the hyperviscous/hyperdiffusive operator
-
-@info @sprintf("Biharmonic horizontal closure: Δx=%.1f m, U_char=%.2f m/s, Re4=%.1f -> ν4=κ4=%.3e m^4/s",
-    Δx_h, biharmonic_Uchar, biharmonic_Re4, ν₄)
 
 # model parameters
 if shoal_bath
@@ -417,7 +389,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 # Turbulence closure
 # ═══════════════════════════════════════════════════════════════════════════
-horizontal_closure = HorizontalScalarBiharmonicDiffusivity(ν=ν₄, κ=κ₄)
+horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
 
 if closure_choice === :catke
     vertical_closure = CATKEVerticalDiffusivity()
@@ -473,10 +445,7 @@ end
 overwrite_existing = (pickup === false)
 
 simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
-# diffusive_cfl defaults to Inf in Oceananigans (i.e. unchecked) unless set
-# explicitly — without it, nothing limits Δt against the biharmonic term's
-# stability requirement (Δt ≲ Δx⁴/ν4), so it must be passed here.
-conjure_time_step_wizard!(simulation, cfl=0.7, diffusive_cfl=0.7)
+conjure_time_step_wizard!(simulation, cfl=0.7)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -484,48 +453,6 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_inter
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-
-# The built-in NaN checker only runs every 100 iterations by default — too
-# coarse to catch a fast-developing blow-up before it corrupts Δt and
-# crashes deep inside the free-surface solver with a cryptic InexactError.
-#
-# NaNChecker itself only reports the FIRST field (in listed order) that's
-# NaN, then throws — it never checks the rest in that call. That's not
-# enough to tell whether a blow-up starts inside CATKE's diffusivity
-# calculation (κu/κc/κe) and only reaches u/v afterward within the same
-# step, or starts directly in the momentum field from the biharmonic
-# operator. (CATKE clips its diffusivities with `min(κ, κ_max)`, but
-# min(NaN, 5.0) === NaN in Julia — verified — so that clamp doesn't stop a
-# NaN from propagating either way.) So check every iteration, but report
-# the FULL set of fields that are NaN, not just the first match.
-if closure_choice === :catke
-    # Look up CATKE's fields by structure, not position: the biharmonic
-    # closure's fields are always `nothing` (it's a prescribed diffusivity,
-    # nothing to precompute), so CATKE's is simply the one non-nothing
-    # entry — this avoids assuming (and getting wrong) which tuple slot
-    # Oceananigans stores it in internally.
-    catke_idx = findfirst(cf -> cf !== nothing, model.closure_fields)
-    isnothing(catke_idx) && error("Expected one non-nothing entry in model.closure_fields " *
-                                   "(CATKE's) but found none: $(model.closure_fields)")
-    catke_fields = model.closure_fields[catke_idx]
-    nan_check_fields = (; u, v, w, e=model.tracers.e, T, S,
-        κu=catke_fields.κu, κc=catke_fields.κc, κe=catke_fields.κe)
-else
-    nan_check_fields = (; u, v, w, T, S)
-end
-
-function full_nan_report(simulation)
-    bad = [String(name) for (name, f) in pairs(nan_check_fields) if any(isnan, parent(f))]
-    if !isempty(bad)
-        simulation.running = false
-        t = simulation.model.clock.time
-        iter = simulation.model.clock.iteration
-        error("time = $t, iteration = $iter: NaN found in field(s) $(join(bad, ", ")). Aborting simulation.")
-    end
-    return nothing
-end
-simulation.callbacks[:nan_checker] = Callback(full_nan_report, IterationInterval(1))
-
 Ro = @at (Center, Center, Center) RossbyNumber(model)
 KE = @at (Center, Center, Center) KineticEnergy(model)
 b_op = Oceananigans.Models.buoyancy_operation(model)
@@ -590,9 +517,6 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
-    ds.attrib["biharmonic_Uchar"] = biharmonic_Uchar
-    ds.attrib["biharmonic_Re4"] = biharmonic_Re4
-    ds.attrib["nu4"] = ν₄
 end
 
 # initial conditions
@@ -640,12 +564,6 @@ end
  shelf_break_end: $(sweep_shelf_break_end) m
  wind_stress:     $(sweep_wind_stress) N/m^2
  v0:              $(sweep_v0) m/s
-
- ── Biharmonic Horizontal Closure ──
- Δx (min):        $(Δx_h) m
- U_char:          $(biharmonic_Uchar) m/s
- Re4:             $(biharmonic_Re4)
- ν4 = κ4:         $(ν₄) m^4/s
 
  ── Switches ──
  LES:             $(LES)
