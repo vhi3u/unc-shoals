@@ -84,7 +84,7 @@ snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
 pickup = false
-wind_stress = 0.00                  # N m⁻²
+wind_stress = 0.15                  # N m⁻²
 sim_runtime = 25days
 @info "Starting hydrostatic run $(run_tag)."
 
@@ -580,7 +580,6 @@ end
  wind_stress:      $(wind_stress) N/m^2
  wind ramp:        $(T_ramp / 3600) h
  vertical closure: $(closure_choice)
- horizontal ν₄:    $(ν₄) m^4/s
  Cᴰ:               $(c_dz)
  max_Δt:           $(max_Δt) s
 
