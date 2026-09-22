@@ -82,9 +82,9 @@ else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
 if arch == CPU()
-    params = (; params..., Nx=50, Ny=50, Nz=10, νh=10.0, κh=10.0)
+    params = (; params..., Nx=50, Ny=50, Nz=10)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50, νh=1e-5, κh=1e-5)
+    params = (; params..., Nx=300, Ny=400, Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -354,7 +354,7 @@ reltol = sqrt(eps(grid))
 abstol = sqrt(eps(grid))
 
 vertical_closure = VerticalScalarDiffusivity(ν=1e-5, κ=1e-5)
-horizontal_closure = HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4)
+horizontal_closure = HorizontalScalarBiharmonicDiffusivity(ν=1e5)
 
 if periodic_y
     model = NonhydrostaticModel(ib_grid;

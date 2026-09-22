@@ -77,10 +77,10 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 49
+run_number = 50
 callback_interval = 1days
 snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
-                                    # daily output aliases it into fake bands
+# daily output aliases it into fake bands
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
 pickup = false
@@ -412,7 +412,7 @@ if closure_choice === :catke
     # NOTE: do NOT list :e here. CATKE registers it as an auxiliary tracer and
     # the model constructor throws if you also name it explicitly. It still
     # shows up as model.tracers.e after construction.
-    horizontal_closure = HorizontalScalarDiffusivity(ν=1e-4, κ=1e-4)
+    horizontal_closure = HorizontalScalarBiharmonicDiffusivity(ν=1e5)
     vertical_closure = CATKEVerticalDiffusivity()
     tracers = (:T, :S)
 elseif closure_choice === :ribased
