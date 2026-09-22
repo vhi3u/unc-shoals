@@ -53,7 +53,7 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
-sigmoid_wind = true          # taper wind to zero across the east sponge
+sigmoid_wind = false          # taper wind to zero across the east sponge
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
@@ -77,7 +77,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 52
+run_number = 53
 callback_interval = 1days
 snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
