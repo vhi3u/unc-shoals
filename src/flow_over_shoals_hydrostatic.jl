@@ -77,7 +77,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 53
+run_number = 54
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -429,7 +429,8 @@ else
     error("closure_choice must be :catke, :ribased or :constant; got $(closure_choice)")
 end
 
-closure = (horizontal_closure, vertical_closure)
+# closure = (horizontal_closure, vertical_closure)
+closure = vertical_closure
 @info "Closure ($(closure_choice)):" closure
 
 # ═══════════════════════════════════════════════════════════════════════════
