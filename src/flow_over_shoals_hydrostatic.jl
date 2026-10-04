@@ -77,7 +77,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 56
+run_number = 57
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -89,14 +89,21 @@ sim_runtime = 25days
 @info "Starting hydrostatic run $(run_tag)."
 
 if LES
-    params = (; Lx=150e3, Ly=200e3, Lz=50)
+    params = (; Lx=250e3, Ly=200e3, Lz=50)
 else
     params = (; Lx=100000, Ly=200000, Lz=50)
 end
+
+# Horizontal grid spacing is the knob, not Nx/Ny. Deriving the counts from Δh
+# means changing Lx can never silently change the resolution (and vice versa).
+Δh = 250.0   # m
 if arch == CPU()
     params = (; params..., Nx=50, Ny=50, Nz=10)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50)
+    params = (; params...,
+        Nx=round(Int, params.Lx / Δh),
+        Ny=round(Int, params.Ly / Δh),
+        Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -159,6 +166,13 @@ params = (; params...,
     Ls=20e3,
     Le=50e3,
     τ=6hours,
+    # Far-field T/S restoring. A 6 h rate sits inside the eddy turnover band
+    # (1.8–6.6 h at Ro = 0.5–1.8), so it was erasing offshore T/S anomalies
+    # within ~5–15 km of entering the sponge — i.e. absorbing the very offshore
+    # transport signal we want to measure. A far-field sponge only has to beat
+    # secular drift over the 25 d run, so it should be slower than the eddies
+    # and faster than the run: 3 days sits cleanly between.
+    τ_far=3days,
     T_north_v1=T_north_v1,
     T_south_v1=T_south_v1,
     S_north_v1=S_north_v1,
@@ -291,19 +305,25 @@ wind_bc_u = FluxBoundaryCondition(0.0)
 wind_bc_v = FluxBoundaryCondition(wind_v_flux)
 
 # velocity function
-@inline function sigmoidal_s2(x, Lx)
+# NOTE: these sigmoid widths were originally tied to Lx (k = 80/Lx, 40/Lx), which
+# meant widening the domain silently rebroadened the inflow profile and broke
+# comparability with earlier runs. They are now pinned to the Lx = 150 km shape
+# that runs ≤56 used, so Lx and the inflow profile are independent knobs.
+const k1_fixed = 80 / 150e3     # coastal sigmoid, e-folding width 1875 m
+const k2_fixed = 40 / 150e3     # offshore sigmoid, e-folding width 3750 m
+
+@inline function sigmoidal_s2(x)
     xS = 65e3
-    k2 = 40 / Lx
-    return 1 / (1 + exp(k2 * (x - xS)))
+    return 1 / (1 + exp(k2_fixed * (x - xS)))
 end
 
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        k1 = 80 / p.Lx
+        k1 = k1_fixed
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
-        s2 = sigmoidal_s2(x, p.Lx)
+        s2 = sigmoidal_s2(x)
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
         return p.v₀ * sc
@@ -339,11 +359,14 @@ u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 v_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=v_target_inflow)
 v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
+# T/S use the slow far-field rate at the east boundary (see params.τ_far).
+# u and v keep the fast 6 h rate there — they need to be held near the
+# prescribed offshore state, and they are not the quantity being measured.
 T_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=T_target)
-T_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=T_target)
+T_sponge_e = Relaxation(; rate=1 / global_params.τ_far, mask=east_mask, target=T_target)
 
 S_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=S_target)
-S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
+S_sponge_e = Relaxation(; rate=1 / global_params.τ_far, mask=east_mask, target=S_target)
 
 forcings = (u=(u_sponge_inflow, u_sponge_e),
     v=(v_sponge_inflow, v_sponge_e),
@@ -444,7 +467,13 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     tracer_advection=WENO(order=5),
     free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
     tracers=tracers,
-    buoyancy=SeawaterBuoyancy(),
+    # TEOS10 rather than the default LinearEquationOfState. The linear default
+    # uses α = 1.67e-4, which is a ~10 °C value; at this site's 24–26 °C the
+    # true thermal expansion is 2.94e-4, i.e. the default is 76% too small.
+    # It barely affects N² here (the salinity term dominates dρ/dz, so Rd moves
+    # <2%), but it gets the SIGN of any horizontal T contrast wrong — which
+    # matters the moment an offshore water mass is introduced.
+    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState(reference_density=ρ₀)),
     coriolis=coriolis,
     closure=closure,
     boundary_conditions=bcs,
@@ -572,6 +601,11 @@ end
  Run number:      $(run_number)
  Runtime:         $(sim_runtime)
  Architecture:    $(arch)
+ Domain:          $(params.Lx/1e3) x $(params.Ly/1e3) km x $(params.Lz) m
+ Grid:            $(params.Nx) x $(params.Ny) x $(params.Nz)  (Δx = Δy = $(params.Lx/params.Nx) m, Δz = $(params.Lz/params.Nz) m)
+ EOS:             TEOS10 (ρ_ref = $(ρ₀))
+ sponge τ (near): $(global_params.τ / 3600) h
+ sponge τ (far):  $(global_params.τ_far / 86400) d  [east T/S only]
 
  ── Model Parameters ──
  Zs (shoal_depth): $(-5.0) m
