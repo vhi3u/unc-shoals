@@ -28,7 +28,7 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded
+using Oceananigans.Grids: Periodic, Bounded, znode
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.Fields: interior
@@ -58,6 +58,7 @@ is_coriolis = true
 checkpointing = false
 shoal_bath = true
 ramp_wind = true             # ramp τ over ~2 inertial periods
+open_east = true             # radiative east boundary instead of wall + sponge
 
 # Vertical mixing closure. :catke is the recommended production choice;
 # :ribased and :constant exist so the wind run can be repeated against the
@@ -77,7 +78,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 58
+run_number = 59
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -354,6 +355,10 @@ const inflow_mask = south_mask
 
 inflow_scaling = 1 # use this if you want the southern inflow sponge nudging to be a lot stronger (to dissipate the downstream wake into the periodic boundary)
 u_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=0.0)
+# NOTE: with open_east = true the east sponges below are NOT applied (see the
+# `forcings` assembly). A sponge relaxing u → 0 at an open boundary fights the
+# radiation condition directly, and the T/S sponge becomes redundant because the
+# open BC already prescribes the exterior state on inflow.
 u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
 v_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=v_target_inflow)
@@ -368,17 +373,73 @@ T_sponge_e = Relaxation(; rate=1 / global_params.τ_far, mask=east_mask, target=
 S_sponge_inflow = Relaxation(; rate=1 / (global_params.τ * inflow_scaling), mask=inflow_mask, target=S_target)
 S_sponge_e = Relaxation(; rate=1 / global_params.τ_far, mask=east_mask, target=S_target)
 
-forcings = (u=(u_sponge_inflow, u_sponge_e),
-    v=(v_sponge_inflow, v_sponge_e),
-    T=(T_sponge_inflow, T_sponge_e),
-    S=(S_sponge_inflow, S_sponge_e))
+if open_east
+    # Only the southern inflow sponge remains; the east boundary is radiative.
+    forcings = (u=u_sponge_inflow,
+        v=v_sponge_inflow,
+        T=T_sponge_inflow,
+        S=S_sponge_inflow)
+else
+    forcings = (u=(u_sponge_inflow, u_sponge_e),
+        v=(v_sponge_inflow, v_sponge_e),
+        T=(T_sponge_inflow, T_sponge_e),
+        S=(S_sponge_inflow, S_sponge_e))
+end
 
-T_bcs = FieldBoundaryConditions()
-S_bcs = FieldBoundaryConditions()
-u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u)
-v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
+# ═══════════════════════════════════════════════════════════════════════════
+# Eastern boundary
+# ═══════════════════════════════════════════════════════════════════════════
+# Closed wall + sponge cannot pass the wind-driven Ekman transport. At
+# τ = 0.15 N m⁻² that is 1.74 m² s⁻¹ converging over the 50 km sponge, i.e.
+# w ≈ 3 m/day — ~75 m of isopycnal displacement over 25 days in a 50 m column.
+# It saturates as the downward bend seen at x = 200 km in run 57. An open
+# boundary lets the transport leave instead of forcing it downward.
+#
+# Scheme choice: NormalRadiation + GravityWaveRadiation is the combination
+# exercised by Oceananigans' own hydrostatic open-boundary tests in this
+# version. PerturbationAdvection has `target_transport` but is only validated
+# against ImplicitFreeSurface here, not SplitExplicitFreeSurface.
+#
+# Mass balance: the west boundary is a closed coast and y is periodic, so the
+# NET transport through the east must be ~zero. That is enforced on the
+# BAROTROPIC mode by giving it an exterior transport of 0; the baroclinic
+# profile stays free, so Ekman transport can exit at the surface and return at
+# depth, which is the physical response a wall cannot represent.
+if open_east
+    east_radiation = NormalRadiation(outflow_timescale=6hours,   # finite: softens flow reversals
+        inflow_timescale=1hours)    # relax to the exterior on inflow
 
-bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+    # Exterior T/S for the inflow branch. These must vary with depth — a constant
+    # would feed surface-property water into the deep return flow and destroy the
+    # stratification at the boundary.
+    #
+    # Discrete form, not continuous: the only function-valued exterior state
+    # exercised anywhere in Oceananigans' open-boundary tests/validation uses
+    # `discrete_form = true`. For an x-boundary the index pair is (j, k).
+    @inline T_east(j, k, grid, clock, fields) = T_south_pwl(znode(k, grid, Center()), 24.5378)
+    @inline S_east(j, k, grid, clock, fields) = S_south_pwl(znode(k, grid, Center()), 35.5830)
+
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u,
+        east=NormalFlowBoundaryCondition(0; scheme=east_radiation))
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
+    T_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(T_east; scheme=east_radiation, discrete_form=true))
+    S_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(S_east; scheme=east_radiation, discrete_form=true))
+
+    # Barotropic transport: exterior (U, η) = (0, 0). This is what holds the net
+    # mass flux at zero. Omit it and the baroclinic mode radiates while the
+    # barotropic mode reflects off a closed boundary — worse than either choice.
+    U_bcs = FieldBoundaryConditions(ib_grid, (Face(), Center(), nothing);
+        east=GravityWaveRadiationBoundaryCondition((0.0, 0.0)))
+
+    bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs, U=U_bcs)
+else
+    T_bcs = FieldBoundaryConditions()
+    S_bcs = FieldBoundaryConditions()
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
+
+    bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+end
 @info "Boundary Conditions:" bcs
 
 if is_coriolis
