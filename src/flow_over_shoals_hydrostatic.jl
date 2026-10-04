@@ -408,8 +408,20 @@ end
 # profile stays free, so Ekman transport can exit at the surface and return at
 # depth, which is the physical response a wall cannot represent.
 if open_east
-    east_radiation = NormalRadiation(outflow_timescale=6hours,   # finite: softens flow reversals
-        inflow_timescale=1hours)    # relax to the exterior on inflow
+    # outflow_timescale = Inf is PURE RADIATION. Any FINITE value applies
+    #   ∂φ/∂t + c ∂φ/∂n = -(φ - φᵉˣᵗ)/τ
+    # i.e. it relaxes the boundary velocity toward the exterior value (0) —
+    # which suppresses the very outflow we are trying to permit. Run 59 used
+    # τ_out = 6 h and passed only 0.19 of the 1.74 m²/s Ekman transport: net
+    # balanced, but the boundary behaved like a wall.
+    #
+    # target_transport (added to the radiation schemes in 0.113) pins the NET
+    # flux directly by shifting u uniformly along the boundary each step, so
+    # the timescales no longer have to enforce mass balance and the vertical
+    # profile is left free to set itself.
+    east_radiation = NormalRadiation(outflow_timescale=Inf,
+        inflow_timescale=1days,
+        target_transport=0)
 
     # Exterior T/S for the inflow branch. These must vary with depth — a constant
     # would feed surface-property water into the deep return flow and destroy the
