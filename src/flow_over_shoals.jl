@@ -383,7 +383,7 @@ end
 
 @info "" model
 
-overwrite_existing = (pickup === false)
+overwrite_files = (pickup === false)
 
 simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
 conjure_time_step_wizard!(simulation, cfl=0.4)
@@ -434,40 +434,40 @@ simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
     filename="top_$(run_tag).nc",
     schedule=TimeInterval(callback_interval),
     indices=(:, :, params.Nz),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 # Mid-y XZ slice (cross-shore transect at domain center)
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     filename="midy_$(run_tag).nc",
     schedule=TimeInterval(callback_interval),
     indices=(:, round(Int, params.Ny / 2), :),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 # Mid-x YZ slice (along-shore transect at domain center)
 # simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
 #     filename="midx_$(run_tag).nc",
 #     schedule=TimeInterval(callback_interval),
 #     indices=(round(Int, params.Nx / 5), :, :),
-#     overwrite_existing=overwrite_existing)
+#     overwrite_files=overwrite_files)
 
 # # (2) 3D snapshots (every 20 days)
 # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
 #     filename="snapshots_3d_$(run_tag).nc",
 #     schedule=TimeInterval(20days),
-#     overwrite_existing=overwrite_existing)
+#     overwrite_files=overwrite_files)
 
 # (3) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     filename="time_avg_3d_$(run_tag).nc",
     schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 # # Domain-integrated KE time series
 # ∫KE = Integral(KE)
 # simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
 #     schedule=TimeInterval(callback_interval),
 #     filename="KE_$(run_tag).nc",
-#     overwrite_existing=overwrite_existing)
+#     overwrite_files=overwrite_files)
 
 
 
@@ -476,7 +476,7 @@ if checkpointing
     simulation.output_writers[:checkpointer] = Checkpointer(model,
         schedule=TimeInterval(5days),
         prefix=checkpoint_prefix,
-        overwrite_existing=true,
+        overwrite_files=true,
         cleanup=true)
 end
 

@@ -1,3 +1,5 @@
+using Pkg
+Pkg.instantiate()
 # ═══════════════════════════════════════════════════════════════════════════
 # flow_over_shoals_hydrostatic.jl
 # ═══════════════════════════════════════════════════════════════════════════
@@ -543,7 +545,7 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
 
 @info "" model
 
-overwrite_existing = (pickup === false)
+overwrite_files = (pickup === false)
 
 simulation = Simulation(model, Δt=initial_Δt, stop_time=sim_runtime)
 # max_Δt comes from the bottom-drag stability limit computed above, not a guess.
@@ -603,26 +605,26 @@ simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
     filename="top_$(run_tag).nc",
     schedule=TimeInterval(snapshot_interval),
     indices=(:, :, params.Nz),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 # Mid-y XZ slice (cross-shore transect at domain center)
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     filename="midy_$(run_tag).nc",
     schedule=TimeInterval(snapshot_interval),
     indices=(:, round(Int, params.Ny / 2), :),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 # (2) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
     filename="time_avg_3d_$(run_tag).nc",
     schedule=AveragedTimeInterval(10days, window=10days),
-    overwrite_existing=overwrite_existing)
+    overwrite_files=overwrite_files)
 
 if checkpointing
     simulation.output_writers[:checkpointer] = Checkpointer(model,
         schedule=TimeInterval(5days),
         prefix="checkpoint_$(run_tag)",
-        overwrite_existing=true,
+        overwrite_files=true,
         cleanup=true)
 end
 
