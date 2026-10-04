@@ -80,7 +80,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 59
+run_number = 60
 callback_interval = 1days
 snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
