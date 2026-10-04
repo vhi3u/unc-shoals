@@ -77,14 +77,14 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 57
+run_number = 58
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
 pickup = false
-wind_stress = 0.15                  # N m⁻²
+wind_stress = 0.0                  # N m⁻²
 sim_runtime = 25days
 @info "Starting hydrostatic run $(run_tag)."
 
@@ -96,7 +96,7 @@ end
 
 # Horizontal grid spacing is the knob, not Nx/Ny. Deriving the counts from Δh
 # means changing Lx can never silently change the resolution (and vice versa).
-Δh = 250.0   # m
+Δh = 500.0   # m
 if arch == CPU()
     params = (; params..., Nx=50, Ny=50, Nz=10)
 else
