@@ -8,16 +8,17 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded
+using Oceananigans.Grids: Periodic, Bounded, znode
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.TurbulenceClosures
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity,
-    KineticEnergy, KineticEnergyDissipationRate, TurbulentKineticEnergy,
-    XShearProductionRate, YShearProductionRate, ZShearProductionRate
+# NOTE: YShearProductionRate / ZShearProductionRate are not exported by
+# Oceanostics (verified against both 0.18.0 and 0.21.2), so this `using` was
+# failing at load. Trimmed to the three diagnostics the script actually uses.
+using Oceanostics: RossbyNumber, ErtelPotentialVorticity, KineticEnergy
 using Oceanostics.ProgressMessengers: TimedMessenger
 using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
@@ -51,11 +52,14 @@ periodic_y = true
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
-sigmoid_wind = true          # taper wind to zero across the east sponge
+sigmoid_wind = false         # uniform wind. The taper's stress gradient drives
+# shear instability at the taper line (seen in runs 51/52), and with open_east
+# there is no sponge for it to protect.
 is_coriolis = true
 checkpointing = false
 shoal_bath = true
 ramp_wind = true             # ramp τ over ~2 inertial periods
+open_east = true             # radiative east boundary instead of wall + sponge
 
 # Vertical mixing closure. :catke is the recommended production choice;
 # :ribased and :constant exist so the wind run can be repeated against the
@@ -79,17 +83,32 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 run_number = sweep_run_index
 sim_runtime = 50days
 callback_interval = 86400seconds
+# Sub-inertial output. The inertial period is 20.74 h, so DAILY snapshots alias
+# it to a spurious 6.35-day oscillation sitting squarely in the mesoscale band.
+snapshot_interval = 6hours
 run_tag = "sweep_$(sweep_run_label)"
 
+# Lx stays at 150 km. The 250 km domain in flow_over_shoals_hydrostatic.jl was
+# needed only to push the east SPONGE away from the shelf; with open_east there
+# is no sponge. The bathymetry's offshore ramp is fixed at 63.5 km and no sweep
+# parameter moves it, so 150 km leaves 87 km of offshore room — more than the
+# 37 km the sponged 250 km domain actually left usable.
 if LES
     params = (; Lx=150e3, Ly=200e3, Lz=50)
 else
     params = (; Lx=150000, Ly=200000, Lz=50)
 end
+
+# Horizontal grid spacing is the knob, not Nx/Ny, so changing Lx can never
+# silently change the resolution (and vice versa).
+Δh = 500.0   # m
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10)
 else
-    params = (; params..., Nx=300, Ny=400, Nz=50)
+    params = (; params...,
+        Nx=round(Int, params.Lx / Δh),
+        Ny=round(Int, params.Ly / Δh),
+        Nz=50)
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -147,7 +166,7 @@ params = (; params...,
 # GPU-compatible SMOOTH piecewise linear T/S profiles (from CTD data)
 const δ_smooth = 2.5
 
-@inline smooth_step(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
+@inline smooth_step_z(z, z0) = 0.5 * (1.0 - tanh((z - z0) / δ_smooth))
 
 @inline function T_north_pwl(z, v1=20.5389)
     z1, z2, z3 = -5.0, -15.0, -35.0
@@ -158,9 +177,9 @@ const δ_smooth = 2.5
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -173,9 +192,9 @@ end
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -188,9 +207,9 @@ end
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -203,9 +222,9 @@ end
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -219,9 +238,9 @@ end
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -235,9 +254,9 @@ end
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
     val4 = v3
-    w1 = smooth_step(z, z1)
-    w2 = smooth_step(z, z2)
-    w3 = smooth_step(z, z3)
+    w1 = smooth_step_z(z, z1)
+    w2 = smooth_step_z(z, z2)
+    w3 = smooth_step_z(z, z3)
     return val1 * (1 - w1) + val2 * (w1 - w2) + val3 * (w2 - w3) + val4 * w3
 end
 
@@ -253,6 +272,10 @@ const κᵛᵏ = 0.4 # von Karman constant
 c_dz = (κᵛᵏ / log(z₁ / z₀))^2 # quadratic drag coefficient
 @info "Defining momentum BCs with Cᴰ =" c_dz
 drag = BulkDrag(coefficient=c_dz)
+# Bottom facet only: with a stair-stepped bottom, applying drag to the vertical
+# side faces of the steps is unphysical and is itself a grid-scale vorticity
+# source. `immersed=drag` (the old form) does apply it to all faces.
+immersed_drag = ImmersedBoundaryCondition(bottom=drag)
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -292,20 +315,24 @@ end
 wind_bc_u = FluxBoundaryCondition(0.0)
 wind_bc_v = FluxBoundaryCondition(wind_v_flux)
 
-@inline function sigmoidal_s2(x, Lx)
+# Pinned, NOT tied to Lx. Tying k to Lx means changing the domain width
+# silently rebroadens the inflow profile and breaks comparability between runs.
+const k1_fixed = 80 / 150e3     # coastal sigmoid, e-folding width 1875 m
+const k2_fixed = 40 / 150e3     # offshore sigmoid, e-folding width 3750 m
+
+@inline function sigmoidal_s2(x)
     xS = 65e3
-    k2 = 40 / Lx
-    return 1 / (1 + exp(k2 * (x - xS)))
+    return 1 / (1 + exp(k2_fixed * (x - xS)))
 end
 
 # velocity function
 if sigmoid_v_bc
     @inline function v∞(x, z, t, p)
         xC = 3e3
-        k1 = 80 / p.Lx
+        k1 = k1_fixed
 
         s1 = 1 / (1 + exp(-k1 * (x - xC)))
-        s2 = sigmoidal_s2(x, p.Lx)
+        s2 = sigmoidal_s2(x)
         s = (s1 - 1) + s2
         sc = clamp(s, 0.0, 1.0)
         return p.v₀ * sc
@@ -350,21 +377,73 @@ if periodic_y
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
 
+    # With open_east the east sponges are NOT applied. A sponge relaxing u -> 0
+    # at an open boundary fights the radiation condition directly, and the T/S
+    # sponge is redundant because the open BC prescribes the exterior on inflow.
     if mass_flux
-        forcings = (u=(u_sponge_inflow, u_sponge_e),
-            v=(v_sponge_inflow, v_sponge_e),
-            T=(T_sponge_inflow, T_sponge_e),
-            S=(S_sponge_inflow, S_sponge_e))
+        forcings = open_east ?
+                   (u=u_sponge_inflow, v=v_sponge_inflow,
+                    T=T_sponge_inflow, S=S_sponge_inflow) :
+                   (u=(u_sponge_inflow, u_sponge_e),
+                    v=(v_sponge_inflow, v_sponge_e),
+                    T=(T_sponge_inflow, T_sponge_e),
+                    S=(S_sponge_inflow, S_sponge_e))
     else
-        forcings = (T=(T_sponge_inflow, T_sponge_e), S=(S_sponge_inflow, S_sponge_e))
+        forcings = open_east ?
+                   (T=T_sponge_inflow, S=S_sponge_inflow) :
+                   (T=(T_sponge_inflow, T_sponge_e), S=(S_sponge_inflow, S_sponge_e))
     end
 end
 
-if periodic_y
+if periodic_y && open_east
+    # ═══════════════════════════════════════════════════════════════════════
+    # Radiative eastern boundary
+    # ═══════════════════════════════════════════════════════════════════════
+    # A closed wall + sponge cannot pass the wind-driven Ekman transport; it is
+    # forced downward instead, bending isopycnals at the sponge edge. An open
+    # boundary lets it leave.
+    #
+    # outflow_timescale = Inf is PURE RADIATION. Any FINITE value applies
+    #   dφ/dt + c dφ/dn = -(φ - φ_ext)/τ
+    # i.e. it relaxes the boundary velocity toward the exterior value (0),
+    # suppressing the very outflow we are trying to permit.
+    #
+    # target_transport (radiation schemes, Oceananigans >= 0.113) pins the NET
+    # flux by shifting u uniformly along the boundary each step. The west
+    # boundary is a closed coast and y is periodic, so the net must be ~0; the
+    # vertical profile is left free, giving Ekman out at the surface and a
+    # return inflow at depth.
+    east_radiation = NormalRadiation(outflow_timescale=Inf,
+        inflow_timescale=1days,
+        target_transport=0)
+
+    # Exterior T/S on the inflow branch. Must vary with depth, or the deep
+    # return flow imports surface properties and destroys the stratification at
+    # the boundary. Discrete form (j, k, grid, clock, fields) — the only
+    # function-valued exterior state exercised in Oceananigans' open-boundary
+    # tests. NOTE: this uses the SOUTH profile, matching the interior water
+    # mass. T_east_pwl / S_east_pwl above define a distinct offshore water mass
+    # and are currently unused; swapping them in would impose a cross-shore
+    # front, which is a deliberate experiment rather than a default.
+    @inline T_east_bc(j, k, grid, clock, fields) = T_south_pwl(znode(k, grid, Center()), T_south_v1)
+    @inline S_east_bc(j, k, grid, clock, fields) = S_south_pwl(znode(k, grid, Center()), S_south_v1)
+
+    T_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(T_east_bc; scheme=east_radiation, discrete_form=true))
+    S_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(S_east_bc; scheme=east_radiation, discrete_form=true))
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u,
+        east=NormalFlowBoundaryCondition(0; scheme=east_radiation))
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
+
+    # Barotropic transport: exterior (U, η) = (0, 0). This is what holds the net
+    # mass flux at zero. Omit it and the baroclinic mode radiates while the
+    # barotropic mode reflects off a closed boundary — worse than either choice.
+    U_bcs = FieldBoundaryConditions(ib_grid, (Face(), Center(), nothing);
+        east=GravityWaveRadiationBoundaryCondition((0.0, 0.0)))
+elseif periodic_y
     T_bcs = FieldBoundaryConditions()
     S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
 else
     northern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
     southern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
@@ -373,11 +452,12 @@ else
     T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
     S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
 
-    u_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, south=ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)), east=eastern_bc, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=drag, bottom=drag, north=northern_bc, south=southern_bc, east=ValueBoundaryCondition(0.0), top=wind_bc_v)
+    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, south=ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)), east=eastern_bc, top=wind_bc_u)
+    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, north=northern_bc, south=southern_bc, east=ValueBoundaryCondition(0.0), top=wind_bc_v)
 end
 
-bcs = (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+bcs = (periodic_y && open_east) ? (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs, U=U_bcs) :
+      (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
 @info "Boundary Conditions:" bcs
 
 if is_coriolis
@@ -404,7 +484,11 @@ else
     error("closure_choice must be :catke, :ribased or :constant; got $(closure_choice)")
 end
 
-closure = (horizontal_closure, vertical_closure)
+# Vertical only, matching flow_over_shoals_hydrostatic.jl. At dx = 500 m with
+# Rd ~ 1.4 km the scale separation is 2.7x, so no biharmonic nu4 damps 2dx
+# without also damping the eddies; the harmonic nu = 1e-3 that used to be here
+# was negligible in any case (e-folding at 2dx of ~30 years).
+closure = vertical_closure
 @info "Closure ($(closure_choice)):" closure
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -415,7 +499,11 @@ model = HydrostaticFreeSurfaceModel(ib_grid;
     tracer_advection=WENO(order=5),
     free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
     tracers=tracers,
-    buoyancy=SeawaterBuoyancy(),
+    # TEOS10 rather than the default LinearEquationOfState, whose alpha =
+    # 1.67e-4 is a ~10 C value; at this site's 24-26 C the true thermal
+    # expansion is 2.94e-4. It barely moves N^2 here (salinity dominates
+    # drho/dz) but gets the SIGN of any horizontal T contrast wrong.
+    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState(reference_density=ρ₀)),
     coriolis=coriolis,
     closure=closure,
     boundary_conditions=bcs,
@@ -482,21 +570,21 @@ tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 # Surface XY slice (top layer)
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
     filename="top_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
+    schedule=TimeInterval(snapshot_interval),
     indices=(:, :, params.Nz),
     overwrite_files=overwrite_files)
 
 # Mid-y XZ slice (cross-shore transect at domain center)
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     filename="midy_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
+    schedule=TimeInterval(snapshot_interval),
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_files=overwrite_files)
 
 # Mid-x YZ slice (along-shore transect at domain center)
 simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
     filename="midx_$(run_tag).nc",
-    schedule=TimeInterval(callback_interval),
+    schedule=TimeInterval(snapshot_interval),
     indices=(round(Int, params.Nx / 5), :, :),
     overwrite_files=overwrite_files)
 
