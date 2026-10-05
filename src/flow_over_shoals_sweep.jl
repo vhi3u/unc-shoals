@@ -425,8 +425,11 @@ if periodic_y && open_east
     # mass. T_east_pwl / S_east_pwl above define a distinct offshore water mass
     # and are currently unused; swapping them in would impose a cross-shore
     # front, which is a deliberate experiment rather than a default.
-    @inline T_east_bc(j, k, grid, clock, fields) = T_south_pwl(znode(k, grid, Center()), T_south_v1)
-    @inline S_east_bc(j, k, grid, clock, fields) = S_south_pwl(znode(k, grid, Center()), S_south_v1)
+    # Literals, not T_south_v1/S_south_v1: those are non-const globals, and a
+    # kernel function that closes over one gets it boxed, which can trigger
+    # InvalidIRError on GPU.
+    @inline T_east_bc(j, k, grid, clock, fields) = T_south_pwl(znode(k, grid, Center()), 24.5378)
+    @inline S_east_bc(j, k, grid, clock, fields) = S_south_pwl(znode(k, grid, Center()), 35.5830)
 
     T_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(T_east_bc; scheme=east_radiation, discrete_form=true))
     S_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(S_east_bc; scheme=east_radiation, discrete_form=true))
@@ -469,7 +472,8 @@ end
 # ═══════════════════════════════════════════════════════════════════════════
 # Turbulence closure
 # ═══════════════════════════════════════════════════════════════════════════
-horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
+# Unused: see the closure assignment below.
+# horizontal_closure = HorizontalScalarDiffusivity(ν=1e-3, κ=1e-3)
 
 if closure_choice === :catke
     vertical_closure = CATKEVerticalDiffusivity()
@@ -644,6 +648,11 @@ end
  Run index:       $(sweep_run_index)
  Runtime:         $(sim_runtime)
  Architecture:    $(arch)
+ Domain:          $(params.Lx/1e3) x $(params.Ly/1e3) km x $(params.Lz) m
+ Grid:            $(params.Nx) x $(params.Ny) x $(params.Nz)  (Δx = Δy = $(params.Lx/params.Nx) m, Δz = $(params.Lz/params.Nz) m)
+ EOS:             TEOS10 (ρ_ref = $(ρ₀))
+ east boundary:   $(open_east ? "radiative (NormalRadiation, target_transport=0)" : "wall + sponge")
+ snapshot every:  $(snapshot_interval/3600) h  (inertial period 20.74 h)
 
  ── Sweep Parameters ──
  Zs (shoal_depth):$(sweep_Zs) m
@@ -660,8 +669,10 @@ end
  gradient_IC:     $(gradient_IC)
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)
+ sigmoid_wind:    $(sigmoid_wind)
  is_coriolis:     $(is_coriolis)
  shoal_bath:      $(shoal_bath)
+ open_east:       $(open_east)
 ════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
