@@ -176,6 +176,7 @@ end
 if isfile(top_file)
     println("\nC. SURFACE FIELD RANGES  (i = 3 : Nx-1, wall columns excluded)")
     ds = NCDataset(top_file)
+    xc = Array(ds[NCDatasets.dimnames(ds["Ro"])[1]][:])
     for v in ("u_c", "v_c", "T", "S", "Ro", "KE")
         haskey(ds, v) || continue
         a = Array(ds[v][:, :, :, :])
@@ -183,6 +184,67 @@ if isfile(top_file)
         fv = finite(b)
         isempty(fv) && continue
         @printf("   %-5s  min %10.4f   max %10.4f\n", v, minimum(fv), maximum(fv))
+    end
+
+    # Where does the extreme actually live? A domain-wide max can be set by a
+    # boundary artifact rather than by the eddy field, and then "max Ro fell"
+    # means the boundary got better, not that the eddies went away.
+    println("\n   max |Ro| by cross-shore band (last frame):")
+    Ro = Array(ds["Ro"][:, :, :, :])[:, :, 1, end]
+    for (lo, hi) in ((0, 50), (50, 100), (100, 150), (150, 200), (200, 250))
+        idx = findall(q -> lo*1e3 ≤ q < hi*1e3, xc)
+        idx = filter(i -> 3 ≤ i ≤ length(xc) - 1, idx)
+        isempty(idx) && continue
+        fv = finite(Ro[idx, :])
+        isempty(fv) && continue
+        @printf("      x = %3d-%3d km :  %8.3f\n", lo, hi, maximum(abs, fv))
+    end
+    close(ds)
+end
+
+# ───────────────────────────────────────────────────────────────────────────
+# D. EDDY vs MEAN KINETIC ENERGY
+#    This is the metric to compare ACROSS WIND CASES. max|Ro| is a single
+#    extreme and is easily set by a boundary artifact; EKE is an energy and
+#    lives at the resolved scales.
+#       EKE = ½[(⟨uu⟩-⟨u⟩²) + (⟨vv⟩-⟨v⟩²)]
+#       MKE = ½[⟨u⟩² + ⟨v⟩²]
+# ───────────────────────────────────────────────────────────────────────────
+if isfile(avg_file)
+    ds = NCDataset(avg_file)
+    need = ("u_c", "v_c", "uu", "vv")
+    if all(v -> haskey(ds, v), need)
+        xc = Array(ds[NCDatasets.dimnames(ds["u_c"])[1]][:])
+        na = length(ds["time"])
+        g(v) = Array(ds[v][:, :, :, na])
+        U, V, UU, VV = g("u_c"), g("v_c"), g("uu"), g("vv")
+        EKE = 0.5 .* ((UU .- U .^ 2) .+ (VV .- V .^ 2))
+        MKE = 0.5 .* (U .^ 2 .+ V .^ 2)
+
+        println("\nD. KINETIC ENERGY  (last averaging window)")
+        ek, mk = finite(EKE), finite(MKE)
+        if !isempty(ek)
+            @printf("   domain mean EKE = %.6e m²/s²\n", mean(ek))
+            @printf("   domain mean MKE = %.6e m²/s²\n", mean(mk))
+            @printf("   EKE / MKE       = %.3f\n\n", mean(ek) / (mean(mk) + eps()))
+            println("   by cross-shore band:")
+            println("        x (km)        EKE          MKE      EKE/MKE")
+            for (lo, hi) in ((0, 50), (50, 100), (100, 150), (150, 200), (200, 250))
+                idx = findall(q -> lo * 1e3 ≤ q < hi * 1e3, xc)
+                isempty(idx) && continue
+                e = finite(EKE[idx, :, :])
+                m = finite(MKE[idx, :, :])
+                isempty(e) && continue
+                @printf("      %3d-%3d  %11.4e  %11.4e  %8.3f\n",
+                    lo, hi, mean(e), mean(m), mean(e) / (mean(m) + eps()))
+            end
+            println("\n   Compare domain-mean EKE across wind cases on an IDENTICAL grid,")
+            println("   domain and boundary condition. Rising EKE with wind = the")
+            println("   APE -> EKE pathway is active; falling = APE reservoir depleted.")
+        end
+    else
+        miss = filter(v -> !haskey(ds, v), need)
+        println("\nD. skipped — $(basename(avg_file)) lacks: ", join(miss, ", "))
     end
     close(ds)
 end

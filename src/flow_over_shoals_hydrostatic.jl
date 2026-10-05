@@ -80,14 +80,14 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 60
+run_number = 61
 callback_interval = 1days
-snapshot_interval = 1days          # sub-inertial: inertial period is 20.74 h,
+snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
 pickup = false
-wind_stress = 0.15                  # N m⁻²
+wind_stress = 0.05                  # N m⁻²
 sim_runtime = 25days
 @info "Starting hydrostatic run $(run_tag)."
 
