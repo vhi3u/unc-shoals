@@ -11,6 +11,7 @@ using Oceananigans
 using Oceananigans.Grids: Periodic, Bounded, znode
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
+using Oceananigans.Fields: interior
 using Oceananigans.TurbulenceClosures
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
@@ -65,6 +66,11 @@ open_east = true             # radiative east boundary instead of wall + sponge
 # :ribased and :constant exist so the wind run can be repeated against the
 # closure used in shoals38/39 without changing anything else.
 closure_choice = :catke      # :catke | :ribased | :constant
+# Equation of state. :teos10 is the physically correct choice (the linear
+# default's alpha = 1.67e-4 is a ~10 C value; the true value here is 2.94e-4).
+# :linear exists so a blow-up can be tested against the EOS as a single
+# controlled variable without editing the model constructor.
+eos_choice = :linear         # :teos10 | :linear
 if has_cuda_gpu()
     arch = GPU()
 else
@@ -413,7 +419,15 @@ if periodic_y && open_east
     # boundary is a closed coast and y is periodic, so the net must be ~0; the
     # vertical profile is left free, giving Ekman out at the surface and a
     # return inflow at depth.
-    east_radiation = NormalRadiation(outflow_timescale=Inf,
+    # outflow_timescale: FINITE, not Inf. Inf means literally no restoring term
+    # on outflow, so the boundary value can drift without bound — and the whole
+    # point of the Marchesiello et al. (2001) nudging is to prevent that. The
+    # docstring's own example uses 360 days rather than Inf. At 30 days the
+    # steady-state suppression is phi_b/phi_1 = Cn/(Cn + Dt/tau) >= 98% even for
+    # a small phase-speed Courant number Cn, so the Ekman outflow is preserved
+    # while the value stays bounded. (6 h, used in run 59, keeps only ~26% at
+    # small Cn — that is why it passed just 11% of the Ekman transport.)
+    east_radiation = NormalRadiation(outflow_timescale=30days,
         inflow_timescale=1days,
         target_transport=0)
 
@@ -498,16 +512,25 @@ closure = vertical_closure
 # ═══════════════════════════════════════════════════════════════════════════
 # Model
 # ═══════════════════════════════════════════════════════════════════════════
+# TEOS10 rather than the default LinearEquationOfState, whose alpha = 1.67e-4 is
+# a ~10 C value; at this site's 24-26 C the true thermal expansion is 2.94e-4.
+# It barely moves N^2 here (salinity dominates drho/dz) but gets the SIGN of any
+# horizontal T contrast wrong.
+if eos_choice === :teos10
+    seawater_buoyancy = SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState(reference_density=ρ₀))
+elseif eos_choice === :linear
+    seawater_buoyancy = SeawaterBuoyancy()
+else
+    error("eos_choice must be :teos10 or :linear; got $(eos_choice)")
+end
+@info "Equation of state ($(eos_choice)):" seawater_buoyancy
+
 model = HydrostaticFreeSurfaceModel(ib_grid;
     momentum_advection=WENO(order=5),
     tracer_advection=WENO(order=5),
     free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
     tracers=tracers,
-    # TEOS10 rather than the default LinearEquationOfState, whose alpha =
-    # 1.67e-4 is a ~10 C value; at this site's 24-26 C the true thermal
-    # expansion is 2.94e-4. It barely moves N^2 here (salinity dominates
-    # drho/dz) but gets the SIGN of any horizontal T contrast wrong.
-    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState(reference_density=ρ₀)),
+    buoyancy=seawater_buoyancy,
     coriolis=coriolis,
     closure=closure,
     boundary_conditions=bcs,
@@ -536,11 +559,55 @@ else
 end
 overwrite_files = (pickup === false)
 
-simulation = Simulation(model, Δt=5minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7)
+# initial_Δt was 5 minutes with NO max_Δt cap. flow_over_shoals_hydrostatic.jl
+# uses 1 minute and caps at 10 minutes. The unbalanced start plus a radiative
+# east boundary makes the first few hundred steps the riskiest phase, and an
+# uncapped wizard can walk Δt up while the barotropic substep count follows it.
+simulation = Simulation(model, Δt=1minutes, stop_time=sim_runtime)
+conjure_time_step_wizard!(simulation, cfl=0.7, max_Δt=10minutes)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Health check
+# ═══════════════════════════════════════════════════════════════════════════
+# Without this a blow-up surfaces as `InexactError: Int64(NaN)` from
+# calculate_substeps, deep inside the free-surface substepping. That only says
+# Δt had already become NaN — not which field failed, where, or when. This
+# reports the offending field and the cross-shore column it first appears in.
+function report_health(sim)
+    m = sim.model
+    flds = (u=m.velocities.u, v=m.velocities.v, w=m.velocities.w,
+        T=m.tracers.T, S=m.tracers.S)
+    bad = String[]
+    for (name, f) in pairs(flds)
+        colmax = Array(vec(maximum(abs, interior(f), dims=(2, 3))))
+        if !all(isfinite, colmax)
+            i = findfirst(!isfinite, colmax)
+            xkm = round((i - 0.5) * params.Lx / params.Nx / 1e3, digits=1)
+            push!(bad, string(name, " first at i=", i, " (x ≈ ", xkm, " km)"))
+        end
+    end
+    if !isempty(bad)
+        error(string("BLOW-UP, not a solver bug.",
+            "\n  iteration = ", iteration(sim),
+            ", t = ", round(time(sim) / 3600, digits=2), " h",
+            ", Δt = ", round(sim.Δt, digits=1), " s",
+            "\n  non-finite: ", join(bad, "; "),
+            "\n  run_label = ", sweep_run_label,
+            ", tau = ", sweep_wind_stress,
+            ", Zs = ", sweep_Zs,
+            ", Ls = ", sweep_shoal_length,
+            ", Zsh = ", sweep_Zsh))
+    end
+    @info @sprintf("health: iter %6d | t = %7.3f d | Δt = %6.1f s | max|u| = %.4f | max|v| = %.4f | max|w| = %.2e",
+        iteration(sim), time(sim) / 86400, sim.Δt,
+        maximum(abs, interior(m.velocities.u)),
+        maximum(abs, interior(m.velocities.v)),
+        maximum(abs, interior(m.velocities.w)))
+end
+simulation.callbacks[:health] = Callback(report_health, IterationInterval(25))
 
 u, v, w = model.velocities
 T = model.tracers.T
