@@ -70,14 +70,38 @@ Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
+run_label     = "wind_m0p08"
+wind_stress   = -0.08
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
 run_label     = "wind_m0p05"
 wind_stress   = -0.05
 Zs            = -5.0
 shoal_length  = 40000.0
 
 [[runs]]
+run_label     = "wind_m0p03"
+wind_stress   = -0.03
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_0p03"
+wind_stress   = 0.03
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
 run_label     = "wind_0p05"
 wind_stress   = 0.05
+Zs            = -5.0
+shoal_length  = 40000.0
+
+[[runs]]
+run_label     = "wind_0p08"
+wind_stress   = 0.08
 Zs            = -5.0
 shoal_length  = 40000.0
 
