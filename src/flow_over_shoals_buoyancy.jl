@@ -94,14 +94,14 @@ shelf_break_end_bath = 12000.0
 coastal_drop_bath = 2.0      # drop across the 0-5 km ramp; preserves the slope
 
 # simulation knobs
-run_number = 73
+run_number = 74
 callback_interval = 1days
 snapshot_interval = 6hours   # sub-inertial: the inertial period is 20.74 h, so
 # DAILY output would alias it to a fake 6.35-day band
 run_tag = "periodic_buoy$(run_number)_hydro"
 
 pickup = false
-wind_stress = 0.05           # N m⁻², northward (upwelling-favourable here)
+wind_stress = 0.15           # N m⁻², northward (upwelling-favourable here)
 sim_runtime = 25days
 @info "Starting buoyancy-tracer run $(run_tag)."
 
