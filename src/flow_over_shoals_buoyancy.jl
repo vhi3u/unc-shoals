@@ -79,7 +79,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 71
+run_number = 72
 callback_interval = 1days
 snapshot_interval = 6hours   # sub-inertial: the inertial period is 20.74 h, so
 # DAILY output would alias it to a fake 6.35-day band
@@ -118,7 +118,7 @@ end
 
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
-        Zs=-5.0,
+        Zs=-30.0,
         shoal_length=40000.0,
         sigma=8000.0,
         Zsh=-50.0,
