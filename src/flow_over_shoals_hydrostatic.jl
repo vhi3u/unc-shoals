@@ -80,7 +80,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 61
+run_number = 62
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -138,11 +138,11 @@ end
 # model parameters
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
-        Zs=-5.0,
+        Zs=-40.0,
         shoal_length=40000.0,
         sigma=8000.0,
-        Zsh=-25.0,
-        shelf_break_end=12000.0)
+        Zsh=-40.0,
+        shelf_break_end=50000.0) # 12000.0 is our reference one
     immersed_boundary = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, immersed_boundary)
 else
