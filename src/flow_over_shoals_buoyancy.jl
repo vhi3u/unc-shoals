@@ -88,9 +88,9 @@ include(joinpath(@__DIR__, "dshoal_vn_param_coastal.jl"))
 # Defined once and used in BOTH the constructor and the configuration banner,
 # so the two cannot drift apart (the banner was already stale against the
 # constructor before this).
-Zc_bath = -25.0              # depth at the coast, x = 0
-Zs_bath = -30.0              # shoal crest
-Zsh_bath = -50.0             # shelf
+Zc_bath = -5.0              # depth at the coast, x = 0
+Zs_bath = -5.0              # shoal crest
+Zsh_bath = -25.0             # shelf
 shoal_length_bath = 40000.0
 sigma_bath = 8000.0
 shelf_break_end_bath = 12000.0
