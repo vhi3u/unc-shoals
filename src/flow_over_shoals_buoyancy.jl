@@ -88,16 +88,16 @@ include(joinpath(@__DIR__, "dshoal_vn_param_coastal.jl"))
 # Defined once and used in BOTH the constructor and the configuration banner,
 # so the two cannot drift apart (the banner was already stale against the
 # constructor before this).
-Zc_bath = -5.0              # depth at the coast, x = 0
-Zs_bath = -5.0              # shoal crest
-Zsh_bath = -25.0             # shelf
+Zc_bath = -10.0              # depth at the coast, x = 0
+Zs_bath = -50.0              # shoal crest
+Zsh_bath = -50.0             # shelf
 shoal_length_bath = 40000.0
 sigma_bath = 8000.0
 shelf_break_end_bath = 12000.0
 coastal_drop_bath = 2.0      # drop across the 0-5 km ramp; preserves the slope
 
 # simulation knobs
-run_number = 75
+run_number = 76
 callback_interval = 1days
 snapshot_interval = 6hours   # sub-inertial: the inertial period is 20.74 h, so
 # DAILY output would alias it to a fake 6.35-day band
