@@ -74,12 +74,27 @@ end
 @info "architecture = $(arch)"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Bathymetry (shared with flow_over_shoals_hydrostatic.jl)
+# Bathymetry
 # ═══════════════════════════════════════════════════════════════════════════
-include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+# dshoal_vn_param_coastal.jl, NOT dshoal_vn_param.jl: the original pinned the
+# coast at 5 m depth in two places (h0 = -5.0, and a min(-5.0, ...) clamp), so
+# lowering Zs and Zsh moved the shoal and shelf but left a 5 m nearshore strip
+# that funnelled the alongshore flow into a coastal jet. Zc moves it.
+include(joinpath(@__DIR__, "dshoal_vn_param_coastal.jl"))
+
+# Defined once and used in BOTH the constructor and the configuration banner,
+# so the two cannot drift apart (the banner was already stale against the
+# constructor before this).
+Zc_bath = -25.0              # depth at the coast, x = 0
+Zs_bath = -30.0              # shoal crest
+Zsh_bath = -50.0             # shelf
+shoal_length_bath = 40000.0
+sigma_bath = 8000.0
+shelf_break_end_bath = 12000.0
+coastal_drop_bath = 2.0      # drop across the 0-5 km ramp; preserves the slope
 
 # simulation knobs
-run_number = 72
+run_number = 73
 callback_interval = 1days
 snapshot_interval = 6hours   # sub-inertial: the inertial period is 20.74 h, so
 # DAILY output would alias it to a fake 6.35-day band
@@ -117,12 +132,14 @@ else
 end
 
 if shoal_bath
-    slope_bottom = dshoal_param_bottom(params.Ly;
-        Zs=-30.0,
-        shoal_length=40000.0,
-        sigma=8000.0,
-        Zsh=-50.0,
-        shelf_break_end=12000.0)
+    slope_bottom = dshoal_param_bottom_coastal(params.Ly;
+        Zs=Zs_bath,
+        shoal_length=shoal_length_bath,
+        sigma=sigma_bath,
+        Zsh=Zsh_bath,
+        shelf_break_end=shelf_break_end_bath,
+        Zc=Zc_bath,
+        coastal_drop=coastal_drop_bath)
     immersed_boundary = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, immersed_boundary)
 else
@@ -458,11 +475,14 @@ Rd_shelf = deformation_radius(25.0)
  max_Δt:          $(max_Δt) s
  snapshot every:  $(snapshot_interval/3600) h  (inertial period 20.74 h)
 
- ── Bathymetry ──
- Zs (shoal crest):  -5.0 m
- shoal_length:      40000.0 m
- Zsh (shelf):       -25.0 m
- shelf_break_end:   12000.0 m
+ ── Bathymetry (dshoal_vn_param_coastal.jl) ──
+ Zc (coast, x=0):   $(Zc_bath) m
+ coastal_drop:      $(coastal_drop_bath) m across the 0-5 km ramp
+ Zs (shoal crest):  $(Zs_bath) m
+ Zsh (shelf):       $(Zsh_bath) m
+ shoal_length:      $(shoal_length_bath) m
+ shelf_break_end:   $(shelf_break_end_bath) m
+ shallowest point:  $(round(-max(Zc_bath, Zs_bath), digits=1)) m = $(round(Int, -max(Zc_bath, Zs_bath))) cells at Δz = $(params.Lz/params.Nz) m
 ════════════════════════════════════════════════════════
 """
 run!(simulation, pickup=pickup)
