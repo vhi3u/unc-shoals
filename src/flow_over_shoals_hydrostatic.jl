@@ -61,6 +61,7 @@ checkpointing = false
 shoal_bath = true
 ramp_wind = true             # ramp τ over ~2 inertial periods
 open_east = true             # radiative east boundary instead of wall + sponge
+eos_choice = :linear         # :linear | :teos10
 
 # Vertical mixing closure. :catke is the recommended production choice;
 # :ribased and :constant exist so the wind run can be repeated against the
@@ -80,7 +81,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 62
+run_number = 63
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -537,18 +538,42 @@ closure = vertical_closure
 # SplitExplicitFreeSurface with a cfl (and no fixed_Δt) recomputes its
 # barotropic substep count each step, so it stays consistent with the
 # time-step wizard.
+# ═══════════════════════════════════════════════════════════════════════════
+# Equation of state
+# ═══════════════════════════════════════════════════════════════════════════
+# :linear is the default. TEOS10 is the more accurate polynomial, but its
+# nonlinearity (cabbeling) is destabilizing in this configuration: once CATKE
+# mixes a column to near-uniform T and S, the nonlinear terms leave a small
+# NEGATIVE residual N². CATKE's convective branch has no threshold, so it mixes
+# harder, which deepens the residual — a feedback with no fixed point. That is
+# what blew up sweep runs 1/5/8 with `InexactError: Int64(NaN)`, and switching
+# to a linear EOS is what stopped it. A linear EOS cannot produce that residual:
+# mixing T and S to uniform gives exactly N² = 0.
+#
+# DO NOT use LinearEquationOfState() bare. Its defaults are α = 1.67e-4,
+# β = 7.80e-4 — α is a ~10 °C value and is 43% BELOW the correct one here, which
+# would be a larger error than the one TEOS10 was adopted to fix. The values
+# below are TEOS10's own local derivatives over the B2 column (T 23.4–24.5 °C,
+# S 35.58–36.18), and match it to within 1% in α and 0.1% in β.
+const α_lin_eos = 2.94e-4    # K⁻¹      (TEOS10 column mean 2.913e-4)
+const β_lin_eos = 7.24e-4    # (g/kg)⁻¹ (TEOS10 column mean 7.249e-4)
+
+if eos_choice === :linear
+    equation_of_state = LinearEquationOfState(thermal_expansion=α_lin_eos,
+        haline_contraction=β_lin_eos)
+elseif eos_choice === :teos10
+    equation_of_state = TEOS10EquationOfState(reference_density=ρ₀)
+else
+    error("eos_choice must be :linear or :teos10; got $(eos_choice)")
+end
+@info "Equation of state ($(eos_choice)):" equation_of_state
+
 model = HydrostaticFreeSurfaceModel(ib_grid;
     momentum_advection=WENO(order=5),
     tracer_advection=WENO(order=5),
     free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
     tracers=tracers,
-    # TEOS10 rather than the default LinearEquationOfState. The linear default
-    # uses α = 1.67e-4, which is a ~10 °C value; at this site's 24–26 °C the
-    # true thermal expansion is 2.94e-4, i.e. the default is 76% too small.
-    # It barely affects N² here (the salinity term dominates dρ/dz, so Rd moves
-    # <2%), but it gets the SIGN of any horizontal T contrast wrong — which
-    # matters the moment an offshore water mass is introduced.
-    buoyancy=SeawaterBuoyancy(equation_of_state=TEOS10EquationOfState(reference_density=ρ₀)),
+    buoyancy=SeawaterBuoyancy(equation_of_state=equation_of_state),
     coriolis=coriolis,
     closure=closure,
     boundary_conditions=bcs,
@@ -678,7 +703,7 @@ end
  Architecture:    $(arch)
  Domain:          $(params.Lx/1e3) x $(params.Ly/1e3) km x $(params.Lz) m
  Grid:            $(params.Nx) x $(params.Ny) x $(params.Nz)  (Δx = Δy = $(params.Lx/params.Nx) m, Δz = $(params.Lz/params.Nz) m)
- EOS:             TEOS10 (ρ_ref = $(ρ₀))
+ EOS:             $(eos_choice === :linear ? "linear (α = $(α_lin_eos), β = $(β_lin_eos))" : "TEOS10 (ρ_ref = $(ρ₀))")
  sponge τ (near): $(global_params.τ / 3600) h
  sponge τ (far):  $(global_params.τ_far / 86400) d  [east T/S only]
 
