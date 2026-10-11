@@ -81,7 +81,7 @@ end
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 
 # simulation knobs
-run_number = 63
+run_number = 64
 callback_interval = 1days
 snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
@@ -140,10 +140,10 @@ end
 if shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
         Zs=-40.0,
-        shoal_length=40000.0,
+        shoal_length=0.0,
         sigma=8000.0,
         Zsh=-40.0,
-        shelf_break_end=50000.0) # 12000.0 is our reference one
+        shelf_break_end=30000.0) # 12000.0 is our reference one
     immersed_boundary = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, immersed_boundary)
 else
@@ -533,22 +533,28 @@ closure = vertical_closure
 @info "Closure ($(closure_choice)):" closure
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Model
-# ═══════════════════════════════════════════════════════════════════════════
-# SplitExplicitFreeSurface with a cfl (and no fixed_Δt) recomputes its
-# barotropic substep count each step, so it stays consistent with the
-# time-step wizard.
-# ═══════════════════════════════════════════════════════════════════════════
 # Equation of state
 # ═══════════════════════════════════════════════════════════════════════════
-# :linear is the default. TEOS10 is the more accurate polynomial, but its
-# nonlinearity (cabbeling) is destabilizing in this configuration: once CATKE
-# mixes a column to near-uniform T and S, the nonlinear terms leave a small
-# NEGATIVE residual N². CATKE's convective branch has no threshold, so it mixes
-# harder, which deepens the residual — a feedback with no fixed point. That is
-# what blew up sweep runs 1/5/8 with `InexactError: Int64(NaN)`, and switching
-# to a linear EOS is what stopped it. A linear EOS cannot produce that residual:
-# mixing T and S to uniform gives exactly N² = 0.
+# :linear is the default, because TEOS10 is what blew up sweep runs 1/5/8 with
+# `InexactError: Int64(NaN)`, and switching to a linear EOS is what stopped it.
+#
+# Mechanism, verified directly against Oceananigans' own ρ′: take a column that
+# CATKE has mixed to uniform T and S (T = 23.98, S = 35.87 here) and evaluate
+# buoyancy at two depths. TEOS10 returns N² = -3.75e-6 s⁻², not zero, because
+# ρ′ retains a PRESSURE dependence — the same T and S are denser deeper. It is
+# small, but it is NEGATIVE, and CATKE's convective branch has no threshold, so
+# it mixes harder, which sustains the residual. A feedback with no fixed point.
+#
+# Note this is the compressibility term, NOT cabbeling. Cabbeling is the
+# nonlinearity of mixing two parcels of equal density; it needs a water-mass
+# contrast this domain does not have. Losing cabbeling is the real (and here,
+# minor) cost of linearizing — the pressure term is pure gain to be rid of.
+#
+# A linear EOS cannot produce the residual at all: b = g(αT - βS) has no z
+# dependence, so uniform T and S gives exactly N² = 0.
+#
+# Cost of the switch, measured: N² differs from TEOS10 by <1.6% anywhere in the
+# column, and Rd(50 m) moves 1.712 -> 1.717 km, i.e. 0.25%.
 #
 # DO NOT use LinearEquationOfState() bare. Its defaults are α = 1.67e-4,
 # β = 7.80e-4 — α is a ~10 °C value and is 43% BELOW the correct one here, which
@@ -568,6 +574,12 @@ else
 end
 @info "Equation of state ($(eos_choice)):" equation_of_state
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Model
+# ═══════════════════════════════════════════════════════════════════════════
+# SplitExplicitFreeSurface with a cfl (and no fixed_Δt) recomputes its
+# barotropic substep count each step, so it stays consistent with the
+# time-step wizard.
 model = HydrostaticFreeSurfaceModel(ib_grid;
     momentum_advection=WENO(order=5),
     tracer_advection=WENO(order=5),
