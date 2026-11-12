@@ -497,9 +497,31 @@ u_c = @at (Center, Center, Center) u
 v_c = @at (Center, Center, Center) v
 w_c = @at (Center, Center, Center) w
 
-slice_fields = (; u_c, v_c, w_c, b, Ro, KE)
+# Density as sigma = rho - 1000, for isopycnal contours. This adds NO
+# information: b is already written and rho = rho_0 (1 - b/g) exactly, so this
+# is reconstructible offline to roundoff. It is here purely so plotting does
+# not have to redo the algebra.
+#
+# NOTE this is the LINEAR EOS sigma, which differs from true TEOS10 sigma-theta
+# by a near-constant offset (~0.2 kg/m^3 at this site, since rho(T0,S0) is
+# 1023.82, not the rho_0 = 1024 used as the base). Contour SHAPES and
+# gradients are right; absolute values are not sigma-theta. Do not label
+# them as such in a paper without re-deriving from T and S with TEOS10.
+sigma = @at (Center, Center, Center) (ρ₀ * (1 - b / g_earth) - 1000)
+
+slice_fields = (; u_c, v_c, w_c, b, sigma, Ro, KE)
 if closure_choice === :catke
-    slice_fields = (; slice_fields..., e=model.tracers.e)
+    # CATKE's computed vertical diffusivities. NOTE the field name: in Oceananigans
+    # 0.113 these live in `model.closure_fields`, NOT `model.diffusivity_fields`
+    # (renamed; the old name throws a FieldError listing the available fields).
+    #   κc  tracer diffusivity   κu  viscosity   κe  TKE diffusivity (also available)
+    # They are stored at (Center, Center, Face) with Nz+1 levels, so they must be
+    # interpolated to Center before being written alongside the other fields —
+    # otherwise `indices=(:, :, Nz)` grabs the face below the surface, not the
+    # surface cell, and the midy slice has one more level than everything else.
+    kappa_c = @at (Center, Center, Center) model.closure_fields.κc
+    kappa_u = @at (Center, Center, Center) model.closure_fields.κu
+    slice_fields = (; slice_fields..., e=model.tracers.e, kappa_c, kappa_u)
 end
 
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,

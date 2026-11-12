@@ -642,11 +642,34 @@ vS = Field(v_c * S)
 wT = Field(w_c * T)
 wS = Field(w_c * S)
 
-slice_fields = (; u_c, v_c, w_c, T, S, Ro, KE)
+# Density as sigma = rho - 1000, for isopycnal contours. This adds NO
+# information: with a linear EOS, rho is an exact linear combination of T and S,
+# both already written, so it is reconstructible offline to roundoff. It is here
+# purely so plotting does not have to redo the algebra.
+#
+# NOTE this is the LINEAR EOS sigma, which differs from true TEOS10 sigma-theta
+# by a near-constant offset (~0.2 kg/m^3 at this site, since rho(T0,S0) is
+# 1023.82, not the rho_0 = 1024 used as the base). Contour SHAPES and gradients
+# are right; absolute values are not sigma-theta. Do not label them as such in
+# a paper without re-deriving from T and S with TEOS10.
+sigma = @at (Center, Center, Center) (ρ₀ * (1 - α_lin_eos * (T - T_south_v1) +
+                                                 β_lin_eos * (S - S_south_v1)) - 1000)
+
+slice_fields = (; u_c, v_c, w_c, T, S, sigma, Ro, KE)
 if closure_choice === :catke
-    slice_fields = (; slice_fields..., e=model.tracers.e)
+    # CATKE's computed vertical diffusivities. NOTE the field name: in Oceananigans
+    # 0.113 these live in `model.closure_fields`, NOT `model.diffusivity_fields`
+    # (renamed; the old name throws a FieldError listing the available fields).
+    #   κc  tracer diffusivity   κu  viscosity   κe  TKE diffusivity (also available)
+    # They are stored at (Center, Center, Face) with Nz+1 levels, so they must be
+    # interpolated to Center before being written alongside the other fields —
+    # otherwise `indices=(:, :, Nz)` grabs the face below the surface, not the
+    # surface cell, and the midy slice has one more level than everything else.
+    kappa_c = @at (Center, Center, Center) model.closure_fields.κc
+    kappa_u = @at (Center, Center, Center) model.closure_fields.κu
+    slice_fields = (; slice_fields..., e=model.tracers.e, kappa_c, kappa_u)
 end
-tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
+tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, sigma, uT, uS, vT, vS, wT, wS)
 
 # (1) 2D snapshots — every 6 h, i.e. below the 20.74 h inertial period, so a
 # radiating wave can be told apart from a daily aliasing artifact.
