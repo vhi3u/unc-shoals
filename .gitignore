@@ -25,10 +25,8 @@
 /sweep_output/
 /archive/
 /figures/
-# /pbs/ holds PBS run artifacts on Casper. NOTE: job scripts you want VERSIONED
-# do not belong here -- put them in jobs/, which is tracked. This directory is
-# ignored precisely because *.sh and *.pbs are no longer ignored globally, so
-# anything dropped in here would otherwise be picked up as source.
+# /pbs/ holds PBS run artifacts on Casper, and is the natural home for
+# personal qsub wrappers now that *.pbs is ignored everywhere.
 /pbs/
 /wind_0p*/
 /wind_m0p*/
@@ -43,13 +41,28 @@
 /tools/cmocean/
 /tools/pmkmp/
 
-# ═══════════════════════════════════════════════════════════════════════
-# NOTE: *.sh and *.pbs are deliberately NOT ignored.
+# =====================================================================
+# PBS job scripts: IGNORED, by request (Nov 2026). How to submit now lives
+# on Casper only.
 #
-# They were blanket-ignored until Nov 2026, which meant every PBS job
-# script and MATLAB launcher was invisible to git — the reason
-# src/sweep/submit_wind_fork.pbs and submit_wind_sweep.pbs were never
-# committed despite sitting next to a tracked submit_sweep.pbs. Job
-# submission and launcher scripts are project source; they must travel
-# with the repo or `git pull` on HPC delivers an unrunnable tree.
-# ═══════════════════════════════════════════════════════════════════════
+# *.sh is still tracked -- tools/run_*.sh are the MATLAB launchers and they
+# must travel with the repo.
+#
+# The trade-off, recorded because it bit before: blanket-ignoring these is
+# exactly why src/sweep/submit_wind_fork.pbs and submit_wind_sweep.pbs went
+# uncommitted for months while submit_sweep.pbs sat tracked beside them.
+# From here, a NEW submit script written on a laptop will not reach Casper
+# by `git pull` -- it has to be copied there by hand.
+#
+# The six that were tracked are preserved at commit 113f745. To restore them
+# on any machine:
+#
+#   for f in geomcontrol res250 sweep weakwind wind_fork wind_sweep; do
+#       git show 113f745:src/sweep/submit_$f.pbs > src/sweep/submit_$f.pbs
+#   done
+#   chmod +x src/sweep/*.pbs
+#
+# If propagation turns out to matter more than local edits, the way back is
+# to track submit_*.pbs.template and keep the live .pbs ignored.
+# =====================================================================
+*.pbs
