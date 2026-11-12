@@ -9,7 +9,7 @@
 %
 % Reference case: Zs = -5, Ls = 40 km, sigma = 8 km, Zsh = -25.
 
-Zs    = -5.0;      % shoal crest depth [m]              (deeper = lower shoal)
+Zs    = -10.0;      % shoal crest depth [m]              (deeper = lower shoal)
 Ls    = 40e3;      % shoal length before the taper [m]
 sigma = 8e3;       % shoal half-width in y, Gaussian [m]
 Zsh   = -25.0;     % shelf depth [m]
@@ -22,7 +22,7 @@ riseW = 5.0e3;     % width of the offshore ramp [m]
                    %   hardcode rise/riseW, so `rise` is exploratory until
                    %   it is exposed there -- same caveat as Zc below.
 
-Zc    = -5.0;      % coast depth [m] -- set to Zs for "coast tracks the shoal"
+Zc    = -10.0;      % coast depth [m] -- set to Zs for "coast tracks the shoal"
                    %   NOTE the model's Julia hardcodes this to -5 and takes no
                    %   Zc argument, so anything else is exploratory only.
 

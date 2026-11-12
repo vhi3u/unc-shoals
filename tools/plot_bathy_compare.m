@@ -87,10 +87,21 @@ for r = 1:2
     % ── Right tile: X-Z transects (4 of 9) ──────────────────────────────
     ax2 = nexttile(tl, [1 4]);
     hold(ax2, 'on');
-    zbg = shoal_bottom(x_vec, y_bg, o.Zs_list(1), ZC_FIXED, Ly, ...
-                       o.shoal_length, o.sigma, o.Zsh, SBE);
-    plot(ax2, x_vec/1e3, zbg, 'LineWidth', 2.5, 'Color', [0.85 0.15 0.15], ...
-         'DisplayName', sprintf('Background (y = %.0f km)', y_bg/1e3));
+    % One background per Zs, NOT one for the row. Zc is a single global
+    % number: if Zc = Zs then the coast moves everywhere, including far from
+    % the shoal, so the reference transect moves with it. Drawing a fixed
+    % Zc = -5 background beside coast-tracking shoals implies a domain that
+    % cannot exist, and hides that this change alters the control state.
+    for k = 1:numel(o.Zs_list)
+        Zs = o.Zs_list(k);
+        zbg = shoal_bottom(x_vec, y_bg, Zs, zc(Zs), Ly, ...
+                           o.shoal_length, o.sigma, o.Zsh, SBE);
+        if r == 1 && k > 1, continue; end   % all identical when Zc is fixed
+        if r == 1, nm = sprintf('Background (y = %.0f km)', y_bg/1e3);
+        else,      nm = sprintf('Background, Z_c = %g m', Zs); end
+        plot(ax2, x_vec/1e3, zbg, '--', 'LineWidth', 2.0, ...
+             'Color', min(1, [0.85 0.15 0.15] + 0.10*(k-1)), 'DisplayName', nm);
+    end
     for k = 1:numel(o.Zs_list)
         Zs = o.Zs_list(k);
         z = shoal_bottom(x_vec, y_shoal, Zs, zc(Zs), Ly, ...
