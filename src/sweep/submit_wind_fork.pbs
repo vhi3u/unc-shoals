@@ -1,0 +1,52 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# PBS Job Array Script for Wind Fork (NCAR Casper)
+#═══════════════════════════════════════════════════════════════════════════
+#
+# Submit with:  qsub src/sweep/submit_wind_fork.pbs
+#
+# Runs 6 different wind stress scenarios (indices 1-6) picking up from Day 50
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A ...
+#PBS -N wind_fork
+#PBS -k eod
+#PBS -o sweep/logs/wind_fork.out
+#PBS -e sweep/logs/wind_fork.err
+#PBS -l walltime=12:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -M vhieu@unc.edu
+#PBS -m abe
+#PBS -J 1-6
+
+# ── Modules ────────────────────────────────────────────────────────────
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+
+module load peak-memusage
+module li
+
+# ── Environment ────────────────────────────────────────────────────────
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+# Create output and log directories
+mkdir -p sweep/logs
+mkdir -p out/wind_fork
+
+# ── Launch ─────────────────────────────────────────────────────────────
+echo "════════════════════════════════════════════════════════"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. sweep/wind_fork_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/wind_fork/wind_fork_${PBS_ARRAY_INDEX}
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

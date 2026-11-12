@@ -1,0 +1,60 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# PBS Job Array Script — Wind-Stress Sweep (NCAR Casper GPU)
+#═══════════════════════════════════════════════════════════════════════════
+#
+# Submit with:  qsub sweep/submit_wind_sweep.pbs
+#
+# 7 runs → array 1-7, mapping to τ_y = [-0.15 -0.10 -0.05 0 0.05 0.10 0.15]
+# in the order of [[runs]] in sweep/params_wind.toml.
+# Identical to submit_sweep.pbs except: array range, job name, log names, and
+# SWEEP_PARAMS pointing the driver at params_wind.toml.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A ...
+#PBS -N wind_sweep
+#PBS -k eod
+#PBS -o sweep/logs/wind_sweep.out
+#PBS -e sweep/logs/wind_sweep.err
+#PBS -l walltime=12:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -M ...
+#PBS -m abe
+#PBS -J 1-7
+
+# ── Modules ────────────────────────────────────────────────────────────
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+
+module load peak-memusage
+module li
+
+# ── Environment ────────────────────────────────────────────────────────
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
+export SWEEP_PARAMS="params_wind.toml"
+
+# Project root (update this to your Casper path)
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+# Create output and log directories
+mkdir -p sweep/logs
+mkdir -p output
+mkdir -p out
+mkdir -p out/sweep
+
+# ── Launch ─────────────────────────────────────────────────────────────
+echo "════════════════════════════════════════════════════════"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " SWEEP_PARAMS     = ${SWEEP_PARAMS}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/wind_sweep_${PBS_ARRAY_INDEX}
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

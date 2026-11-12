@@ -1,9 +1,49 @@
+# ── OS / editor ────────────────────────────────────────────────────────
 .DS_Store
 *~
+#*#
+
+# ── Simulation and plotting output ─────────────────────────────────────
 *.nc
 *.jld2
 *.png
 *.gif
-*.sh
-*.pbs
 *.fig
+*.mp4
+
+# ── HPC run directories ────────────────────────────────────────────────
+# On Casper the working tree IS /glade/work/nguyen/unc-shoals, so these
+# output directories sit inside the repo. Listed explicitly (not just by
+# file extension) so that logs, .out/.err files and stray artifacts inside
+# them stay untracked too.
+/nc/
+/nc_old/
+/out/
+/output/
+/logs/
+/checkpoints/
+/sweep_output/
+/archive/
+/wind_0p*/
+/wind_m0p*/
+/*_NOWIND_SAVE/
+*.o[0-9]*
+*.e[0-9]*
+
+# ── Third-party MATLAB toolboxes ───────────────────────────────────────
+# Installed on Casper under tools/, deliberately not vendored into git.
+# A clone anywhere else needs these fetched separately.
+/tools/gsw_matlab_v3_06_16/
+/tools/cmocean/
+/tools/pmkmp/
+
+# ═══════════════════════════════════════════════════════════════════════
+# NOTE: *.sh and *.pbs are deliberately NOT ignored.
+#
+# They were blanket-ignored until Nov 2026, which meant every PBS job
+# script and MATLAB launcher was invisible to git — the reason
+# src/sweep/submit_wind_fork.pbs and submit_wind_sweep.pbs were never
+# committed despite sitting next to a tracked submit_sweep.pbs. Job
+# submission and launcher scripts are project source; they must travel
+# with the repo or `git pull` on HPC delivers an unrunnable tree.
+# ═══════════════════════════════════════════════════════════════════════
