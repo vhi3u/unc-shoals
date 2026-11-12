@@ -24,6 +24,12 @@
 /checkpoints/
 /sweep_output/
 /archive/
+/figures/
+# /pbs/ holds PBS run artifacts on Casper. NOTE: job scripts you want VERSIONED
+# do not belong here -- put them in jobs/, which is tracked. This directory is
+# ignored precisely because *.sh and *.pbs are no longer ignored globally, so
+# anything dropped in here would otherwise be picked up as source.
+/pbs/
 /wind_0p*/
 /wind_m0p*/
 /*_NOWIND_SAVE/
