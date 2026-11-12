@@ -24,6 +24,31 @@
 # Casper's 24 h limit. 50 days would be ~48 h and would NOT fit.
 #
 # Submit:  qsub src/sweep/submit_res250.pbs      (array 1-6)
+#
+# ---------------------------------------------------------------------------
+# CONFOUND, found 2026-11-12 while chasing the R250_Zs15 blow-up. This is not
+# a clean shoal-height axis. min_depth defaults to max(Zc, Zs) and Zc = -5, so
+# at Zs = -5 the clamp flattens the coastal ramp AND the shelf break into the
+# shoal plateau. Bottom depth on the shoal centreline:
+#
+#     x [km]    Zs=-5    Zs=-10   Zs=-15
+#        2.0     -5.00    -5.78    -5.78
+#        5.0     -5.00    -7.96    -7.96
+#        7.8     -5.00   -10.00   -13.54
+#       10.0     -5.00   -10.00   -15.00
+#       40.0     -5.00   -10.00   -15.00
+#
+#   max|dh/dx| inside 0-20 km:  Zs=-5: 0.0     (none -- flat slab to 40 km)
+#                               Zs=-10: 0.00177 at x = 6.1 km
+#                               Zs=-15: 0.00346 at x = 7.9 km
+#
+# So Zs = -5 has NO shelf break at all -- a uniform 5 m slab out to 40 km --
+# while Zs = -15 has the steepest gradient anywhere in the domain, steeper
+# than the 63.5 km offshore ramp (0.0025). Varying Zs varies the inner-shelf
+# slope at the same time, monotonically. Any EKE difference across this axis
+# is a shoal-height AND shelf-break-slope difference, which matters for Fig 4b
+# independently of resolution. To separate them, pass min_depth explicitly.
+# ---------------------------------------------------------------------------
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── 500 m baseline (re-run at the shortened duration for a fair comparison) ──
