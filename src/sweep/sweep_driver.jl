@@ -19,7 +19,11 @@ run_index = parse(Int, ARGS[1])
 @info "Sweep driver starting for run index = $run_index"
 
 # ── Load parameter table ───────────────────────────────────────────────
-params_file = joinpath(@__DIR__, "params_HsLs.toml")
+# Which table to run. Defaults to the main geometry/wind sweep; override with
+# SWEEP_PARAMS so the resolution check and weak-wind runs can share this driver.
+params_name = get(ENV, "SWEEP_PARAMS", "params_HsLs.toml")
+params_file = joinpath(@__DIR__, params_name)
+@info "Parameter table: $params_file"
 config = TOML.parsefile(params_file)
 runs = config["runs"]
 
@@ -48,6 +52,13 @@ sweep_strat = String(get(this_run, "strat", "default"))
 sweep_wind_stress = Float64(get(this_run, "wind_stress", 0.0))
 sweep_v0 = Float64(get(this_run, "v0", 0.2))
 
+# Resolution and duration as sweep parameters. dx must be settable per run so a
+# resolution check can put 500 m and 250 m versions of the same case in one
+# table; sim_days because a 250 m run of the full 50 days is ~48 h of walltime
+# and Casper caps at 24 h.
+sweep_dx = Float64(get(this_run, "dx", 500.0))
+sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
+
 @info """
 ════════════════════════════════════════════════════════
  SWEEP PARAMETERS (run $run_index / $(length(runs)))
@@ -61,11 +72,33 @@ sweep_v0 = Float64(get(this_run, "v0", 0.2))
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2
  v0:              $sweep_v0 m/s
+ dx:              $sweep_dx m
+ sim_days:        $sweep_sim_days days
 ════════════════════════════════════════════════════════
 """
 
+# ── Locate the project root ────────────────────────────────────────────
+# Do NOT use dirname(@__DIR__): this file moved from <root>/sweep to
+# <root>/src/sweep in the Nov 2026 migration, so that expression now resolves
+# to <root>/src and would put sweep_output/ one level too deep. Nothing would
+# error -- the sweep would just write a terabyte somewhere the MATLAB tools do
+# not look, and every figure would silently show the previous sweep instead.
+# Walk up until we find Project.toml so the answer is independent of nesting.
+function project_root(start)
+    d = start
+    for _ in 1:6
+        isfile(joinpath(d, "Project.toml")) && return d
+        parent = dirname(d)
+        parent == d && break
+        d = parent
+    end
+    error("Could not locate Project.toml above $start — cannot resolve the project root.")
+end
+const ROOT = project_root(@__DIR__)
+@info "Project root: $ROOT"
+
 # ── Create output directory for this run ───────────────────────────────
-output_dir = joinpath(dirname(@__DIR__), "sweep_output", "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
+output_dir = joinpath(ROOT, "sweep_output", "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
 mkpath(output_dir)
 cd(output_dir)
 @info "Output directory: $output_dir"
@@ -80,10 +113,12 @@ ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)
+ENV["SWEEP_DX"] = string(sweep_dx)
+ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
 ENV["SWEEP_RUN_INDEX"] = string(run_index)
 
 # ── Include the simulation script ──────────────────────────────────────
-sim_script = joinpath(dirname(@__DIR__), "flow_over_shoals_sweep.jl")
+sim_script = joinpath(ROOT, "src", "flow_over_shoals_sweep.jl")
 @info "Including simulation script: $sim_script"
 include(sim_script)

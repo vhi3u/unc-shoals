@@ -11,8 +11,8 @@
 #PBS -A ...
 #PBS -N wind_fork
 #PBS -k eod
-#PBS -o sweep/logs/wind_fork.out
-#PBS -e sweep/logs/wind_fork.err
+#PBS -o logs/wind_fork.out
+#PBS -e logs/wind_fork.err
 #PBS -l walltime=12:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
@@ -36,7 +36,7 @@ PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"
 
 # Create output and log directories
-mkdir -p sweep/logs
+mkdir -p logs
 mkdir -p out/wind_fork
 
 # ── Launch ─────────────────────────────────────────────────────────────

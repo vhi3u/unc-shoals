@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# RESOLUTION CHECK — does the Fig 4b EKE-vs-shoal-height trend survive Δx/2?
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Why: at Δx = 500 m the deformation radius over the shoal is badly under-
+# resolved, and it gets worse as the shoal gets shallower — which is exactly
+# the axis Fig 4b varies:
+#
+#     Zs = -15 m   Ld = 0.77 km   Ld/Δx = 1.5
+#     Zs = -10 m   Ld = 0.41 km   Ld/Δx = 0.8
+#     Zs =  -5 m   Ld = 0.05 km   Ld/Δx = 0.1
+#
+# So the EKE trend across that sweep may be a resolution trend. This table runs
+# the same three cases at BOTH resolutions, for the SAME duration, so only Δx
+# differs. If the EKE ratio between Zs = -5 and Zs = -15 is the same at both,
+# the trend is physical; if it is not, Fig 4b needs re-running at 250 m.
+#
+# NOTE Δx = 250 m does NOT resolve Zs = -5 (Ld/Δx only reaches 0.2). It cannot:
+# a 5 m column of surface mixed layer has almost no baroclinic Ld. The test is
+# about the SENSITIVITY of the trend to resolution, not about resolving it.
+#
+# Cost: Δt is capped at max_Δt = 10 min at both resolutions when v0 = 0.2, so
+# 250 m costs ~4x (cells only), not 8x. 20 days at 250 m is ~19 h, inside
+# Casper's 24 h limit. 50 days would be ~48 h and would NOT fit.
+#
+# Submit:  qsub src/sweep/submit_res250.pbs      (array 1-6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── 500 m baseline (re-run at the shortened duration for a fair comparison) ──
+[[runs]]
+run_label    = "R500_Zs05"
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 500.0
+sim_days     = 20.0
+
+[[runs]]
+run_label    = "R500_Zs10"
+Zs           = -10.0
+shoal_length = 40000.0
+dx           = 500.0
+sim_days     = 20.0
+
+[[runs]]
+run_label    = "R500_Zs15"
+Zs           = -15.0
+shoal_length = 40000.0
+dx           = 500.0
+sim_days     = 20.0
+
+# ── 250 m ────────────────────────────────────────────────────────────────────
+[[runs]]
+run_label    = "R250_Zs05"
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 20.0
+
+[[runs]]
+run_label    = "R250_Zs10"
+Zs           = -10.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 20.0
+
+[[runs]]
+run_label    = "R250_Zs15"
+Zs           = -15.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 20.0

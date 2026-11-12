@@ -40,6 +40,8 @@ sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
 sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
+sweep_dx = parse(Float64, get(ENV, "SWEEP_DX", "500.0"))
+sweep_sim_days = parse(Float64, get(ENV, "SWEEP_SIM_DAYS", "50.0"))
 
 @info "Sweep parameters: Zs=$sweep_Zs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, Zsh=$sweep_Zsh, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
@@ -87,7 +89,7 @@ include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
 # simulation knobs
 # ═══════════════════════════════════════════════════════════════════════════
 run_number = sweep_run_index
-sim_runtime = 50days
+sim_runtime = sweep_sim_days * days
 callback_interval = 86400seconds
 # Sub-inertial output. The inertial period is 20.74 h, so DAILY snapshots alias
 # it to a spurious 6.35-day oscillation sitting squarely in the mesoscale band.
@@ -107,7 +109,9 @@ end
 
 # Horizontal grid spacing is the knob, not Nx/Ny, so changing Lx can never
 # silently change the resolution (and vice versa).
-Δh = 500.0   # m
+# Set per run from the sweep table (SWEEP_DX), default 500 m. Nx/Ny are
+# derived, so changing dx cannot silently change the domain.
+Δh = sweep_dx
 if arch == CPU()
     params = (; params..., Nx=60, Ny=60, Nz=10)
 else
@@ -553,8 +557,8 @@ else
         @info "Found local checkpoint: $(pickup). Setting runtime to 100 days."
     else
         pickup = false
-        sim_runtime = 50days
-        @info "No checkpoint found. Running 50-day run."
+        sim_runtime = sweep_sim_days * days
+        @info "No checkpoint found. Running $(sweep_sim_days)-day run."
     end
 end
 overwrite_files = (pickup === false)

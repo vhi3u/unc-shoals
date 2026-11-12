@@ -6,20 +6,23 @@
 # Submit with:  qsub sweep/submit_sweep.pbs
 #
 # The array range should match the number of [[runs]] entries in params.toml.
-# Currently 11 runs → 1-11. Update if you add/remove entries.
+# params_HsLs.toml currently has 19 runs → 1-19. Update if you add/remove.
+#
+# PATHS assume the post-migration layout (driver in src/sweep/). Before Nov
+# 2026 this said "sweep/sweep_driver.jl", which no longer exists.
 #═══════════════════════════════════════════════════════════════════════════
 
 #PBS -A ...
 #PBS -N shoal_sweep
 #PBS -k eod
-#PBS -o sweep/logs/sweep.out
-#PBS -e sweep/logs/sweep.err
+#PBS -o logs/sweep.out
+#PBS -e logs/sweep.err
 #PBS -l walltime=12:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
 #PBS -M ...
 #PBS -m abe
-#PBS -J 1-11
+#PBS -J 1-19
 
 # ── Modules ────────────────────────────────────────────────────────────
 module purge
@@ -38,9 +41,8 @@ PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"
 
 # Create output and log directories
-mkdir -p sweep/logs
-mkdir -p output
-mkdir -p out
+mkdir -p logs
+mkdir -p output out/sweep sweep_output
 
 # ── Launch ─────────────────────────────────────────────────────────────
 echo "════════════════════════════════════════════════════════"
@@ -50,6 +52,6 @@ echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/
 echo " Date:             $(date)"
 echo "════════════════════════════════════════════════════════"
 
-peak_memusage julia --project=. sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/sweep_${PBS_ARRAY_INDEX}
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/sweep_${PBS_ARRAY_INDEX}.log
 
 echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

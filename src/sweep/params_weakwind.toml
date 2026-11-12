@@ -1,0 +1,65 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# WEAK-WIND SWEEP — resolve the eddy-to-Ekman transition
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Why: in Fig 4e the EKE has already collapsed by |tau| = 0.03 N/m^2, which was
+# the weakest forced run in params_HsLs.toml. Every forced point is therefore
+# PAST the transition, and the transition itself is unresolved -- it sits
+# entirely in the gap between 0 and 0.03.
+#
+# This fills that gap at 0.005, 0.01 and 0.02, both signs, giving
+#     0, +/-0.005, +/-0.01, +/-0.02, +/-0.03, +/-0.05, +/-0.08, +/-0.10, +/-0.15
+# when combined with the existing Fnnie runs.
+#
+# Geometry is the reference case (Zs = -5, Ls = 40 km), identical to
+# params_HsLs.toml runs 8-17, so these extend that curve rather than starting
+# a new one.
+#
+# Keep in mind while interpreting: the EKE theory's coefficients switch
+# discontinuously on sign(tau) (a jumps 0.086 -> 0.490, n flips +1 -> -1), so
+# part of any apparent regime change at small |tau| comes from the parameter-
+# isation, not the model. These runs are the data that can separate the two.
+#
+# 500 m, 50 days -- same as the Fnnie wind runs, so they are directly
+# comparable. ~12 h each.
+#
+# Submit:  qsub src/sweep/submit_weakwind.pbs     (array 1-6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── downwelling-favourable (negative) ────────────────────────────────────────
+[[runs]]
+run_label    = "wind_m0p020"
+wind_stress  = -0.020
+Zs           = -5.0
+shoal_length = 40000.0
+
+[[runs]]
+run_label    = "wind_m0p010"
+wind_stress  = -0.010
+Zs           = -5.0
+shoal_length = 40000.0
+
+[[runs]]
+run_label    = "wind_m0p005"
+wind_stress  = -0.005
+Zs           = -5.0
+shoal_length = 40000.0
+
+# ── upwelling-favourable (positive) ──────────────────────────────────────────
+[[runs]]
+run_label    = "wind_0p005"
+wind_stress  = 0.005
+Zs           = -5.0
+shoal_length = 40000.0
+
+[[runs]]
+run_label    = "wind_0p010"
+wind_stress  = 0.010
+Zs           = -5.0
+shoal_length = 40000.0
+
+[[runs]]
+run_label    = "wind_0p020"
+wind_stress  = 0.020
+Zs           = -5.0
+shoal_length = 40000.0

@@ -14,8 +14,8 @@
 #PBS -A ...
 #PBS -N wind_sweep
 #PBS -k eod
-#PBS -o sweep/logs/wind_sweep.out
-#PBS -e sweep/logs/wind_sweep.err
+#PBS -o logs/wind_sweep.out
+#PBS -e logs/wind_sweep.err
 #PBS -l walltime=12:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
@@ -41,7 +41,7 @@ PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"
 
 # Create output and log directories
-mkdir -p sweep/logs
+mkdir -p logs
 mkdir -p output
 mkdir -p out
 mkdir -p out/sweep
@@ -55,6 +55,6 @@ echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/
 echo " Date:             $(date)"
 echo "════════════════════════════════════════════════════════"
 
-peak_memusage julia --project=. sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/wind_sweep_${PBS_ARRAY_INDEX}
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} 2>&1 | tee out/sweep/wind_sweep_${PBS_ARRAY_INDEX}
 
 echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"
