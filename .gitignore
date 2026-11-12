@@ -37,10 +37,9 @@
 *.e[0-9]*
 
 # ── Per-machine job settings ───────────────────────────────────────────
-# Holds the PBS account code, notification email and Julia depot path, which
-# differ per machine and per user. Tracked as job_env.sh.example; the real
-# file stays local so `git pull` can never conflict with it.
-/src/sweep/job_env.sh
+# PBS account, notification email and Julia depot. Tracked as .env.example;
+# the real file stays local so `git pull` can never conflict with it.
+/.env
 
 # ── Third-party MATLAB toolboxes ───────────────────────────────────────
 # Installed on Casper under tools/, deliberately not vendored into git.
