@@ -13,7 +13,7 @@
 # git pull will hand you a script that cannot be submitted.
 #═══════════════════════════════════════════════════════════════════════════
 
-#PBS -A <FILL_IN_ACCOUNT>
+#PBS -A uosc0035
 #PBS -N weakwind
 #PBS -k eod
 #PBS -o logs/weakwind.out
@@ -21,6 +21,7 @@
 #PBS -l walltime=14:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -M vhieu@unc.edu
 #PBS -m abe
 #PBS -J 1-6
 
