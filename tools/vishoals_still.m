@@ -659,7 +659,15 @@ end
 run_label = run_tag;
 
 % Find time index
-[~, t] = min(abs(t_days - target_day));
+% day = Inf means "the last snapshot in the file", which is what you want
+% when runs have different lengths (e.g. a 20-day resolution test next to a
+% 50-day production run). A finite target picks the NEAREST available time,
+% so asking for day 100 of a 20-day run quietly returns day 20.
+if isinf(target_day)
+    t = numel(t_days);
+else
+    [~, t] = min(abs(t_days - target_day));
+end
 actual_day = t_days(t);
 
 supt_str = sprintf('%s — surface & XZ transect (day %.1f)', run_label, actual_day);
@@ -778,7 +786,9 @@ clip_str = '';
 if clipped
     clip_str = '_clipped';
 end
-outfile = fullfile(outdir, sprintf('%s_day%d%s.png', run_tag, round(target_day), clip_str));
+% Name by actual_day, not target_day: with a nearest-match (or Inf) target
+% the two differ, and a file called *_day100.png holding day 20 is a trap.
+outfile = fullfile(outdir, sprintf('%s_day%d%s.png', run_tag, round(actual_day), clip_str));
 exportgraphics(fig, outfile, 'Resolution', 300);
 fprintf('Saved still image: %s \n', outfile);
 close(fig);
