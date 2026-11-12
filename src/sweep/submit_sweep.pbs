@@ -34,7 +34,14 @@ module load peak-memusage
 module li
 
 # ── Environment ────────────────────────────────────────────────────────
-export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
+# NOTE the TRAILING COLON. Without it this REPLACES the depot list instead of
+# prepending to it, which drops the bundled depot that ships Julia's own stdlib
+# artifacts -- the cause of the "MbedTLS_jll is required but does not seem to
+# be installed" failure on 2026-11-12, which broke Pkg itself.
+#
+# This must match the depot you actually instantiated into. The original
+# /glade/work/nguyen/.julia was abandoned after it could no longer precompile.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
 
 # Project root (update this to your Casper path)
 PROJECT_DIR="/glade/work/nguyen/unc-shoals"

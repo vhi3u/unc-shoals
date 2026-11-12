@@ -3,6 +3,19 @@
 # then includes the simulation script with the right parameters injected.
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Make sure the environment is materialised before anything tries to load
+# Oceananigans. This is cheap and idempotent when the depot is already
+# populated, and it turns "Package X is required but does not seem to be
+# installed" -- which is what you get when JULIA_DEPOT_PATH points somewhere
+# that was never instantiated -- into a self-healing step.
+#
+# IMPORTANT: still run `Pkg.precompile()` once on a LOGIN NODE before
+# submitting an array. instantiate() is safe to run concurrently; precompile()
+# is not -- six array jobs compiling into one depot fight over pidfiles and
+# the whole array fails messily. See the res250_1.log from 2026-11-12.
+using Pkg
+Pkg.instantiate()
+
 using TOML
 
 # ── Parse arguments ─────────────────────────────────────────────────────
