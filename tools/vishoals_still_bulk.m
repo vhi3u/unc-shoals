@@ -26,13 +26,17 @@ if isempty(d_all)
 end
 sweeps = cell(1, numel(d_all));
 for k = 1:numel(d_all)
-    % sweep_001_R500_Zs05 -> R500_Zs05  (the label the .nc files are named by)
+    % The model writes run_tag = "sweep_<run_label>", so the files inside
+    % sweep_001_R500_Zs05/ are top_sweep_R500_Zs05.nc etc. Recover that tag:
+    %   sweep_001_R500_Zs05  ->  sweep_R500_Zs05
+    % Older clusters have no NNN segment (sweep_Zs5_Ls40k), where the
+    % directory name IS the run tag.
     nm = d_all(k).name;
     tok = regexp(nm, '^sweep_\d+_(.+)$', 'tokens', 'once');
     if isempty(tok)
-        sweeps{k} = regexprep(nm, '^sweep_', '');
+        sweeps{k} = nm;
     else
-        sweeps{k} = tok{1};
+        sweeps{k} = ['sweep_' tok{1}];
     end
 end
 sweeps = sweeps(~cellfun(@isempty, sweeps));
@@ -55,7 +59,7 @@ failed = {};
 for k = 1:numel(sweeps)
     sw      = sweeps{k};
     % Find actual folder with wildcard to handle sweep_001_... numbering
-    sw_core = sw;
+    sw_core = regexprep(sw, '^sweep_', '');
     d = dir(fullfile(cluster_dir, ['*' sw_core '*']));
     d = d([d.isdir]);
     d = d(~ismember({d.name}, {'.', '..'}));
