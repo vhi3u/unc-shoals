@@ -1,0 +1,29 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# job_env.sh — per-machine job settings. COPY THIS to job_env.sh and edit.
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   cp src/sweep/job_env.sh.example src/sweep/job_env.sh
+#
+# job_env.sh is gitignored, so your real values stay out of the repo and a
+# `git pull` can never conflict with them. That is the whole point: before
+# this, the account code lived in #PBS directives inside the tracked .pbs
+# files, so every pull either clobbered your edit or refused to merge.
+#
+# Why a wrapper is needed: #PBS lines are parsed by qsub BEFORE any shell
+# runs, so "#PBS -A $ACCOUNT" does NOT expand. The values below are passed
+# on the qsub command line instead, which overrides the directives.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# NCAR project / allocation code charged for the job.
+PBS_ACCOUNT="uosc0035"
+
+# Address for PBS job mail (-m abe sends begin/end/abort).
+PBS_EMAIL="you@example.edu"
+
+# Julia depot. MUST end with a colon: without it this REPLACES the depot
+# list rather than prepending, which drops the bundled depot holding Julia's
+# stdlib artifacts and breaks Pkg itself.
+JULIA_DEPOT="/glade/work/nguyen/.julia_v111:"
+
+# Repo root on this machine.
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"

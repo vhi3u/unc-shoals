@@ -12,7 +12,11 @@
 # 2026 this said "sweep/sweep_driver.jl", which no longer exists.
 #═══════════════════════════════════════════════════════════════════════════
 
-#PBS -A uosc0035
+# -A, -M and JULIA_DEPOT_PATH come from src/sweep/job_env.sh, passed on the
+# qsub command line by src/sweep/submit.sh (command-line args override #PBS
+# directives). Deliberately left UNSET here so a bare `qsub thisfile` fails
+# loudly rather than silently charging the wrong allocation.
+#PBS -A UNSET_USE_submit_sh
 #PBS -N shoal_sweep
 #PBS -k eod
 #PBS -o logs/sweep.out
@@ -20,7 +24,6 @@
 #PBS -l walltime=12:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
-#PBS -M vhieu@unc.edu
 #PBS -m abe
 #PBS -J 1-19
 
