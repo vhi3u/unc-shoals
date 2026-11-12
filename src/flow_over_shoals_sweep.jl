@@ -576,20 +576,39 @@ overwrite_files = (pickup === false)
 #     Δh = 500 m, |u| = 0.3 m/s  ->  CFL = 0.36   (headroom)
 #     Δh = 250 m, |u| = 0.3 m/s  ->  CFL = 0.72   (already past the target)
 #
-# so a 250 m run sits pinned at the cfl = 0.7 target with nothing in reserve,
-# while the wizard re-checks only every 10 iterations and can cut Δt by at most
-# half when it does. One jet accelerating over the shoal crest inside that
-# window carries CFL past 1 and the run NaNs. That is a resolution-dependent
-# blow-up, and in a resolution sweep it masquerades as physics. Scaling holds
-# the CFL ceiling fixed instead of the second count.
+# so a 250 m run has far less reserve than its 500 m twin. Scaling holds the
+# CFL ceiling fixed instead of the second count.
+#
+# This ceiling did NOT cause the R250_Zs15 blow-up -- res250_6.log shows Δt
+# peaking at 305.8 s, never near 600 s, so the wizard was already CFL-limited
+# well below the cap and this scaling would have changed nothing. It is kept
+# because a resolution-blind CFL ceiling is wrong on its own terms in a sweep
+# that varies Δx. The real cause was vertical: see min_change below.
 max_Δt = 10minutes * (Δh / 500)
 
 simulation = Simulation(model, Δt=1minutes, stop_time=sim_runtime)
-# Schedule 5, not the default 10. At Δh = 500 the ceiling binds long before the
-# CFL does, so Δt is pinned at max_Δt either way and this changes nothing --
-# the finished R500 runs stay comparable. At finer Δh it halves the window in
-# which the flow can accelerate unobserved.
-conjure_time_step_wizard!(simulation, IterationInterval(5), cfl=0.7, max_Δt=max_Δt)
+# Schedule 5, not the default 10, and min_change 0.2, not the default 0.5.
+#
+# min_change is what killed R250_Zs15 at t = 0.497 d. Δz = Lz/Nz = 1 m while
+# Δx = 250 m, an aspect ratio of 250:1, so |w|/Δz enters the advective CFL on
+# equal terms with |u|/Δx even though w is ~250x smaller than u. From the log:
+#
+#   iter 200:  |w|=1.14e-3  ->  vertical share of the CFL budget = 35%
+#   iter 225:  |w|=1.49e-2  ->  vertical share = 88%,  required Δt = 41 s
+#
+# The wizard had Δt = 168.2 s and needed 41 s. With min_change = 0.5 the most
+# it could do was 84 s, then 42 s -- ten more iterations away, by which time w
+# had grown again. It was chasing a runaway it could not catch. min_change =
+# 0.2 lets one check cover that whole descent.
+#
+# min_change only binds when the wizard wants to cut by more than 2x, which a
+# healthy run never does, so the finished R500 runs stay comparable.
+#
+# For context on whether that w is physics: u|dh/dx| = 0.25 * 0.00346 =
+# 8.7e-4 m/s, which is the ambient w in the log. 1.49e-2 is 17x that, so the
+# spike is grid-scale noise, not a resolved vertical velocity.
+conjure_time_step_wizard!(simulation, IterationInterval(5),
+    cfl=0.7, max_Δt=max_Δt, min_change=0.2)
 @info @sprintf("Time step: initial 60 s, max %.0f s  (Δh = %.0f m -> CFL = %.2f at |u| = 0.3 m/s)",
     max_Δt, Δh, 0.3 * max_Δt / Δh)
 
@@ -628,13 +647,29 @@ function report_health(sim)
             ", Ls = ", sweep_shoal_length,
             ", Zsh = ", sweep_Zsh))
     end
-    @info @sprintf("health: iter %6d | t = %7.3f d | Δt = %6.1f s | max|u| = %.4f | max|v| = %.4f | max|w| = %.2e",
+    # Where w lives, and how the advective CFL budget splits. Δz = 1 m against
+    # Δx = 250 m means |w|/Δz can dominate the CFL while |w| itself still looks
+    # negligible next to |u| -- which is exactly how R250_Zs15 died, and the
+    # old one-line health report could not show it. The columnwise reduction
+    # is a GPU reduction plus an Nx-element transfer, so it is cheap.
+    umax = maximum(abs, interior(m.velocities.u))
+    vmax = maximum(abs, interior(m.velocities.v))
+    wcol = Array(vec(maximum(abs, interior(m.velocities.w), dims=(2, 3))))
+    wmax, iw = findmax(wcol)
+    xw = (iw - 0.5) * params.Lx / params.Nx / 1e3
+
+    tx = umax / Δh
+    ty = vmax / Δh
+    tz = wmax / (params.Lz / params.Nz)
+    tot = tx + ty + tz
+
+    # Co-located upper bound: the three maxima need not share a cell, so this
+    # brackets the wizard's own measurement from above rather than matching it.
+    @info @sprintf("health: iter %6d | t = %7.3f d | Δt = %6.1f s | max|u| = %.4f | max|v| = %.4f | max|w| = %.2e at x = %5.1f km | CFL <= %.2f (vert %2.0f%%)",
         iteration(sim), time(sim) / 86400, sim.Δt,
-        maximum(abs, interior(m.velocities.u)),
-        maximum(abs, interior(m.velocities.v)),
-        maximum(abs, interior(m.velocities.w)))
+        umax, vmax, wmax, xw, sim.Δt * tot, 100 * tz / tot)
 end
-simulation.callbacks[:health] = Callback(report_health, IterationInterval(25))
+simulation.callbacks[:health] = Callback(report_health, IterationInterval(10))
 
 u, v, w = model.velocities
 T = model.tracers.T
