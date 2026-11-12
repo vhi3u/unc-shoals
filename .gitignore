@@ -36,11 +36,6 @@
 *.o[0-9]*
 *.e[0-9]*
 
-# ── Per-machine job settings ───────────────────────────────────────────
-# PBS account, notification email and Julia depot. Tracked as .env.example;
-# the real file stays local so `git pull` can never conflict with it.
-/.env
-
 # ── Third-party MATLAB toolboxes ───────────────────────────────────────
 # Installed on Casper under tools/, deliberately not vendored into git.
 # A clone anywhere else needs these fetched separately.

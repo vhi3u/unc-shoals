@@ -8,6 +8,7 @@
 # Runs 6 different wind stress scenarios (indices 1-6) picking up from Day 50
 #═══════════════════════════════════════════════════════════════════════════
 
+#PBS -A UOSC0035
 #PBS -N wind_fork
 #PBS -k eod
 #PBS -o logs/wind_fork.out
@@ -28,18 +29,10 @@ module load peak-memusage
 module li
 
 # ── Environment ────────────────────────────────────────────────────────
-# Account, email and Julia depot come from .env at the repo root, which is
-# gitignored so a git pull cannot clobber them. -A and -M are NOT set as
-# #PBS directives because qsub parses those before any shell runs, so they
-# cannot read variables. Source .env in your shell before qsub:
-#
-#     source .env && qsub src/sweep/submit_wind_fork.pbs
-ENV_FILE="${PBS_O_WORKDIR:-$PWD}/.env"
-[ -f "${ENV_FILE}" ] && source "${ENV_FILE}"
-
-# Trailing colon required: without it this replaces the depot list rather
-# than prepending, dropping Julia's bundled stdlib depot and breaking Pkg.
-export JULIA_DEPOT_PATH="${JULIA_DEPOT:-/glade/work/nguyen/.julia_v111:}"
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
 
 PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"

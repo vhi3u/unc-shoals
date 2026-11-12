@@ -13,6 +13,7 @@
 # git pull will hand you a script that cannot be submitted.
 #═══════════════════════════════════════════════════════════════════════════
 
+#PBS -A UOSC0035
 #PBS -N res250
 #PBS -k eod
 #PBS -o logs/res250.out
@@ -30,18 +31,10 @@ module load julia/1.11.2 cuda
 module load peak-memusage
 module li
 
-# Account, email and Julia depot come from .env at the repo root, which is
-# gitignored so a git pull cannot clobber them. -A and -M are NOT set as
-# #PBS directives because qsub parses those before any shell runs, so they
-# cannot read variables. Source .env in your shell before qsub:
-#
-#     source .env && qsub src/sweep/submit_res250.pbs
-ENV_FILE="${PBS_O_WORKDIR:-$PWD}/.env"
-[ -f "${ENV_FILE}" ] && source "${ENV_FILE}"
-
-# Trailing colon required: without it this replaces the depot list rather
-# than prepending, dropping Julia's bundled stdlib depot and breaking Pkg.
-export JULIA_DEPOT_PATH="${JULIA_DEPOT:-/glade/work/nguyen/.julia_v111:}"
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
 
 # Which table in src/sweep/ the driver should read.
 export SWEEP_PARAMS="params_res250.toml"
