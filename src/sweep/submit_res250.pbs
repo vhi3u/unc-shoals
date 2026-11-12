@@ -13,20 +13,6 @@
 # git pull will hand you a script that cannot be submitted.
 #═══════════════════════════════════════════════════════════════════════════
 
-# -A, -M and JULIA_DEPOT_PATH come from src/sweep/job_env.sh, passed on the
-# qsub command line by src/sweep/submit.sh (command-line args override #PBS
-# directives). Deliberately left UNSET here so a bare `qsub thisfile` fails
-# loudly rather than silently charging the wrong allocation.
-#PBS -A UNSET_USE_submit_sh
-#PBS -N res250
-#PBS -k eod
-#PBS -o logs/res250.out
-#PBS -e logs/res250.err
-#PBS -l walltime=24:00:00
-#PBS -q casper
-#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
-#PBS -m abe
-#PBS -J 1-6
 
 module purge
 module load ncarenv-basic/24.12
@@ -35,14 +21,24 @@ module load julia/1.11.2 cuda
 module load peak-memusage
 module li
 
-# NOTE the TRAILING COLON. Without it this REPLACES the depot list instead of
-# prepending to it, which drops the bundled depot that ships Julia's own stdlib
-# artifacts -- the cause of the "MbedTLS_jll is required but does not seem to
-# be installed" failure on 2026-11-12, which broke Pkg itself.
-#
-# This must match the depot you actually instantiated into. The original
-# /glade/work/nguyen/.julia was abandoned after it could no longer precompile.
-export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
+# ── Per-machine settings ───────────────────────────────────────────────
+# job_env.sh is gitignored and holds the account, email and Julia depot, so
+# none of them live in this tracked file where a git pull would clobber them.
+JOB_ENV="${PBS_O_WORKDIR:-$PWD}/src/sweep/job_env.sh"
+if [ -f "${JOB_ENV}" ]; then
+    # shellcheck source=/dev/null
+    source "${JOB_ENV}"
+    echo "sourced ${JOB_ENV}"
+else
+    echo "WARNING: ${JOB_ENV} not found — falling back to built-in defaults."
+    echo "         cp src/sweep/job_env.sh.example src/sweep/job_env.sh"
+fi
+
+# Depot from job_env.sh if it set one, otherwise the known-good default.
+# The TRAILING COLON matters: without it this replaces the depot list rather
+# than prepending, dropping Julia's bundled stdlib depot and breaking Pkg.
+export JULIA_DEPOT_PATH="${JULIA_DEPOT:-/glade/work/nguyen/.julia_v111:}"
+echo "JULIA_DEPOT_PATH=${JULIA_DEPOT_PATH}"
 
 # Which table in src/sweep/ the driver should read.
 export SWEEP_PARAMS="params_res250.toml"
