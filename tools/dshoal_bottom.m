@@ -19,6 +19,15 @@ function z = dshoal_bottom(x, y, varargin)
 %   'Zc'        depth at the coast, x = 0 [m]                -5
 %   'coastal_drop'     drop across the coastal ramp [m]      2
 %   'min_depth' shallowest bottom allowed [m]          max(Zc, Zs)
+%   'rise_mid'  centre of the offshore ramp [m]              63.5e3
+%   'rise_width'       width of the offshore ramp [m]         5.0e3
+%   'h_deep'    depth of the abyssal plain [m]                   -50
+%
+% SHELF LENGTH lives in rise_mid: the flat shelf runs from the end of the
+% shelf break to the offshore ramp. Both Julia files hardcode the ramp at
+% 63.5e3 / 5.0e3 and h_deep at -50, so shelf length is not a parameter the
+% model can vary -- changing it here is exploratory until those are exposed
+% in src/dshoal_vn_param.jl, exactly like Zc below.
 %
 % Zc / coastal_drop / min_depth exist only in the _coastal Julia variant.
 % src/dshoal_vn_param.jl -- the one flow_over_shoals_sweep.jl actually calls
@@ -43,6 +52,8 @@ addParameter(p, 'coastal_mid', 2.5e3);
 addParameter(p, 'coastal_width', 1.5e3);
 addParameter(p, 'min_depth', []);
 addParameter(p, 'h_deep', -50.0);
+addParameter(p, 'rise_mid', 63.5e3);
+addParameter(p, 'rise_width', 5.0e3);
 parse(p, varargin{:});
 o = p.Results;
 
@@ -60,7 +71,7 @@ hw = h0 + (h1 - h0) .* smooth_step(x, o.coastal_mid, o.coastal_width);
 sb_mid   = 5.0e3 + (o.shelf_break_end - 5.0e3) / 2.0;
 sb_width = (o.shelf_break_end - 5.0e3) / 2.8;
 hw = hw + (o.Zsh - h1)       .* smooth_step(x, sb_mid, sb_width);
-hw = hw + (o.h_deep - o.Zsh) .* smooth_step(x, 63.5e3, 5.0e3);
+hw = hw + (o.h_deep - o.Zsh) .* smooth_step(x, o.rise_mid, o.rise_width);
 
 % ── Along-shore compact window ──────────────────────────────────────────
 window = ones(size(y));

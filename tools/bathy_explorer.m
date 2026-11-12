@@ -13,11 +13,33 @@ Zs    = -5.0;      % shoal crest depth [m]              (deeper = lower shoal)
 Ls    = 40e3;      % shoal length before the taper [m]
 sigma = 8e3;       % shoal half-width in y, Gaussian [m]
 Zsh   = -25.0;     % shelf depth [m]
-sbe   = 12e3;      % offshore end of the shelf break [m]
+sbe   = 12e3;      % offshore end of the shelf break [m]  (inshore end of shelf)
+rise  = 63.5e3;    % centre of the offshore ramp [m]      (offshore end of shelf)
+riseW = 5.0e3;     % width of the offshore ramp [m]
+                   %   SHELF LENGTH is rise - sbe. Vary `rise` to change it
+                   %   while leaving Zsh alone; vary Zsh to change the depth
+                   %   while leaving the length alone. Both Julia files
+                   %   hardcode rise/riseW, so `rise` is exploratory until
+                   %   it is exposed there -- same caveat as Zc below.
 
 Zc    = -5.0;      % coast depth [m] -- set to Zs for "coast tracks the shoal"
                    %   NOTE the model's Julia hardcodes this to -5 and takes no
                    %   Zc argument, so anything else is exploratory only.
+
+
+% ── Holding the shelf break fixed while varying Zsh (optional) ──────────
+% Zsh alone preserves shelf length but NOT the break slope: the drop from
+% -7 m to Zsh happens over the same 5->sbe km, so the break steepens in
+% proportion. The tanh's peak slope is exactly 1.4*drop/(sbe - 5 km), so
+% uncommenting these two lines pins it and keeps the shelf roughly put:
+%
+%   sbe  = 5e3 + 1.4*abs(Zsh - (Zc - 2))/0.0036;   % 0.0036 = the Zsh=-25 value
+%   rise = 63.5e3 + (sbe - 12e3);
+%
+% Verified: break |dh/dx| stays at 0.00360 for Zsh = -20..-35, and the flat
+% shelf holds to 33.0/32.1/31.2/30.4 km (8%) instead of drifting 32%. The
+% residual is the offshore ramp, whose own drop |h_deep - Zsh| changes too;
+% scale rise_width by that as well if you need it exact.
 
 Lx = 150e3; Ly = 200e3; Lz = 50.0;     % domain, matching the sweep
 y_shoal = Ly/2;                        % shoal centreline
@@ -36,7 +58,7 @@ end
 dshoal_selftest();
 
 opts = {'Ly', Ly, 'Zs', Zs, 'Ls', Ls, 'sigma', sigma, 'Zsh', Zsh, ...
-        'shelf_break_end', sbe, 'Zc', Zc};
+        'shelf_break_end', sbe, 'Zc', Zc, 'rise_mid', rise, 'rise_width', riseW};
 
 nx = 401; ny = 501;
 xv = linspace(0, Lx, nx);
@@ -135,9 +157,22 @@ if any(on)
 else
     fprintf('  actual    : no flat crest at Zs (shoal never reaches it)\n');
 end
-fprintf('  max|dh/dx|: %.5f inshore (0-20 km),  %.5f on the offshore flank\n', ...
+fprintf('  max|dh/dx|: %.5f inshore (0-20 km),  %.5f on the shoal''s offshore flank\n', ...
         s_in, s_out);
-fprintf('  water over the crest: %g m\n\n', -Zs);
+fprintf('  water over the crest: %g m\n', -Zs);
+
+% The shelf, measured off the background transect rather than assumed
+flat = abs(z_bg - Zsh) < 0.05;
+if any(flat)
+    si = xv(find(flat,1,'first'))/1e3;  so = xv(find(flat,1,'last'))/1e3;
+    fprintf('  shelf     : flat at %g m from %.1f to %.1f km  ->  length %.1f km\n', ...
+            Zsh, si, so, so-si);
+else
+    fprintf('  shelf     : never flat at Zsh (break and ramp overlap)\n');
+end
+s_brk = max(abs(diff(z_bg(xv <= sbe + 5e3)))) / dxp;
+fprintf('  shelf break: max|dh/dx| = %.5f   (drop %g m over %g-%g km)\n\n', ...
+        s_brk, abs(Zsh - (Zc - 2)), 5, sbe/1e3);
 
 
 %% ── Overlay a sweep of one parameter ──  edit, then Cmd+Enter this section
