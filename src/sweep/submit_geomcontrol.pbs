@@ -1,0 +1,63 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Geometry controls for the Fig. 4b shoal-height axis — 5 runs, 500 m, 50 days
+#
+# Submit:  qsub src/sweep/submit_geomcontrol.pbs
+#
+# TO CHANGE THE ACCOUNT, EMAIL, WALLTIME OR ANYTHING ELSE: do NOT edit this
+# file. qsub command-line flags override every #PBS directive below, and an
+# unedited file never conflicts with `git pull`:
+#
+#   qsub -A <PROJECT> -M <you@example.com> src/sweep/submit_geomcontrol.pbs
+#   qsub -l walltime=18:00:00 -J 2-3 src/sweep/submit_geomcontrol.pbs
+#
+# For something you want permanently, put a one-line wrapper in pbs/, which is
+# gitignored, so git never sees it:
+#
+#   echo 'qsub -A <PROJECT> -M <you> "$@"' > pbs/q && chmod +x pbs/q
+#   ./pbs/q src/sweep/submit_geomcontrol.pbs
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N shoal_geomctl
+#PBS -k eod
+#PBS -o logs/geomcontrol.out
+#PBS -e logs/geomcontrol.err
+#PBS -l walltime=12:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -m abe
+#PBS -J 1-5
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+module load peak-memusage
+module li
+
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
+
+# Which table in src/sweep/ the driver should read.
+export SWEEP_PARAMS="params_geomcontrol.toml"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep sweep_output
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/geomcontrol_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

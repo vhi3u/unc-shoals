@@ -1,0 +1,92 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# GEOMETRY CONTROLS — is the Fig. 4b EKE trend shoal height, or the two things
+# that covary with it?
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Zs sets the crest depth, but the shoal is built by filling the background up
+# to that level, so a deeper crest ALSO gets:
+#
+#   1. a shorter flat crest -- the fill starts further offshore
+#   2. a steeper inshore flank -- it is the background shelf break, truncated
+#      at Zs, and the tanh is steeper the deeper you cut it
+#
+#   label            Zs     Ls    sbe   rise | crest   inshore   shelf
+#   Zs05_ref       -5.0   40.0   12.0   63.5 | 40.4 km  0.0      32.0 km
+#   Zs15_ref      -15.0   40.0   12.0   63.5 | 32.4 km  0.00349  32.0 km
+#
+# So the two points Fig. 4b compares differ in three ways, not one. These five
+# runs separate them. Each control changes ONE of the three and holds the other
+# two, with the geometry solved numerically rather than guessed:
+#
+#   Zs15_Lsfix    -15.0   48.3   12.0   63.5 | 40.6 km  0.00349  32.0 km
+#       crest restored to 40 km at the deep crest. vs Zs15_ref, isolates CREST
+#       LENGTH. Same depth, same flank.
+#
+#   Zs05_Lsmatch   -5.0   32.4   12.0   63.5 | 32.9 km  0.0      32.0 km
+#       the same test from the other side -- shorten the SHALLOW shoal instead
+#       of lengthening the deep one. If both agree, the result is not an
+#       artifact of which run was altered.
+#
+#   Zs15_slopefix -15.0   51.8   20.0   76.0 | 40.5 km  0.00165  32.0 km
+#       crest held at 40 km AND the inshore flank halved, 0.00349 -> 0.00165.
+#       vs Zs15_Lsfix, isolates FLANK SLOPE. Needs rise_mid because widening
+#       the break to soften it eats into the shelf; moving the offshore ramp
+#       to 76 km puts the shelf back at 32.0 km.
+#
+# How to read the result:
+#   Zs15_Lsfix  ~= Zs15_ref   -> crest length is not driving Fig. 4b
+#   Zs15_slopefix ~= Zs15_Lsfix -> flank slope is not either, and the trend is
+#                                  shoal height after all
+#   either differs materially -> Fig. 4b's x-axis is doing more than one job
+#                                and needs re-cutting
+#
+# 500 m and 50 days, matching the production HsLs runs, so EKE is directly
+# comparable with Fig. 4b rather than needing rescaling.
+#
+# Submit:  qsub src/sweep/submit_geomcontrol.pbs     (array 1-5)
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label       = "Zs05_ref"
+Zs              = -5.0
+shoal_length    = 40000.0
+shelf_break_end = 12000.0
+rise_mid        = 63500.0
+dx              = 500.0
+sim_days        = 50.0
+
+[[runs]]
+run_label       = "Zs15_ref"
+Zs              = -15.0
+shoal_length    = 40000.0
+shelf_break_end = 12000.0
+rise_mid        = 63500.0
+dx              = 500.0
+sim_days        = 50.0
+
+[[runs]]
+run_label       = "Zs15_Lsfix"
+Zs              = -15.0
+shoal_length    = 48300.0
+shelf_break_end = 12000.0
+rise_mid        = 63500.0
+dx              = 500.0
+sim_days        = 50.0
+
+[[runs]]
+run_label       = "Zs05_Lsmatch"
+Zs              = -5.0
+shoal_length    = 32400.0
+shelf_break_end = 12000.0
+rise_mid        = 63500.0
+dx              = 500.0
+sim_days        = 50.0
+
+[[runs]]
+run_label       = "Zs15_slopefix"
+Zs              = -15.0
+shoal_length    = 51800.0
+shelf_break_end = 20000.0
+rise_mid        = 76000.0
+dx              = 500.0
+sim_days        = 50.0

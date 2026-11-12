@@ -26,7 +26,7 @@ Shoal Geometry:
 
 # ── Background bathymetry ───────────────────────────────────────────────
 
-@inline function param_background_depth(x, Zsh, shelf_break_end)
+@inline function param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width)
     h0, h1, h4 = -5.0, -7.0, -50.0
     h2 = Zsh
 
@@ -38,9 +38,12 @@ Shoal Geometry:
     sb_width = (shelf_break_end - 5.0e3) / 2.8
     h += (h2 - h1) * smooth_step(x, sb_mid, sb_width)
 
-    # 3. Offshore ramp (62-65km)
-    # The shelf stays flat at `Zsh` until it reaches the offshore ramp.
-    h += (h4 - h2) * smooth_step(x, 63.5e3, 5.0e3)
+    # 3. Offshore ramp. `rise_mid` is the offshore end of the flat shelf, so
+    # SHELF LENGTH is rise_mid - shelf_break_end. It was hardcoded at 63.5e3,
+    # which made shelf length the one geometric quantity the sweep could not
+    # vary independently: shelf_break_end moves the inshore end AND the break
+    # steepness at the same time.
+    h += (h4 - h2) * smooth_step(x, rise_mid, rise_width)
 
     return h
 end
@@ -67,9 +70,10 @@ end
 
 # ── Combined bottom function ────────────────────────────────────────────
 
-@inline function _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh, shelf_break_end)
+@inline function _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
+                                     shelf_break_end, rise_mid, rise_width)
     # 1. Background depth
-    hw = param_background_depth(x, Zsh, shelf_break_end)
+    hw = param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
@@ -119,11 +123,14 @@ function dshoal_param_bottom(Ly;
     shoal_length=40e3,
     Ly_shoal=Ly,
     Zsh=-25.0,
-    shelf_break_end=12.0e3)
+    shelf_break_end=12.0e3,
+    rise_mid=63.5e3,
+    rise_width=5.0e3)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
-    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh, shelf_break_end)
+    bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
+                                       shelf_break_end, rise_mid, rise_width)
     return bottom
 end

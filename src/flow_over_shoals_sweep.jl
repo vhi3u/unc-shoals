@@ -36,6 +36,8 @@ sweep_shoal_length = parse(Float64, get(ENV, "SWEEP_SHOAL_LENGTH", "40000.0"))
 sweep_sigma = parse(Float64, get(ENV, "SWEEP_SIGMA", "8000.0"))
 sweep_Zsh = parse(Float64, get(ENV, "SWEEP_Zsh", "-25.0"))
 sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
+sweep_rise_mid = parse(Float64, get(ENV, "SWEEP_RISE_MID", "63500.0"))
+sweep_rise_width = parse(Float64, get(ENV, "SWEEP_RISE_WIDTH", "5000.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
@@ -137,7 +139,9 @@ if shoal_bath
         shoal_length=sweep_shoal_length,
         sigma=sweep_sigma,
         Zsh=sweep_Zsh,
-        shelf_break_end=sweep_shelf_break_end)
+        shelf_break_end=sweep_shelf_break_end,
+        rise_mid=sweep_rise_mid,
+        rise_width=sweep_rise_width)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -789,6 +793,7 @@ end
  shoal_length:    $(sweep_shoal_length) m
  Zsh (shelf_depth):$(sweep_Zsh) m
  shelf_break_end: $(sweep_shelf_break_end) m
+ rise_mid:        $(sweep_rise_mid) m  (shelf $(round((sweep_rise_mid - sweep_shelf_break_end)/1e3, digits=1)) km)
  wind_stress:     $(sweep_wind_stress) N/m^2
  v0:              $(sweep_v0) m/s
 

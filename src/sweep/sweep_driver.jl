@@ -58,6 +58,12 @@ else
     error("Must provide either 'Zs' or 'Hs'")
 end
 sweep_shelf_break_end = Float64(get(this_run, "shelf_break_end", 12000.0))
+
+# Offshore end of the flat shelf, so shelf length is rise_mid - shelf_break_end.
+# Needed because shelf_break_end alone cannot separate shelf length from break
+# steepness: widening the break to soften it also eats into the shelf.
+sweep_rise_mid = Float64(get(this_run, "rise_mid", 63500.0))
+sweep_rise_width = Float64(get(this_run, "rise_width", 5000.0))
 sweep_run_label = String(this_run["run_label"])
 
 # New parameters
@@ -82,6 +88,7 @@ sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
  sigma:           $sweep_sigma m
  Zsh (shelf_depth):$sweep_Zsh m
  shelf_break_end: $sweep_shelf_break_end m
+ rise_mid:        $sweep_rise_mid m  (shelf length $(round((sweep_rise_mid - sweep_shelf_break_end)/1e3, digits=1)) km)
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2
  v0:              $sweep_v0 m/s
@@ -123,6 +130,8 @@ ENV["SWEEP_SHOAL_LENGTH"] = string(sweep_shoal_length)
 ENV["SWEEP_SIGMA"] = string(sweep_sigma)
 ENV["SWEEP_Zsh"] = string(sweep_Zsh)
 ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
+ENV["SWEEP_RISE_MID"] = string(sweep_rise_mid)
+ENV["SWEEP_RISE_WIDTH"] = string(sweep_rise_width)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)
