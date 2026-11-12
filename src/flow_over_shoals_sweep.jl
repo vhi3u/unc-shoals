@@ -567,8 +567,31 @@ overwrite_files = (pickup === false)
 # uses 1 minute and caps at 10 minutes. The unbalanced start plus a radiative
 # east boundary makes the first few hundred steps the riskiest phase, and an
 # uncapped wizard can walk Δt up while the barotropic substep count follows it.
+#
+# max_Δt MUST scale with Δh. The 10 min ceiling is a CFL number tuned at
+# Δh = 500 m -- hydrostatic.jl says so outright: "only limited by the CFL and
+# the time-step wizard's tuning" -- and advective CFL is u Δt / Δx. Frozen at
+# 600 s it means:
+#
+#     Δh = 500 m, |u| = 0.3 m/s  ->  CFL = 0.36   (headroom)
+#     Δh = 250 m, |u| = 0.3 m/s  ->  CFL = 0.72   (already past the target)
+#
+# so a 250 m run sits pinned at the cfl = 0.7 target with nothing in reserve,
+# while the wizard re-checks only every 10 iterations and can cut Δt by at most
+# half when it does. One jet accelerating over the shoal crest inside that
+# window carries CFL past 1 and the run NaNs. That is a resolution-dependent
+# blow-up, and in a resolution sweep it masquerades as physics. Scaling holds
+# the CFL ceiling fixed instead of the second count.
+max_Δt = 10minutes * (Δh / 500)
+
 simulation = Simulation(model, Δt=1minutes, stop_time=sim_runtime)
-conjure_time_step_wizard!(simulation, cfl=0.7, max_Δt=10minutes)
+# Schedule 5, not the default 10. At Δh = 500 the ceiling binds long before the
+# CFL does, so Δt is pinned at max_Δt either way and this changes nothing --
+# the finished R500 runs stay comparable. At finer Δh it halves the window in
+# which the flow can accelerate unobserved.
+conjure_time_step_wizard!(simulation, IterationInterval(5), cfl=0.7, max_Δt=max_Δt)
+@info @sprintf("Time step: initial 60 s, max %.0f s  (Δh = %.0f m -> CFL = %.2f at |u| = 0.3 m/s)",
+    max_Δt, Δh, 0.3 * max_Δt / Δh)
 
 progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
@@ -721,7 +744,8 @@ end
  Architecture:    $(arch)
  Domain:          $(params.Lx/1e3) x $(params.Ly/1e3) km x $(params.Lz) m
  Grid:            $(params.Nx) x $(params.Ny) x $(params.Nz)  (Δx = Δy = $(params.Lx/params.Nx) m, Δz = $(params.Lz/params.Nz) m)
- EOS:             TEOS10 (ρ_ref = $(ρ₀))
+ max_Δt:          $(max_Δt) s  (scaled from 600 s at Δh = 500 m)
+ EOS:             $(eos_choice) (ρ_ref = $(ρ₀))
  east boundary:   $(open_east ? "radiative (NormalRadiation, target_transport=0)" : "wall + sponge")
  snapshot every:  $(snapshot_interval/3600) h  (inertial period 20.74 h)
 
