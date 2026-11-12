@@ -58,6 +58,35 @@ outdir       = p.Results.outdir;
 cluster_dir  = fullfile(p.Results.sweep_root, cluster_name);
 
 % ---------- sweeps ----------
+% Row layout depends on what the cluster contains. The geometry sweep and
+% the resolution check vary different things, so one hardcoded layout cannot
+% serve both -- pointing this at cluster_res250_testing used to abort with
+% "None of the 3 requested runs exist".
+[avail_labels_, ~] = discover_sweeps(cluster_dir);
+is_res_check_ = any(~cellfun(@isempty, regexp(avail_labels_, '^R\d+_Zs\d+$', 'once')));
+
+if is_res_check_
+    % Resolution check: one row per grid spacing, shoal height along the row.
+    % This is the comparison the sweep exists for -- read DOWN a column to see
+    % whether halving dx changes that case.
+    rows = struct([]);
+    for dx_ = {'R500', 'R250'}
+        tagp_ = dx_{1};
+        want_ = {[tagp_ '_Zs15'], [tagp_ '_Zs10'], [tagp_ '_Zs05']};
+        have_ = want_(ismember(want_, avail_labels_));
+        if isempty(have_), continue; end
+        lbl_ = regexprep(have_, '^R\d+_Zs0?', 'Z_s = -');
+        lbl_ = strcat(lbl_, ' m');
+        k_ = numel(rows) + 1;
+        rows(k_).runs   = have_;
+        rows(k_).titles = lbl_;
+        rows(k_).legend = lbl_;
+        rows(k_).name   = sprintf('\\Deltax = %s m', tagp_(2:end));
+    end
+    if isempty(rows)
+        error('vis_u_mean_sweeps:noResRuns', 'Resolution-check cluster had no R500_*/R250_* runs.');
+    end
+else
 rows(1).runs   = {'Zs15_Ls40k', 'Zs10_Ls40k', 'Zs5_Ls40k'};
 rows(1).titles = {'Z_s = -15 m', 'Z_s = -10 m', 'Z_s = -5 m'};
 rows(1).legend = {'Z_s = -15 m', 'Z_s = -10 m', 'Z_s = -5 m'};
@@ -69,6 +98,7 @@ rows(2).runs   = {'Zs5_Ls20k', 'Zs5_Ls30k', 'Zs5_Ls40k'};
 rows(2).titles = {'L_s = 20 km', 'L_s = 30 km', 'L_s = 40 km'};
 rows(2).legend = {'L_s = 20 km', 'L_s = 30 km', 'L_s = 40 km'};
 rows(2).name   = 'Shoal Length';
+end
 rows(2).clim   = p.Results.climU_length;
 
 % ── Drop runs that this cluster does not contain ───────────────────────
