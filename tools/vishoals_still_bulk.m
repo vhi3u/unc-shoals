@@ -12,34 +12,10 @@ end
 sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
-% Sweeps are DISCOVERED from the cluster directory rather than hardcoded.
-% The previous hardcoded list held the 19 params_HsLs.toml labels, so any
-% cluster using different run_labels -- e.g. the res250 resolution check,
-% whose runs are R500_Zs05, R250_Zs05, ... -- matched nothing and every
-% entry was reported as "SKIP: No folder found".
-d_all = dir(fullfile(cluster_dir, 'sweep_*'));
-d_all = d_all([d_all.isdir]);
-d_all = d_all(~ismember({d_all.name}, {'.', '..'}));
-if isempty(d_all)
-    error('vishoals_still_bulk:noSweeps', ...
-          'No sweep_* directories found in %s', cluster_dir);
-end
-sweeps = cell(1, numel(d_all));
-for k = 1:numel(d_all)
-    % The model writes run_tag = "sweep_<run_label>", so the files inside
-    % sweep_001_R500_Zs05/ are top_sweep_R500_Zs05.nc etc. Recover that tag:
-    %   sweep_001_R500_Zs05  ->  sweep_R500_Zs05
-    % Older clusters have no NNN segment (sweep_Zs5_Ls40k), where the
-    % directory name IS the run tag.
-    nm = d_all(k).name;
-    tok = regexp(nm, '^sweep_\d+_(.+)$', 'tokens', 'once');
-    if isempty(tok)
-        sweeps{k} = nm;
-    else
-        sweeps{k} = ['sweep_' tok{1}];
-    end
-end
-sweeps = sweeps(~cellfun(@isempty, sweeps));
+% Sweeps are discovered from the cluster directory, not hardcoded.
+% sweeps holds run TAGS (sweep_R500_Zs05) because the existence check
+% below builds top_<tag>.nc; sw_core strips the prefix for dir matching.
+[~, sweeps] = discover_sweeps(cluster_dir);
 
 % Fixed clims for cross-sweep comparison
 climv  = [];

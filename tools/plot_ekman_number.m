@@ -40,6 +40,12 @@ cluster_dir       = fullfile(sweep_output_root, cluster_name);
 runs = { 'wind_m0p15', 'wind_m0p10', 'wind_m0p08', 'wind_m0p05', 'wind_m0p03', ...
          'Zs5_Ls40k', ...
          'wind_0p03', 'wind_0p05', 'wind_0p08', 'wind_0p10', 'wind_0p15' };
+
+% Order here is MEANINGFUL (wind-stress axis / panel order), so this is NOT
+% auto-discovered -- discover_sweeps returns directory order and would
+% scramble the axis. Runs absent from this cluster are dropped and reported.
+runs = keep_existing(cluster_dir, runs);
+
 tau  = [-0.15, -0.10, -0.08, -0.05, -0.03, 0, 0.03, 0.05, 0.08, 0.10, 0.15];   % N/m^2
 ref_run = 'Zs5_Ls40k';
 

@@ -54,6 +54,12 @@ cluster_dir = fullfile(p.Results.sweep_root, cluster_name);
 
 % ---------- runs: no-wind reference first, then the upwelling sweep ----------
 runs     = {'Zs5_Ls40k', 'wind_0p03', 'wind_0p05', 'wind_0p08', 'wind_0p10', 'wind_0p15'};
+
+% Order here is MEANINGFUL (wind-stress axis / panel order), so this is NOT
+% auto-discovered -- discover_sweeps returns directory order and would
+% scramble the axis. Runs absent from this cluster are dropped and reported.
+runs = keep_existing(cluster_dir, runs);
+
 tau_vals = [0, 0.03, 0.05, 0.08, 0.10, 0.15];
 n_runs   = numel(runs);
 

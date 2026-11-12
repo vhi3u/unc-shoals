@@ -79,6 +79,27 @@ rows(2).titles = {'L_s = 20 km', 'L_s = 30 km', 'L_s = 40 km'};
 rows(2).legend = {'L_s = 20 km', 'L_s = 30 km', 'L_s = 40 km'};
 rows(2).name   = 'Shoal Length';
 
+% ── Drop runs that this cluster does not contain ───────────────────────
+% Rows define the figure layout, so the grouping and order are deliberate
+% and NOT auto-discovered (discover_sweeps would return directory order and
+% scramble the panels). Entries absent from the cluster are dropped here.
+%
+% CRITICAL: .titles and .legend are PARALLEL to .runs. Filtering .runs alone
+% would shift every label by the number of missing runs, mislabelling the
+% figure silently. All three are filtered by the same mask.
+for r_ = 1:numel(rows)
+    present_ = keep_existing(cluster_dir, rows(r_).runs);
+    mask_    = ismember(rows(r_).runs, present_);
+    rows(r_).runs = rows(r_).runs(mask_);
+    for fld_ = {'titles', 'legend'}
+        f_ = fld_{1};
+        if isfield(rows, f_) && numel(rows(r_).(f_)) == numel(mask_)
+            rows(r_).(f_) = rows(r_).(f_)(mask_);
+        end
+    end
+end
+
+
 % Line colors: same blue / red / green used in the other sweep plots
 line_cols = [0.0, 0.0, 0.7;
              0.7, 0.0, 0.0;
