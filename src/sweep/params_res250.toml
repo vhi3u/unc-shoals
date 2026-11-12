@@ -19,9 +19,20 @@
 # a 5 m column of surface mixed layer has almost no baroclinic Ld. The test is
 # about the SENSITIVITY of the trend to resolution, not about resolving it.
 #
-# Cost: Δt is capped at max_Δt = 10 min at both resolutions when v0 = 0.2, so
-# 250 m costs ~4x (cells only), not 8x. 20 days at 250 m is ~19 h, inside
-# Casper's 24 h limit. 50 days would be ~48 h and would NOT fit.
+# Cost: 250 m costs ~4x the 500 m case in cells, and Δt is now capped at
+# max_Δt = 10 min * (Δh/500) = 5 min here, so ~8x overall.
+#
+# WALLTIME WARNING. This table's own earlier estimate was ~19 h for 20 days at
+# 250 m on an A100. The submit script now asks for 4 h on a V100, which has
+# roughly half the memory bandwidth of an A100 -- and these kernels are
+# bandwidth-bound, so the same work takes LONGER, not shorter. 4 h will very
+# likely cut these runs off part-way. The 500 m tables are the ones that fit
+# comfortably; raise it per-submit without editing the file:
+#
+#   qsub -l walltime=24:00:00 src/sweep/submit_res250.pbs
+#
+# Memory is not the problem: ~50 full 3D Float64 fields at 228 MB each
+# (608x808x58 with halos) is ~11 GB, well inside a 32 GB V100.
 #
 # Submit:  qsub src/sweep/submit_res250.pbs      (array 1-6)
 #

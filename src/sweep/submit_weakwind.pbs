@@ -18,9 +18,9 @@
 #PBS -k eod
 #PBS -o logs/weakwind.out
 #PBS -e logs/weakwind.err
-#PBS -l walltime=14:00:00
+#PBS -l walltime=04:00:00
 #PBS -q casper
-#PBS -l select=1:ncpus=16:ngpus=1:gpu_type=a100:mem=200gb
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
 #PBS -m abe
 #PBS -J 1-6
 
