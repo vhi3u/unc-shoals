@@ -170,6 +170,9 @@ for k = 1:n
     E_act = -sum(bw .* zw .* Vw);
     E_ref = -sum(bs .* z_ref .* Vs);
     APE_srt(k) = (E_act - E_ref) / Ly;
+    % These are the largest arrays in the loop (one full 3D field each at
+    % 250 m), and the wedge figure below holds one cross-section per run.
+    clear zz sel bw zw Vw bs Vs cumP zs Vz cumC z_ref e;
 
     % ── g' and Ld, defined exactly as in plot_theory_vs_model.m ──────────
     ixg = find(x_km >= o.x_g_range(1) & x_km <= o.x_g_range(2));
@@ -226,6 +229,8 @@ fprintf(['  A tight cluster means the closed form works and its constant can be\
          '  self-similar here, and the Eq. 7 test should use measured APE.\n']);
 
 qa = APE_qg ./ APE_srt;
+qa = qa(isfinite(qa));
+if isempty(qa), qa = NaN; end
 fprintf(['\n  APE_qg / APE_sorted: %.2f to %.2f. Near 1 means displacements are\n' ...
          '  small enough for the QG form, which is the assumption behind Eq. 8.\n' ...
          '  Far from 1 means they are not, and the sorted value is the one to use.\n'], ...
@@ -242,7 +247,8 @@ if ~isempty(ok)
     nr  = ceil(numel(ok)/nc);
     f1  = figure('Color','w','Position',[60 60 min(1700, 520*nc) 340*nr]);
     t1  = tiledlayout(f1, nr, nc, 'TileSpacing','compact','Padding','compact');
-    lim = max(cellfun(@(c) max(abs(c(:)), [], 'omitnan'), BP(ok)));
+    lim = max(cellfun(@(c) max(abs(c(:))), BP(ok)));
+    if ~(lim > 0), lim = 1e-6; end   % all-NaN or flat: keep clim valid
     for q = ok
         ax = nexttile(t1);
         set(ax, 'Color', [0.65 0.65 0.65]);   % immersed cells show through as grey
