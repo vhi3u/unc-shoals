@@ -45,9 +45,12 @@
 #   ./tools/run_eke_geometry_controls.sh <cluster>
 # and read the per-window table -- extend again if the peak is still moving.
 #
-# Walltime: the 50-day runs finished inside 04:00:00, so 120 days needs
-# roughly 2.4x that. The .pbs files are gitignored, so override at submit:
-#   qsub -l walltime=12:00:00 src/sweep/submit_weakwind.pbs     (array 1-6)
+# Cost: 50 days ran in 17-19 min wall (34 ms/timestep, ~4.2 GB, one V100),
+# so 120 days is about 45 min. An earlier note here said "2.4x of 04:00:00"
+# -- that read the PBS ALLOCATION as if it were the runtime. Compute is not
+# the constraint on this sweep; 240 days would still be ~90 min.
+#
+# Submit:  qsub src/sweep/submit_weakwind.pbs     (array 1-6)
 #
 # NOTE this breaks direct comparability with the Fnnie wind runs, which are
 # 50 days -- and 6 of those 10 are still collapsing too (wind_0p08 at x0.25

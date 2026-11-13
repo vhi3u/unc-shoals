@@ -62,9 +62,12 @@
 # first choice, but Zs15_slopefix was still falling at day 50 with no sign of
 # a plateau, so there was no basis for expecting 100 to be enough either.
 #
-# Costs about 2.4x the walltime: 04:00:00 in submit_geomcontrol.pbs was sized
-# for 50 days, and the .pbs files are gitignored, so override at submit time:
-#   qsub -l walltime=12:00:00 src/sweep/submit_geomcontrol.pbs
+# Cost: 50 days ran in 17-19 min wall (34 ms/timestep, ~4.2 GB, one V100),
+# so 120 days is about 45 min. An earlier note here said "2.4x of 04:00:00"
+# -- that read the PBS ALLOCATION as if it were the runtime. Compute is not
+# the constraint on this sweep; 240 days would still be ~90 min.
+#
+# Submit:  qsub src/sweep/submit_geomcontrol.pbs
 #
 # EKE stays comparable with Fig. 4b because the diagnostic is unchanged; the
 # HsLs runs are themselves 50 days, so if the deep cases there are also still
