@@ -184,7 +184,7 @@ ix_avg = find(xc_km >= x_avg(1) & xc_km <= x_avg(2));
 x_edge = xc_km(ix_avg(end));
 
 % ---------- load data ----------
-for r = 1:2
+for r = 1:numel(rows)
     nr = numel(rows(r).runs);
     rows(r).eke   = cell(1, nr);   % surface EKE (Ny x Nx)
     rows(r).depth = cell(1, nr);   % water depth (Ny x Nx)
@@ -243,12 +243,12 @@ end
 
 % ---------- colour limits (shared within each row) ----------
 trim = @(x) x(2:end-1, 2:end-1);
-for r = 1:2
+for r = 1:numel(rows)
     if ~isempty(p.Results.climEKE)
         clim_lin = p.Results.climEKE;
     else
         emax = 0;
-        for k = 1:3
+        for k = 1:numel(rows(r).runs)
             emax = max(emax, max(reshape(trim(rows(r).eke{k}), [], 1), [], 'omitnan'));
         end
         if use_log
@@ -275,12 +275,16 @@ fig = figure('Color','w','Position',[80 50 fig_w fig_h]);
 tl  = tiledlayout(fig, 2, 4, 'TileSpacing','compact','Padding','compact');
 cmap = pmkmp(100, 'swtth');      % KE colormap used in vishoals.m
 
-map_axs = gobjects(2, 3);
-map_cbs = gobjects(2, 3);
-line_axs = gobjects(1, 2);
-line_ph  = gobjects(1, 2);
-for r = 1:2
-    for k = 1:3
+% Sized from the rows themselves. A row may be SHORT -- the geometry controls
+% have no shallow counterpart to Zs15_slopefix -- and the loops below walk
+% numel(rows(r).runs), so the trailing handles of a short row stay unset.
+nmax_ = max(arrayfun(@(s) numel(s.runs), rows));
+map_axs = gobjects(numel(rows), nmax_);
+map_cbs = gobjects(numel(rows), nmax_);
+line_axs = gobjects(1, numel(rows));
+line_ph  = gobjects(1, numel(rows));
+for r = 1:numel(rows)
+    for k = 1:numel(rows(r).runs)
         ax = nexttile(tl, (r-1)*4 + k);
         E = rows(r).eke{k};
         if use_log
@@ -342,7 +346,7 @@ end
 drawnow;
 % --- line plots: eddy fraction vs y ---
 % Square axes, top-aligned with the maps of the same row.
-for r = 1:2
+for r = 1:numel(rows)
     mapP = map_axs(r, 3).Position;
     phP  = line_ph(r).Position;
     % =========================================================================
@@ -359,8 +363,8 @@ for r = 1:2
     top  = mapP(2) + mapP(4);
     ax = axes(fig, 'Position', [left, top - side_px / fig_h, side_px / fig_w, side_px / fig_h]);
     hold(ax, 'on');
-    hl = gobjects(1, 3);
-    for k = 1:3
+    hl = gobjects(1, numel(rows(r).runs));
+    for k = 1:numel(rows(r).runs)
         hl(k) = plot(ax, yc_km, rows(r).ef{k}, '-', 'LineWidth', 2, 'Color', line_cols(k, :));
     end
     efall = [rows(r).ef{:}];
@@ -386,10 +390,10 @@ end
 
 % Shared colorbar per row, inside the bottom-right corner of the rightmost map.
 % (Every map keeps a hidden colorbar so the panel sizes stay identical.)
-for r = 1:2
-    for k = 1:3
+for r = 1:numel(rows)
+    for k = 1:numel(rows(r).runs)
         cb = map_cbs(r, k);
-        if k ~= 3
+        if k ~= numel(rows(r).runs)
             cb.Visible = 'off';
             continue;
         end
