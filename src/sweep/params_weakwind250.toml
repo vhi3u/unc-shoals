@@ -1,0 +1,89 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# WEAK-WIND SWEEP AT 250 m — the tau curve with the resolution error removed
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Identical to params_weakwind.toml in every respect but dx. Same six tau,
+# same Zs = -5, same Ls = 40 km, same 120 days, same run_labels -- so the
+# existing tau-curve scripts read the new cluster without changes and the two
+# clusters differ in one thing only.
+#
+# WHY. The 120-day weak-wind curve is the cleanest result in the project
+# (5 of 6 runs settled to 1.3-12.9%):
+#
+#   tau      -0.020   -0.010   -0.005   0        +0.005   +0.010   +0.020
+#   EKE      6.6e-6   1.6e-5   3.0e-5   2.3e-6*  5.7e-6   8.0e-6   1.1e-5
+#   (* tau = 0 is Zs05_ref from cluster_geometry_120, the same geometry)
+#
+# but every point on it is at Zs = -5, which cluster_res250_120 showed is the
+# WORST-resolved case in the project: Ld/dx = 0.1, and EKE rises by x3.46
+# under dx/2, against x1.61 and x1.66 at Zs = -10 and -15. So the curve's
+# values are wrong by a factor that is only bounded, not known -- and if the
+# factor is tau-dependent, the SHAPE is wrong too. The shape is the result:
+# the peak at tau = -0.005, and the reversal of the up/down asymmetry between
+# |tau| = 0.010 (x1.98 downwelling) and 0.020 (x0.58).
+#
+# WHAT THIS DOES NOT FIX. These runs keep the welded-to-the-coast geometry, so
+# at Zs = -5 the fill still buries the coastal ramp and the shelf break: the
+# shoal is a flat 5 m slab in x, with structure only in y from the Gaussian.
+# A wind/Ekman study over a shoal with no cross-shore topographic gradient
+# beneath it is a strange configuration, and params_depthaxis.toml is the
+# sweep that decides whether it matters. It is deliberately NOT changed here,
+# because changing resolution and geometry at once would leave no way to
+# attribute whatever moves. Run the geometry variant after depthaxis reports.
+#
+# Cost: 6 runs x ~3.2 h = ~19 GPU-h. Needs walltime 06:00:00.
+#
+# Submit:  qsub -l walltime=06:00:00 src/sweep/submit_weakwind250.pbs  (array 1-6)
+#   submit_*.pbs is gitignored, so copy submit_weakwind.pbs on the run machine
+#   and change -N, the log names and SWEEP_PARAMS.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── downwelling-favourable (negative) ────────────────────────────────────────
+[[runs]]
+run_label    = "wind_m0p020"
+wind_stress  = -0.020
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "wind_m0p010"
+wind_stress  = -0.010
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "wind_m0p005"
+wind_stress  = -0.005
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
+
+# ── upwelling-favourable (positive) ──────────────────────────────────────────
+[[runs]]
+run_label    = "wind_0p005"
+wind_stress  = 0.005
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "wind_0p010"
+wind_stress  = 0.010
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "wind_0p020"
+wind_stress  = 0.020
+Zs           = -5.0
+shoal_length = 40000.0
+dx           = 250.0
+sim_days     = 120.0
