@@ -53,6 +53,14 @@ addParameter(p, 'climv', [], @(v)isnumeric(v) && numel(v)==2);
 addParameter(p, 'climRo', [], @(v)isnumeric(v) && numel(v)==2);
 addParameter(p, 'climKE', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'no_outlier', false, @(x)islogical(x)&&isscalar(x));
+% 'raster': how the field panels are drawn. imagesc is one image object per
+% panel; pcolor is one vector quad per DATA CELL, which under the painters
+% renderer is 487,152 quads a frame on a 500 m grid -- and -nodisplay forces
+% painters, so no renderer flag avoids it. Measured on cluster_weakwinds:
+% print() per frame 3.612 s with pcolor, 0.456 s with imagesc, a 7.9x
+% difference, and the cost is nearly independent of dpi because it is
+% per-primitive rather than per-pixel. 'pcolor' is kept as an escape hatch.
+addParameter(p, 'raster', 'imagesc', @(x)ischar(x) && ismember(x, {'imagesc','pcolor'}));
 addParameter(p, 'scan_skip_days', 10, @(x)isnumeric(x) && isscalar(x) && x>=0);
 addParameter(p, 'last_days', Inf, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 
@@ -74,6 +82,7 @@ climv_user   = p.Results.climv;
 climRo_user  = p.Results.climRo;
 climKE_user  = p.Results.climKE;
 no_outlier   = p.Results.no_outlier;
+use_imagesc  = strcmp(p.Results.raster, 'imagesc');
 vel_comp     = p.Results.vel;
 vort_comp    = p.Results.vort;
 scan_skip    = p.Results.scan_skip_days;
@@ -451,12 +460,31 @@ else
     tl  = tiledlayout(fig, 3, 4, 'TileSpacing','compact','Padding','compact');
 end
 
+    function h = raster_(ax, XX, YY, C, smooth_mode)
+        % One image object, or one quad per cell. Limits are set the same way
+        % either way: imagesc + axis tight extends half a cell past the data,
+        % which shifts every tick (the XZ axis went 0..-50 to -5..-45 in the
+        % render comparison). Pinning them to the data range keeps the axes
+        % identical to the pcolor figure.
+        xv = XX(1,:); yv = YY(:,1);
+        if use_imagesc
+            h = imagesc(ax, xv, yv, C);
+        else
+            h = pcolor(ax, XX, YY, C);
+            shading(ax, smooth_mode);
+        end
+        xlim(ax, [min(xv) max(xv)]);
+        ylim(ax, [min(yv) max(yv)]);
+    end
+
     function [ax,h,cb] = panel_xy(tileIdx, titleStr, clim, cmap, cbLabel, isFirstCol)
         ax = nexttile(tl, tileIdx, [2 1]);
-        h  = pcolor(ax, Xc, Yc, nan(size(Xc)));
-        shading(ax,'flat'); axis(ax,'tight'); set(ax,'YDir','normal');
+        % Was pcolor + 'shading interp'. At 0.70 x 1.16 px/cell on this grid a
+        % cell renders at about one pixel, so the interpolation was being
+        % thrown away by the rasterizer while costing 26% more than flat.
+        h  = raster_(ax, Xc, Yc, nan(size(Xc)), 'interp');
+        set(ax,'YDir','normal');
         set(ax, 'Layer', 'top'); box(ax, 'on'); set(ax, 'LineWidth', 0.8, 'XColor', 'k', 'YColor', 'k');
-        shading interp
         colormap(ax, cmap); caxis(ax, clim);
         cb = colorbar(ax);
         cb.FontSize = 14; cb.Title.String = cbLabel; cb.Title.FontSize = 16; ;
@@ -472,8 +500,14 @@ end
 
     function [ax,h,cb] = panel_xz(tileIdx, clim, cmap, cbLabel, isFirstCol)
         ax = nexttile(tl, tileIdx, [1 1]);
-        h  = pcolor(ax, Xz, Zz, nan(size(Xz)));
-        shading(ax,'flat'); set(ax,'YDir','normal'); axis(ax,'tight');
+        % Stays unsmoothed on purpose. At 3.94 px/cell the stepping IS visible
+        % here, but it is the real GridFittedBottom staircase at dz = 1 m --
+        % 'shading interp' would render the bathymetry as a smooth ramp the
+        % model never integrates. imagesc also draws the surface row that
+        % pcolor+flat discards, since pcolor colours each face from its
+        % lower-left corner and so never shows the last row or column.
+        h  = raster_(ax, Xz, Zz, nan(size(Xz)), 'flat');
+        set(ax,'YDir','normal');
         set(ax, 'Layer','top'); set(ax, 'NextPlot','add');
         box(ax, 'on'); set(ax, 'LineWidth', 0.8, 'XColor', 'k', 'YColor', 'k');
         set(ax, 'Color', [0.9 0.9 0.9]); % Make NaN immersed cells gray
@@ -881,10 +915,14 @@ for t = anim_start:frame_skip:Nt
 %         set(supt,'String', sprintf('%s  —  day %.1f / %.1f', ...
 %             run_label, t_days(t), total_days));
 %     end
-    drawnow;
-
-    % Write frame. Rendered with the print engine (as exportgraphics does for the
-    % stills) instead of getframe: on headless MATLAB (-nodisplay, e.g. Casper)
+    % No drawnow here: print renders the figure itself, so the flush was a
+    % second render per frame. Measured with identical work either side, it
+    % cost -2.6 ms, i.e. nothing, while print dominated. It matters now that
+    % print has dropped from 3.6 s to 0.46 s -- at that point the stray render
+    % was about half the remaining frame time.
+    %
+    % Frame capture stays on the print engine (as exportgraphics does for the
+    % stills) rather than getframe: on headless MATLAB (-nodisplay, e.g. Casper)
     % getframe captures a screen-shrunk figure, which shifts colorbars/labels.
     img = print(fig, '-RGBImage', sprintf('-r%d', frame_dpi));
     % Trim the white margins as exportgraphics does for the stills; the crop box
