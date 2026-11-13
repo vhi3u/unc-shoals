@@ -1,0 +1,107 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# THE DEPTH AXIS, WITH THE OTHER TWO PROPERTIES ACTUALLY HELD FIXED
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Fig. 4b varies Z_S and reads off EKE. But the sweep bathymetry builds the
+# shoal as "fill the background up to Z_S", at full amplitude from x = 0
+# (src/dshoal_vn_param.jl), so the shoal is welded to the coast and has no
+# shoreward edge of its own. Z_S therefore sets THREE things at once:
+#
+#   Z_S      crest (km)   inshore |dh/dx|
+#    -5        42.5         0        the fill reaches the coast and buries
+#                                    the coastal ramp AND the shelf break:
+#                                    a flat 5 m slab out to 40 km
+#   -10        37.0         0.00080
+#   -15        36.0         0.00200  the fill is zero inshore of ~7.8 km, so
+#                                    the background break survives AS the
+#                                    shoal's inshore flank
+#
+# (Those flank numbers are the 2.5 km windowed slope. The old adjacent-cell
+# measure reported 0 / 0.002 / 0.004, which was the dz/dx staircase quantum,
+# not the bathymetry -- see tools/eke_geometry_controls.m.)
+#
+# No choice of the existing parameters separates them, because the inshore
+# flank was never a shoal property: it is the background shelf break, buried
+# or exposed depending on Z_S. params_geomcontrol.toml worked around this by
+# moving shoal_length and shelf_break_end to compensate, which is why
+# Zs15_slopefix had to move three parameters at once (and still changed shelf
+# length from 51.5 to 56 km).
+#
+# `shoal_start` and `shoal_inner_width` fix it structurally: the shoal sits ON
+# the shelf, with its own shoreward ramp. The background break is then
+# IDENTICAL in every run, the crest is exactly shoal_length - shoal_start, and
+# the flank is whatever shoal_inner_width says.
+#
+# ── the design ─────────────────────────────────────────────────────────────
+# shoal_start = 20 km puts the shoal's shoreward foot on the flat shelf, where
+# the background is -25.0 m, and clear of the break (which completes by ~12 km)
+# so no run's ramp overlaps it. rise_mid = 76 km keeps the 15 km offshore taper
+# (52 -> 67 km) inshore of the continental rise.
+#
+# The climb is then 20 / 15 / 10 m for Z_S = -5 / -10 / -15, and
+# shoal_inner_width is set per run to make the ramp's peak slope
+# (pi/2)(dH/w_in) equal to 0.0036 in all three. Verified against the discrete
+# bathymetry at BOTH resolutions:
+#
+#   label        Z_S    w_in     crest     flank (measured)
+#   Zs05_edge    -5    8700 m   36.5 km    0.00360
+#   Zs10_edge   -10    6550 m   36.8 km    0.00360
+#   Zs15_edge   -15    4350 m   37.5 km    0.00360
+#
+# Crest agrees to 1.4% and flank exactly, against 0 -> 0.00200 and 42.5 -> 36.0
+# in the welded geometry. So Z_S is the only thing moving.
+#
+# ── what the answer means ──────────────────────────────────────────────────
+# From cluster_res250_120, the welded depth contrasts at 250 m are
+#
+#   -10/-5   1.978      -15/-5   1.163      -15/-10   0.588
+#
+# If this sweep reproduces those, shoal height is the driver and Fig. 4b
+# stands (at 250 m amplitude, not the 500 m one). If they collapse toward 1.0,
+# Fig. 4b was measuring the shelf break and the inshore flank all along, which
+# is what the geomcontrol flank contrast (x2.29) already hints at.
+#
+# 250 m because the 500 m depth contrasts are not trustworthy: they halve
+# under dx/2 wherever a Z_S = -5 run is involved (0.47, 0.48), while the one
+# contrast that avoids it is resolution-invariant (1.03).
+#
+# Cost: 3 runs x ~3.2 h = ~10 GPU-h.  T_wall(250 m) ~ 10 min + 1.48 min/day.
+# Needs walltime 06:00:00 -- see params_res250.toml.
+#
+# Submit:  qsub -l walltime=06:00:00 src/sweep/submit_depthaxis.pbs   (array 1-3)
+#   submit_*.pbs is gitignored, so copy submit_res250.pbs on the run machine
+#   and change -N, -J 1-3, the log names and SWEEP_PARAMS.
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label         = "Zs05_edge"
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 250.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "Zs10_edge"
+Zs                = -10.0
+shoal_start       = 20000.0
+shoal_inner_width = 6550.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 250.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "Zs15_edge"
+Zs                = -15.0
+shoal_start       = 20000.0
+shoal_inner_width = 4350.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 250.0
+sim_days          = 120.0

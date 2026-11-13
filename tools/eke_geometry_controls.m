@@ -277,6 +277,41 @@ geom  = {'Zs05_ref','Zs15_ref','Zs15_Lsfix','Zs05_Lsmatch','Zs15_slopefix'};
 tok   = regexp(labels, '^R(\d+)_Zs(\d+)$', 'tokens', 'once');
 isres = ~cellfun(@isempty, tok);
 
+% ── params_depthaxis.toml: the depth axis with the other two held ────────
+% These runs use shoal_start, so crest length and flank slope are set
+% explicitly instead of falling out of Zs. There is nothing left to
+% disentangle, so the only contrasts are the depth pairs themselves.
+tokE   = regexp(labels, '^Zs(\d+)_edge$', 'tokens', 'once');
+isedge = ~cellfun(@isempty, tokE);
+if any(isedge)
+    zse = nan(1, numel(labels));
+    for k = find(isedge(:)')
+        zse(k) = -str2double(tokE{k}{1});
+    end
+    zss = sort(unique(zse(isedge)), 'descend');
+    C = cell(0,3); ticks = {};
+    for i = 1:numel(zss)
+        for j = i+1:numel(zss)
+            C(end+1,:) = {labels{find(zse == zss(j), 1)}, labels{find(zse == zss(i), 1)}, ...
+                sprintf('DEPTH %g/%g m (crest + flank held)', zss(j), zss(i))};
+            ticks{end+1} = sprintf('%g/%g m', zss(j), zss(i));
+        end
+    end
+    head  = 'shoal height, with crest length and flank slope held fixed';
+    howto = [ ...
+     '  These runs put the shoal ON the shelf (shoal_start), so the crest is\n' ...
+     '  shoal_length - shoal_start and the flank is set by\n' ...
+     '  shoal_inner_width, chosen per run to equalise it. Check that in the\n' ...
+     '  geometry table above FIRST: crest should agree to ~1%% and flank to\n' ...
+     '  ~0.0036 across all three. If it does, these ratios are the shoal\n' ...
+     '  height effect with nothing else moving -- the quantity Fig. 4b was\n' ...
+     '  meant to show.\n' ...
+     '  Compare against the same pairs in cluster_res250 (0.47-0.48 after\n' ...
+     '  resolution correction, 1.03 for -15/-10). A ratio that now sits near\n' ...
+     '  1.0 means Fig. 4b was the shelf break, not the shoal.\n'];
+    return;
+end
+
 if any(ismember(geom, labels)) || ~any(isres)
     C = {
      'Zs15_ref',      'Zs05_ref',     'Fig 4b pair (CONFOUNDED: depth+crest+flank)'
@@ -404,9 +439,25 @@ if isempty(i1)
 end
 crest_km = x_km(i2) - x_km(i1);
 
-% Inshore flank: steepest gradient shoreward of the crest.
-if i1 > 2
-    flank = max(abs(diff(h(1:i1))) ./ diff(x_km(1:i1) * 1e3));
+% Inshore flank: steepest gradient shoreward of the crest, measured over a
+% fixed 2.5 km window rather than between adjacent cells.
+%
+% GridFittedBottom quantises h to multiples of dz, so max|diff(h)|/dx can
+% only ever return a multiple of dz/dx -- 0, 0.002, 0.004 at dx = 500 m and
+% dz = 1 m. Every sloped run therefore reported 0.004 whatever its actual
+% flank, and the column distinguished only "flat", "one cell" and "two
+% cells". Worse, the quantum depends on dx, so the same bathymetry read
+% differently at 500 m and 250 m (R500_Zs10 0.00200 vs R250_Zs10 0.00400 was
+% this, not a geometry difference).
+%
+% A window fixed in METRES removes both problems: it averages over enough
+% steps that the staircase cancels, and it means the same thing at either
+% resolution.
+dx_m = median(diff(x_km)) * 1e3;
+nw   = max(2, round(2500 / dx_m));
+if i1 > nw + 1
+    i0 = 1:(i1 - nw);
+    flank = max(abs(h(i0 + nw) - h(i0)) ./ ((x_km(i0 + nw) - x_km(i0)) * 1e3));
 else
     flank = 0;   % the crest reaches the coast; there is no inshore flank
 end

@@ -71,26 +71,65 @@ end
 # ── Combined bottom function ────────────────────────────────────────────
 
 @inline function _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
-                                     shelf_break_end, rise_mid, rise_width)
+                                     shelf_break_end, rise_mid, rise_width,
+                                     shoal_start, shoal_inner_width)
     # 1. Background depth
     hw = param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
 
-    # 3. Shoal geometry
-    # The shoal remains fully elevated up to `shoal_length`.
-    # It then tapers down over 15 km
+    # 3a. Offshore edge: fully elevated out to `shoal_length`, then a 15 km
+    # cosine ramp back down to the background.
     x_taper_start = shoal_length
     x_taper_end = shoal_length + 15.0e3
 
     if x <= x_taper_start
-        taper = 1.0
+        taper_off = 1.0
     elseif x >= x_taper_end
-        taper = 0.0
+        taper_off = 0.0
     else
-        taper = 0.5 * (1.0 + cos(π * (x - x_taper_start) / (x_taper_end - x_taper_start)))
+        taper_off = 0.5 * (1.0 + cos(π * (x - x_taper_start) / (x_taper_end - x_taper_start)))
     end
+
+    # 3b. SHOREWARD edge. Without one the shoal is welded to the coast at full
+    # amplitude from x = 0, and then Zs sets three geometric properties at
+    # once, because the shoal is "fill the background up to Zs" (step 5):
+    #
+    #   Zs = -5 m   the fill reaches the coast, burying the coastal ramp AND
+    #               the shelf break -- a flat slab, inshore |dh/dx| = 0
+    #   Zs = -15 m  the fill is identically zero inshore of x ~ 7.8 km, so the
+    #               background break survives AS the shoal's inshore flank,
+    #               |dh/dx| ~ 0.0035
+    #
+    # and the flat crest runs from wherever the background crosses Zs out to
+    # `shoal_length`, so crest length is a function of Zs too. No choice of
+    # the other parameters can separate them: the inshore flank was never a
+    # property of the shoal, it was the background break, buried or exposed.
+    #
+    # With `shoal_start` the shoal sits ON the shelf instead of against the
+    # coast. The background break is then identical in every run, the crest is
+    # exactly shoal_length - shoal_start, and the inshore flank is set by
+    # `shoal_inner_width` -- which can be chosen per run to hold the slope
+    # fixed while Zs varies, the control this sweep could not express before.
+    #
+    # shoal_start = 0 (the default) takes the first branch and reproduces the
+    # welded-to-the-coast geometry exactly, so every existing sweep is
+    # unchanged.
+    x_in_end = shoal_start
+    x_in_start = shoal_start - shoal_inner_width
+
+    if shoal_start <= 0.0
+        taper_in = 1.0
+    elseif x >= x_in_end
+        taper_in = 1.0
+    elseif x <= x_in_start
+        taper_in = 0.0
+    else
+        taper_in = 0.5 * (1.0 - cos(π * (x - x_in_start) / (x_in_end - x_in_start)))
+    end
+
+    taper = taper_in * taper_off
 
     # 4. Along-shore Gaussian and Windowing
     gauss_y = exp(-((y - y0)^2) / (2 * sigma^2))
@@ -115,7 +154,14 @@ end
 Returns a function `bottom(x, y)` for `GridFittedBottom`.
 Zs is the absolute depth of the peak of the shoal.
 Zsh is the absolute depth of the shelf.
-shoal_length (Ls) is the length scale for the x-profile ramp and taper.
+shoal_length (Ls) is the OFFSHORE end of the flat crest; the shoal then tapers
+over a further 15 km.
+shoal_start is the SHOREWARD end of the flat crest, and shoal_inner_width the
+cosine ramp leading up to it from the background. Both default to 0, which
+puts the shoal against the coast at full amplitude -- the original geometry.
+Set them to put the shoal on the shelf, so that the crest length
+(shoal_length - shoal_start) and the inshore flank slope stop being functions
+of Zs. See the comment in `_param_shoal_bottom` for why that matters.
 """
 function dshoal_param_bottom(Ly;
     sigma=8e3,
@@ -125,12 +171,15 @@ function dshoal_param_bottom(Ly;
     Zsh=-25.0,
     shelf_break_end=12.0e3,
     rise_mid=63.5e3,
-    rise_width=5.0e3)
+    rise_width=5.0e3,
+    shoal_start=0.0,
+    shoal_inner_width=0.0)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
     bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
-                                       shelf_break_end, rise_mid, rise_width)
+                                       shelf_break_end, rise_mid, rise_width,
+                                       shoal_start, shoal_inner_width)
     return bottom
 end

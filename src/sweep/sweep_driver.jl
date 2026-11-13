@@ -64,6 +64,15 @@ sweep_shelf_break_end = Float64(get(this_run, "shelf_break_end", 12000.0))
 # steepness: widening the break to soften it also eats into the shelf.
 sweep_rise_mid = Float64(get(this_run, "rise_mid", 63500.0))
 sweep_rise_width = Float64(get(this_run, "rise_width", 5000.0))
+
+# Shoreward edge of the shoal. Default 0.0 welds it to the coast at full
+# amplitude, which is what every sweep before 2026-11-13 did -- and is why Zs
+# also set the crest length and the inshore flank slope (see the comment in
+# src/dshoal_vn_param.jl). Set shoal_start to put the shoal on the shelf, and
+# shoal_inner_width to choose the flank slope rather than inherit it.
+sweep_shoal_start = Float64(get(this_run, "shoal_start", 0.0))
+sweep_shoal_inner_width = Float64(get(this_run, "shoal_inner_width", 0.0))
+
 sweep_run_label = String(this_run["run_label"])
 
 # New parameters
@@ -84,7 +93,9 @@ sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
 ════════════════════════════════════════════════════════
  Label:           $sweep_run_label
  Zs (shoal_depth):$sweep_Zs m
- shoal_length:    $sweep_shoal_length m
+ shoal_length:    $sweep_shoal_length m  (crest $(round((sweep_shoal_length - sweep_shoal_start)/1e3, digits=1)) km)
+ shoal_start:     $sweep_shoal_start m
+ shoal_inner_w:   $sweep_shoal_inner_width m
  sigma:           $sweep_sigma m
  Zsh (shelf_depth):$sweep_Zsh m
  shelf_break_end: $sweep_shelf_break_end m
@@ -132,6 +143,8 @@ ENV["SWEEP_Zsh"] = string(sweep_Zsh)
 ENV["SWEEP_SHELF_BREAK_END"] = string(sweep_shelf_break_end)
 ENV["SWEEP_RISE_MID"] = string(sweep_rise_mid)
 ENV["SWEEP_RISE_WIDTH"] = string(sweep_rise_width)
+ENV["SWEEP_SHOAL_START"] = string(sweep_shoal_start)
+ENV["SWEEP_SHOAL_INNER_WIDTH"] = string(sweep_shoal_inner_width)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)

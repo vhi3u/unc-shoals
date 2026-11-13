@@ -38,6 +38,9 @@ sweep_Zsh = parse(Float64, get(ENV, "SWEEP_Zsh", "-25.0"))
 sweep_shelf_break_end = parse(Float64, get(ENV, "SWEEP_SHELF_BREAK_END", "12000.0"))
 sweep_rise_mid = parse(Float64, get(ENV, "SWEEP_RISE_MID", "63500.0"))
 sweep_rise_width = parse(Float64, get(ENV, "SWEEP_RISE_WIDTH", "5000.0"))
+# 0.0 reproduces the shoal-welded-to-the-coast geometry exactly.
+sweep_shoal_start = parse(Float64, get(ENV, "SWEEP_SHOAL_START", "0.0"))
+sweep_shoal_inner_width = parse(Float64, get(ENV, "SWEEP_SHOAL_INNER_WIDTH", "0.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
@@ -45,7 +48,7 @@ sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
 sweep_dx = parse(Float64, get(ENV, "SWEEP_DX", "500.0"))
 sweep_sim_days = parse(Float64, get(ENV, "SWEEP_SIM_DAYS", "50.0"))
 
-@info "Sweep parameters: Zs=$sweep_Zs, shoal_length=$sweep_shoal_length, sigma=$sweep_sigma, Zsh=$sweep_Zsh, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
+@info "Sweep parameters: Zs=$sweep_Zs, shoal_length=$sweep_shoal_length, shoal_start=$sweep_shoal_start, shoal_inner_width=$sweep_shoal_inner_width, sigma=$sweep_sigma, Zsh=$sweep_Zsh, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
 # build
 @info "building domain"
@@ -141,7 +144,9 @@ if shoal_bath
         Zsh=sweep_Zsh,
         shelf_break_end=sweep_shelf_break_end,
         rise_mid=sweep_rise_mid,
-        rise_width=sweep_rise_width)
+        rise_width=sweep_rise_width,
+        shoal_start=sweep_shoal_start,
+        shoal_inner_width=sweep_shoal_inner_width)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -738,8 +743,12 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["run_index"] = sweep_run_index
     ds.attrib["Zs"] = sweep_Zs
     ds.attrib["shoal_length"] = sweep_shoal_length
+    ds.attrib["shoal_start"] = sweep_shoal_start
+    ds.attrib["shoal_inner_width"] = sweep_shoal_inner_width
     ds.attrib["Zsh"] = sweep_Zsh
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
+    ds.attrib["rise_mid"] = sweep_rise_mid
+    ds.attrib["dx"] = sweep_dx
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
 end
