@@ -10,8 +10,12 @@ function R = eke_geometry_controls(cluster_name, varargin)
 % ways at once:
 %
 %   label            Zs     Ls    crest    inshore |dh/dx|
-%   Zs05_ref       -5.0   40.0    40.4 km  0
-%   Zs15_ref      -15.0   40.0    32.4 km  0.00349
+%   Zs05_ref       -5.0   40.0    42.5 km  0
+%   Zs15_ref      -15.0   40.0    36.0 km  0.00200
+%
+% measured with tools/check_bathymetry.jl, which builds the same bottom
+% function the runs use. The 40.4/32.4 km and 0.00349 that stood here were
+% design intent, and the flank figure also predates the windowed slope.
 %
 % params_geomcontrol.toml adds three runs that each change ONE of the three
 % and hold the other two. This script reduces every run to a single EKE
@@ -315,9 +319,9 @@ end
 if any(ismember(geom, labels)) || ~any(isres)
     C = {
      'Zs15_ref',      'Zs05_ref',     'Fig 4b pair (CONFOUNDED: depth+crest+flank)'
-     'Zs15_Lsfix',    'Zs15_ref',     'CREST LENGTH, deep side  (32.4 -> 40.6 km)'
-     'Zs05_Lsmatch',  'Zs05_ref',     'CREST LENGTH, shallow side (40.4 -> 32.9 km)'
-     'Zs15_slopefix', 'Zs15_Lsfix',   'FLANK SLOPE (0.00349 -> 0.00165)'
+     'Zs15_Lsfix',    'Zs15_ref',     'CREST LENGTH, deep side  (36.0 -> 44.0 km)'
+     'Zs05_Lsmatch',  'Zs05_ref',     'CREST LENGTH, shallow side (42.5 -> 35.0 km)'
+     'Zs15_slopefix', 'Zs15_Lsfix',   'FLANK SLOPE (0.00200 -> 0.00120, crest held at 44.0)'
      'Zs15_Lsfix',    'Zs05_ref',     'DEPTH with crest length controlled'
     };
     ticks = {'Fig 4b (conf.)','crest, deep','crest, shallow','flank slope','depth (ctrl)'};
