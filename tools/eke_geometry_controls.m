@@ -1,0 +1,209 @@
+function R = eke_geometry_controls(cluster_name, varargin)
+% EKE_GEOMETRY_CONTROLS  Is the Fig. 4b shoal-height trend actually Z_S?
+%
+%   eke_geometry_controls('cluster_geometry')
+%   R = eke_geometry_controls('cluster_geometry', 'window', 10);
+%
+% Zs sets the crest depth, but the shoal is built by filling the background
+% up to that level, so a deeper crest ALSO gets a shorter flat crest and a
+% steeper inshore flank. Fig. 4b's two endpoints therefore differ in three
+% ways at once:
+%
+%   label            Zs     Ls    crest    inshore |dh/dx|
+%   Zs05_ref       -5.0   40.0    40.4 km  0
+%   Zs15_ref      -15.0   40.0    32.4 km  0.00349
+%
+% params_geomcontrol.toml adds three runs that each change ONE of the three
+% and hold the other two. This script reduces every run to a single EKE
+% number and forms the contrasts that separate them -- a map sweep cannot
+% answer this, because the question is about ratios between specific pairs.
+%
+% EKE matches vis_eke_sweeps.m, so the numbers are directly comparable with
+% Fig. 4b rather than needing rescaling:
+%
+%   EKE = 1/2 [ (<uu> - <u>^2) + (<vv> - <v>^2) ]        horizontal only
+%
+% from the ONLINE 10-day averages in time_avg_3d_<tag>.nc, depth-averaged as
+% (1/H) int EKE dz, then area-averaged over the Fig. 4b window
+% x = 0-100 km, y = 20-200 km (the 20 km southern nudging zone is excluded).
+%
+% Options:
+%   'sweep_root'  default /glade/work/nguyen/unc-shoals/sweep_output
+%   'window'      which 10-day average to use; [] = last (default)
+%   'x_box'       km, cross-shelf averaging range   default [0 100]
+%   'y_box'       km, alongshore range              default [20 200]
+%   'outdir'      where the PNG goes
+
+p = inputParser;
+addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'window', [], @(x)isempty(x) || (isnumeric(x)&&isscalar(x)));
+addParameter(p, 'x_box', [0 100], @(v)isnumeric(v)&&numel(v)==2);
+addParameter(p, 'y_box', [20 200], @(v)isnumeric(v)&&numel(v)==2);
+addParameter(p, 'outdir', '/glade/work/nguyen/unc-shoals/animations', @ischar);
+parse(p, varargin{:});
+o = p.Results;
+
+cluster_dir = fullfile(o.sweep_root, cluster_name);
+[labels, tags] = discover_sweeps(cluster_dir);
+
+fprintf('\n╔══════════════════════════════════════════════════════════════════╗\n');
+fprintf('║ EKE geometry controls: %-41s ║\n', cluster_name);
+fprintf('╚══════════════════════════════════════════════════════════════════╝\n');
+fprintf('  EKE = 1/2[(<uu>-<u>^2) + (<vv>-<v>^2)], depth-averaged,\n');
+fprintf('  area-averaged over x = %g-%g km, y = %g-%g km\n\n', ...
+        o.x_box(1), o.x_box(2), o.y_box(1), o.y_box(2));
+
+eke = nan(1, numel(labels));
+nwin = nan(1, numel(labels));
+for k = 1:numel(labels)
+    f = find_tavg_(cluster_dir, labels{k}, tags{k});
+    if isempty(f)
+        fprintf('  %-16s no time_avg_3d file -- skipped\n', labels{k});
+        continue;
+    end
+    [eke(k), nwin(k)] = eke_one_(f, o);
+    fprintf('  %-16s EKE = %.4e m^2/s^2   sqrt(EKE) = %.4f m/s   (window %d)\n', ...
+            labels{k}, eke(k), sqrt(eke(k)), nwin(k));
+end
+
+% ── the contrasts the sweep exists to form ───────────────────────────────
+% Each holds two of the three covarying properties fixed and moves the third.
+C = {
+ 'Zs15_ref',      'Zs05_ref',     'Fig 4b pair (CONFOUNDED: depth+crest+flank)'
+ 'Zs15_Lsfix',    'Zs15_ref',     'CREST LENGTH, deep side  (32.4 -> 40.6 km)'
+ 'Zs05_Lsmatch',  'Zs05_ref',     'CREST LENGTH, shallow side (40.4 -> 32.9 km)'
+ 'Zs15_slopefix', 'Zs15_Lsfix',   'FLANK SLOPE (0.00349 -> 0.00165)'
+ 'Zs15_Lsfix',    'Zs05_ref',     'DEPTH with crest length controlled'
+};
+
+fprintf('\n── contrasts ────────────────────────────────────────────────────\n');
+fprintf('  %-34s %10s %8s\n', 'what it isolates', 'ratio', 'change');
+ratio = nan(1, size(C,1));
+for i = 1:size(C,1)
+    a = find(strcmp(labels, C{i,1}), 1);
+    b = find(strcmp(labels, C{i,2}), 1);
+    if isempty(a) || isempty(b) || isnan(eke(a)) || isnan(eke(b))
+        fprintf('  %-34s %10s\n', C{i,3}, 'n/a');
+        continue;
+    end
+    ratio(i) = eke(a) / eke(b);
+    fprintf('  %-34s %10.3f %+7.0f%%\n', C{i,3}, ratio(i), 100*(ratio(i)-1));
+end
+
+fprintf(['\n── how to read it ───────────────────────────────────────────────\n' ...
+         '  The confounded pair is row 1. If rows 2-4 are all near 1.0, crest\n' ...
+         '  length and flank slope are not driving it and the Fig. 4b axis is\n' ...
+         '  shoal height after all -- row 5 should then match row 1.\n' ...
+         '  If row 2 or 4 is comparable in size to row 1, the axis is doing\n' ...
+         '  more than one job and Fig. 4b needs re-cutting.\n' ...
+         '  Rows 2 and 3 are the same test from opposite sides: they should\n' ...
+         '  move in OPPOSITE directions by a similar factor. If they do not,\n' ...
+         '  the effect depends on which run was altered, which would mean the\n' ...
+         '  control itself is not clean.\n']);
+
+% ── figure ───────────────────────────────────────────────────────────────
+fig = figure('Color','w','Position',[80 80 1150 450]);
+tl = tiledlayout(fig, 1, 2, 'TileSpacing','compact','Padding','compact');
+
+ax = nexttile(tl);
+bar(ax, eke, 'FaceColor', [0.30 0.45 0.70]);
+set(ax, 'XTick', 1:numel(labels), 'XTickLabel', strrep(labels, '_', '\_'), ...
+    'XTickLabelRotation', 30, 'FontSize', 11);
+ylabel(ax, 'EKE (m^2 s^{-2})', 'FontWeight','bold');
+title(ax, 'Depth-averaged EKE', 'FontWeight','bold');
+grid(ax,'on');
+
+ax2 = nexttile(tl);
+hold(ax2,'on');
+cols = [0.55 0.55 0.55; 0.85 0.35 0.15; 0.95 0.60 0.20; 0.20 0.55 0.35; 0.30 0.45 0.70];
+for i = 1:numel(ratio)
+    bar(ax2, i, ratio(i), 'FaceColor', cols(min(i,size(cols,1)),:));
+end
+yline(ax2, 1, 'k--', 'no effect', 'LineWidth', 1.2);
+set(ax2, 'XTick', 1:size(C,1), 'XTickLabel', ...
+    {'Fig 4b (conf.)','crest, deep','crest, shallow','flank slope','depth (ctrl)'}, ...
+    'XTickLabelRotation', 30, 'FontSize', 11);
+ylabel(ax2, 'EKE ratio', 'FontWeight','bold');
+title(ax2, 'Each contrast isolates one property', 'FontWeight','bold');
+grid(ax2,'on');
+
+title(tl, sprintf('%s  —  geometry controls for the Fig. 4b shoal-height axis', ...
+      strrep(cluster_name,'_','\_')), 'FontWeight','bold', 'FontSize', 13);
+
+if ~exist(o.outdir,'dir'), mkdir(o.outdir); end
+out = fullfile(o.outdir, sprintf('%s_eke_geometry_controls.png', cluster_name));
+exportgraphics(fig, out, 'Resolution', 200);
+fprintf('\nSaved: %s\n', out);
+close(fig);
+
+R = struct('labels', {labels}, 'eke', eke, 'contrasts', {C}, 'ratio', ratio);
+end
+
+% ================== helpers ==================
+
+function f = find_tavg_(cluster_dir, label, tag)
+d = dir(fullfile(cluster_dir, 'sweep_*'));
+d = d([d.isdir]);
+f = '';
+for k = 1:numel(d)
+    if ~isempty(regexp(d(k).name, [regexptranslate('escape', label) '$'], 'once'))
+        cand = fullfile(cluster_dir, d(k).name, ['time_avg_3d_' tag '.nc']);
+        if isfile(cand), f = cand; return; end
+    end
+end
+end
+
+function [e, it] = eke_one_(f, o)
+xc = try_nc_(f, {'xC','x_caa','xc'});
+yc = try_nc_(f, {'yC','y_aca','yc'});
+zc = try_nc_(f, {'zC','z_aac','zc'});
+nt = numel(ncread(f, 'time'));
+it = o.window; if isempty(it), it = nt; end
+it = max(1, min(nt, it));
+
+ix = find(xc/1e3 >= o.x_box(1) & xc/1e3 <= o.x_box(2));
+iy = find(yc/1e3 >= o.y_box(1) & yc/1e3 <= o.y_box(2));
+nx = numel(ix); ny = numel(iy); nz = numel(zc);
+st = [ix(1) iy(1) 1 it]; ct = [nx ny nz 1];
+
+u  = squeeze(ncread(f, 'u_c', st, ct));
+v  = squeeze(ncread(f, 'v_c', st, ct));
+uu = squeeze(ncread(f, 'uu',  st, ct));
+vv = squeeze(ncread(f, 'vv',  st, ct));
+
+% <uu> is <u^2> and is strictly positive in water, exactly 0 in the immersed
+% cells, so it doubles as the wet mask -- no separate bathymetry read.
+wet = uu > 0;
+
+e3 = 0.5 * ((uu - u.^2) + (vv - v.^2));
+% Tiny negatives are round-off in <u^2> - <u>^2, not physical; they would
+% otherwise bias the depth integral low.
+e3(~isfinite(e3) | e3 < 0) = 0;
+e3(~wet) = 0;
+
+% dz is uniform here (Lz/Nz = 50/50 = 1 m) but take it from the coordinate
+% so a different Nz does not silently rescale the answer.
+dz = uniform_dz_(zc);
+H  = sum(wet, 3) * dz;                 % local water depth
+col = sum(e3, 3) * dz;                 % int EKE dz   [m^3/s^2]
+col(H <= 0) = NaN;
+e = mean(col(H > 0) ./ H(H > 0), 'omitnan');   % (1/H) int EKE dz, area mean
+end
+
+function dz = uniform_dz_(zc)
+d = abs(diff(zc(:)));
+dz = median(d);
+if any(abs(d - dz) > 1e-6 * dz)
+    warning('eke_geometry_controls:nonUniformZ', ...
+            'z spacing is not uniform (%.4g to %.4g m); using the median %.4g m.', ...
+            min(d), max(d), dz);
+end
+end
+
+function data = try_nc_(fname, names)
+for i = 1:numel(names)
+    try, data = ncread(fname, names{i}); return; catch, end
+end
+error('No coordinate among {%s} in %s. Available: %s', strjoin(names, ', '), ...
+      fname, strjoin({ncinfo(fname).Variables.Name}, ', '));
+end
