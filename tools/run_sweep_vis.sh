@@ -23,6 +23,14 @@ module load ncarenv-basic/23.10
 module load ncarenv/23.10
 module load matlab/R2024a
 
+# ffmpeg must be on PATH BEFORE MATLAB starts. MATLAB's VideoWriter has no
+# MPEG-4 encoder on Linux, so vishoals writes Motion-JPEG AVI and then calls
+# ffmpeg to transcode it to H.264. Without this line the transcode is skipped
+# and a much larger .avi is left behind -- which is what was happening.
+module load ffmpeg 2>/dev/null
+command -v ffmpeg >/dev/null 2>&1 || echo \
+    "WARNING: ffmpeg not found; animations will be left as .avi. Try 'module avail ffmpeg'." 
+
 echo "═══════════════════════════════════════════════════════"
 echo "  Run tag:    ${RUN_TAG}"
 echo "  Data dir:   ${DATADIR}"

@@ -747,22 +747,10 @@ if ~want_mp4 && exist(giffile, 'file')
     fprintf('Deleted stale GIF: %s\n', giffile);
 end
 if want_mp4
-    % MPEG-4 needs system codecs that some Linux MATLAB installs (e.g. Casper)
-    % lack ("The specified profile is not valid"). Fall back to Motion-JPEG AVI
-    % and convert to MP4 with ffmpeg after the last frame, if ffmpeg exists.
+    % MATLAB's MPEG-4 profile does not exist on Linux; video_writer_open
+    % falls back to Motion-JPEG AVI and video_writer_finish transcodes it.
     mp4_path = fullfile(outdir, mp4_filename);
-    avi_path = '';
-    try
-        vwriter = VideoWriter(mp4_path, 'MPEG-4');
-    catch ME_vw
-        [~, base] = fileparts(mp4_filename);
-        avi_path = fullfile(outdir, [base '.avi']);
-        fprintf('MPEG-4 not available (%s).\nWriting Motion-JPEG AVI instead: %s\n', ME_vw.message, avi_path);
-        vwriter = VideoWriter(avi_path, 'Motion JPEG AVI');
-        vwriter.Quality = 95;
-    end
-    vwriter.FrameRate = fps;
-    open(vwriter);
+    [vwriter, avi_path] = video_writer_open(mp4_path, fps);
 end
 
 % ---------- animate ----------
@@ -928,31 +916,7 @@ for t = anim_start:frame_skip:Nt
 end
 
 if want_mp4
-    close(vwriter);
-    if isempty(avi_path)
-        fprintf('Wrote MP4: %s\n', mp4_path);
-    else
-        % Convert the AVI to MP4 (H.264; even frame size required by the encoder)
-        [st, ~] = system('command -v ffmpeg');
-        if st == 0
-            % MATLAB prepends its own (older) libstdc++ to LD_LIBRARY_PATH, which breaks
-            % system ffmpeg (GLIBCXX not found). Run ffmpeg with MATLAB's dirs removed.
-            ld = strsplit(getenv('LD_LIBRARY_PATH'), ':');
-            ld = ld(~contains(ld, matlabroot) & ~cellfun(@isempty, ld));
-            cmd = sprintf(['LD_LIBRARY_PATH="%s" ffmpeg -y -loglevel error -i "%s" -c:v libx264 -pix_fmt yuv420p ' ...
-                '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -r %g "%s"'], strjoin(ld, ':'), avi_path, fps, mp4_path);
-            [st2, out2] = system(cmd);
-            if st2 == 0
-                delete(avi_path);
-                fprintf('Wrote MP4 (converted with ffmpeg): %s\n', mp4_path);
-            else
-                fprintf('ffmpeg conversion failed (%s). Kept AVI: %s\n', strtrim(out2), avi_path);
-            end
-        else
-            fprintf(['Wrote AVI: %s\nffmpeg not found; convert with e.g.\n' ...
-                '  ffmpeg -i "%s" -c:v libx264 -pix_fmt yuv420p "%s"\n'], avi_path, avi_path, mp4_path);
-        end
-    end
+    video_writer_finish(vwriter, mp4_path, avi_path, fps);
 else
     fprintf('Wrote GIF: %s\n', giffile);
 end

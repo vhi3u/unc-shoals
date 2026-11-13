@@ -457,10 +457,10 @@ if exist(giffile, 'file')
     fprintf('Deleted stale GIF: %s\n', giffile);
 end
 if want_mp4
-    vwriter = VideoWriter(fullfile(outdir, ...
-        [run_tag '_clipped.mp4']), 'MPEG-4');
-    vwriter.FrameRate = fps;
-    open(vwriter);
+    % Was a bare VideoWriter(..., 'MPEG-4'), which THROWS on Linux rather
+    % than falling back, so this function could not run on Casper at all.
+    mp4_path = fullfile(outdir, [run_tag '_clipped.mp4']);
+    [vwriter, avi_path] = video_writer_open(mp4_path, fps);
 end
 
 % ---------- animate ----------
@@ -604,10 +604,11 @@ for t = anim_start:frame_skip:Nt
     end
 end
 
-if want_mp4, close(vwriter); end
 fprintf('Wrote GIF: %s\n', giffile);
 if want_mp4
-    fprintf('Wrote MP4: %s\n', fullfile(outdir, [run_tag '_clipped.mp4']));
+    % Reports the file it actually wrote. The old line announced an MP4
+    % unconditionally, so a fallback would have been reported as an MP4.
+    video_writer_finish(vwriter, mp4_path, avi_path, fps);
 end
 close all;
 end

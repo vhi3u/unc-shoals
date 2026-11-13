@@ -290,13 +290,12 @@ giffile = fullfile(outdir, [run_tag '_2panel_xy.gif']);
 giffile2 = fullfile(outdir, [run_tag '_2panel_xz.gif']);
 
 if want_mp4
-    vwriter = VideoWriter(fullfile(outdir, [run_tag '_2panel_xy.mp4']), 'MPEG-4');
-    vwriter.FrameRate = fps;
-    open(vwriter);
-
-    vwriter2 = VideoWriter(fullfile(outdir, [run_tag '_2panel_xz.mp4']), 'MPEG-4');
-    vwriter2.FrameRate = fps;
-    open(vwriter2);
+    % Both were bare VideoWriter(..., 'MPEG-4') calls, which THROW on Linux
+    % instead of falling back, so this function could not run on Casper.
+    mp4_path_xy = fullfile(outdir, [run_tag '_2panel_xy.mp4']);
+    mp4_path_xz = fullfile(outdir, [run_tag '_2panel_xz.mp4']);
+    [vwriter,  avi_path_xy] = video_writer_open(mp4_path_xy, fps);
+    [vwriter2, avi_path_xz] = video_writer_open(mp4_path_xz, fps);
 end
 
 % ---------- animate ----------
@@ -345,15 +344,12 @@ for ti = anim_idx
     end
 end
 
-if want_mp4
-    close(vwriter);
-    close(vwriter2);
-end
+
 fprintf('Wrote XY GIF: %s\n', giffile);
 fprintf('Wrote XZ GIF: %s\n', giffile2);
 if want_mp4
-    fprintf('Wrote XY MP4: %s\n', fullfile(outdir, [run_tag '_2panel_xy.mp4']));
-    fprintf('Wrote XZ MP4: %s\n', fullfile(outdir, [run_tag '_2panel_xz.mp4']));
+    video_writer_finish(vwriter,  mp4_path_xy, avi_path_xy, fps);
+    video_writer_finish(vwriter2, mp4_path_xz, avi_path_xz, fps);
 end
 close all;
 end
