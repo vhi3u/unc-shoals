@@ -35,6 +35,13 @@ set -u
 RUN_TAG="${1:?Usage: $0 <run_tag> [cluster_name]  (e.g. sweep_Zs5_Ls40k cluster_Fnnie_1_19)}"
 CLUSTER="${2:-}"
 
+# Vorticity colour limits. Fixed by default rather than auto-scanned, so Ro
+# is on the same scale in every run and panels can be compared between them --
+# an auto scale silently rescales per run, which makes a weak-wind case look
+# as energetic as a strong one. Matches run_vishoals_vort_wind.sh.
+# Override for a one-off: CLIMRO="[-0.5, 0.5]" ./run_vishoals.sh <tag>
+CLIMRO="${CLIMRO:-[-1.0, 1.0]}"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SWEEP_ROOT="${ROOT}/sweep_output"
 OUTDIR="${ROOT}/animations/"
@@ -125,6 +132,7 @@ echo "=== Running vishoals for run_tag: ${RUN_TAG} ==="
 echo "    Data dir:   ${DATADIR}"
 echo "    Output dir: ${OUTDIR}"
 echo "    Panels:     full_panel (6 columns: T, S, u, v, Ro, KE)"
+echo "    climRo:     ${CLIMRO}"
 
 cd "${TOOLDIR}"
 
@@ -144,6 +152,7 @@ matlab -nodisplay -nosplash -r "\
             'outdir', '${OUTDIR}', \
             'full_panel', true, \
             'fps', 15, \
+            'climRo', ${CLIMRO}, \
             'clipped', true); \
     catch ME, \
         fprintf('Error: %s\n', ME.message); \
