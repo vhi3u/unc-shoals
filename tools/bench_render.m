@@ -38,6 +38,7 @@ addParameter(p, 'datadir',    '', @ischar);
 addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'reps',       5, @(x)isnumeric(x)&&isscalar(x)&&x>=1);
 addParameter(p, 'clipped',    true, @(x)islogical(x)&&isscalar(x));
+addParameter(p, 'save_png',   '', @ischar);
 parse(p, varargin{:});
 o = p.Results;
 
@@ -133,7 +134,30 @@ if contains(lower(lastwarn), 'opengl') || contains(lower(lastwarn), 'nodisplay')
 end
 close(probe);
 
-variants  = {'pcolor+flat', 'pcolor+interp', 'imagesc'};
+% ── how many pixels does one data cell get? ───────────────────────────────
+% interp vs flat is only visible when a cell spans more than a pixel or two.
+% Measured from the real axes rather than estimated.
+fprintf('\n── pixels per data cell, at -r100 ────────────────────────────────\n');
+pf = build_('pcolor+flat', xk, yk, zc, XY, XZ);
+drawnow;
+axs_ = findobj(pf, 'Type', 'axes');
+pos_xy = []; pos_xz = [];
+for a = axs_'
+    P = getpixelposition(a);
+    if P(4) > 250, pos_xy = P; else, pos_xz = P; end
+end
+if ~isempty(pos_xy)
+    fprintf('  XY panel %4.0f x %4.0f px  for %d x %d cells  ->  %.2f x %.2f px/cell\n', ...
+            pos_xy(3), pos_xy(4), Nx, Ny, pos_xy(3)/Nx, pos_xy(4)/Ny);
+end
+if ~isempty(pos_xz)
+    fprintf('  XZ panel %4.0f x %4.0f px  for %d x %d cells  ->  %.2f x %.2f px/cell\n', ...
+            pos_xz(3), pos_xz(4), Nx, Nz, pos_xz(3)/Nx, pos_xz(4)/Nz);
+end
+fprintf('  (<~1 px/cell: interp cannot be seen. >~2 px/cell: flat shows steps.)\n');
+close(pf);
+
+variants  = {'pcolor+flat', 'pcolor+interp', 'imagesc', 'mixed'};
 if gl_usable
     renderers = {'default', '-painters', '-opengl'};
 else
@@ -172,6 +196,12 @@ for iv = 1:numel(variants)
         end
         T(iv, ir) = median(ts, 'omitnan');
         if ir == 1 && exist('A', 'var'), img{iv} = A; end
+        % Keep the default-renderer frame at full size for eyeball comparison.
+        if ir == 1 && ~isempty(o.save_png) && exist('A', 'var')
+            if ~exist(o.save_png, 'dir'), mkdir(o.save_png); end
+            imwrite(A, fullfile(o.save_png, sprintf('render_%s.png', ...
+                    strrep(variants{iv}, '+', '_'))));
+        end
     end
     close(fig);
 end
@@ -211,6 +241,23 @@ else
     fprintf('  frame sizes differ -- compare the two PNGs by eye instead.\n');
 end
 
+% Where the difference IS matters more than how big it is. Concentrated on
+% cell edges means sub-pixel resampling and is invisible in motion;
+% concentrated inside panels or on the colorbars means something moved.
+if ~isempty(img{1}) && ~isempty(img{3}) && isequal(size(img{1}), size(img{3}))
+    dg = max(abs(double(img{1}) - double(img{3})), [], 3);
+    fprintf('\n  pixels differing by >32/255 : %.2f%%\n', 100*mean(dg(:) > 32));
+    fprintf('  ... of those, how they cluster is what the PNGs show.\n');
+    if ~isempty(o.save_png)
+        imwrite(uint8(min(255, dg*4)), fullfile(o.save_png, 'render_diff_x4.png'));
+        fprintf('\n  wrote, for side-by-side inspection:\n');
+        fprintf('    %s/render_pcolor_flat.png\n', o.save_png);
+        fprintf('    %s/render_pcolor_interp.png   <- what vishoals draws now\n', o.save_png);
+        fprintf('    %s/render_imagesc.png         <- the 6.4x candidate\n', o.save_png);
+        fprintf('    %s/render_diff_x4.png         <- |flat - imagesc|, x4 contrast\n', o.save_png);
+    end
+end
+
 % ── what this means for a run ─────────────────────────────────────────────
 best = min(T(~isnan(T)));
 [bi, bj] = find(T == best, 1);
@@ -236,17 +283,23 @@ tl  = tiledlayout(fig, 3, 6, 'TileSpacing','compact','Padding','compact');
 [Xz, Zz] = meshgrid(xk, zc);
 for k = 1:6
     ax = nexttile(tl, k, [2 1]);
-    draw_(ax, kind, xk, yk, Xc, Yc, XY{k});
+    draw_(ax, kind, xk, yk, Xc, Yc, XY{k}, true);
     colormap(ax, cm{k}); colorbar(ax); set(ax,'YDir','normal'); axis(ax,'tight');
 end
 for k = 1:6
     ax = nexttile(tl, 12+k);
-    draw_(ax, kind, xk, zc, Xz, Zz, XZ{k});
+    draw_(ax, kind, xk, zc, Xz, Zz, XZ{k}, false);
     colormap(ax, cm{k}); colorbar(ax); set(ax,'YDir','normal'); axis(ax,'tight');
 end
 end
 
-function draw_(ax, kind, xv, yv, XX, YY, C)
+function draw_(ax, kind, xv, yv, XX, YY, C, is_xy)
+% 'mixed' is the construction the pixel arithmetic implies: imagesc on the XY
+% maps, where cells render at roughly one pixel so interp smoothing cannot be
+% seen and 88% of the quads live, and pcolor+interp on the XZ transects, where
+% Nz = 50 over the panel height puts a cell at ~3 px and flat shows steps.
+% Note that is ALSO a change from what vishoals draws today, which has interp
+% on XY and flat on XZ -- the smoothing on the row that cannot show it.
 switch kind
     case 'pcolor+flat'
         pcolor(ax, XX, YY, C); shading(ax, 'flat');
@@ -254,6 +307,12 @@ switch kind
         pcolor(ax, XX, YY, C); shading(ax, 'interp');
     case 'imagesc'
         imagesc(ax, xv, yv, C);
+    case 'mixed'
+        if is_xy
+            imagesc(ax, xv, yv, C);
+        else
+            pcolor(ax, XX, YY, C); shading(ax, 'interp');
+        end
 end
 end
 

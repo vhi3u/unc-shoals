@@ -29,6 +29,10 @@ RUN_TAG="${1:?Usage: $0 <run_tag> [cluster_name] [reps]}"
 CLUSTER="${2:-cluster_weakwinds}"
 REPS="${3:-5}"
 
+# Full-size frames from each construction, plus a difference map, so the
+# imagesc swap can be judged by eye and not only by a percentage.
+PNGDIR="${PNGDIR:-/glade/work/nguyen/unc-shoals/out/bench}"
+
 module purge
 module load ncarenv-basic/23.10
 module load ncarenv/23.10
@@ -38,6 +42,7 @@ echo "=== bench_render ==="
 echo "    Run:     ${RUN_TAG}"
 echo "    Cluster: ${CLUSTER}"
 echo "    Reps:    ${REPS}"
+echo "    PNGs:    ${PNGDIR}"
 
 cd "$(dirname "$0")"
 
@@ -45,7 +50,8 @@ matlab -nodisplay -nosplash -r "\
     addpath(genpath('cmocean')); \
     addpath(genpath('pmkmp')); \
     try, \
-        bench_render('${RUN_TAG}', 'cluster', '${CLUSTER}', 'reps', ${REPS}); \
+        bench_render('${RUN_TAG}', 'cluster', '${CLUSTER}', 'reps', ${REPS}, \
+                     'save_png', '${PNGDIR}'); \
     catch ME, \
         fprintf('Error: %s\n', ME.message); \
         fprintf('%s\n', getReport(ME, 'extended')); \
