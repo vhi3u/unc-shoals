@@ -40,7 +40,7 @@
 #   either differs materially -> Fig. 4b's x-axis is doing more than one job
 #                                and needs re-cutting
 #
-# 500 m and 100 days. This was 50 days, to match the production HsLs runs --
+# 500 m and 120 days. This was 50 days, to match the production HsLs runs --
 # but at 50 days the Z_S = -15 m runs have not equilibrated. EKE per 10-day
 # window, from the first run of this sweep (x1e-5):
 #
@@ -57,9 +57,14 @@
 # Zs15_slopefix is still DECLINING its equilibrium ratio is lower than the
 # -54% measured, so that number is a floor rather than an estimate.
 #
-# 100 days costs about twice the walltime: 04:00:00 in submit_geomcontrol.pbs
-# was sized for 50 days, so raise it at submit time --
-#   qsub -l walltime=08:00:00 src/sweep/submit_geomcontrol.pbs
+# 120 days, matching params_weakwind.toml, so every sweep in this project
+# shares one integration length and no figure mixes run lengths. 100 was the
+# first choice, but Zs15_slopefix was still falling at day 50 with no sign of
+# a plateau, so there was no basis for expecting 100 to be enough either.
+#
+# Costs about 2.4x the walltime: 04:00:00 in submit_geomcontrol.pbs was sized
+# for 50 days, and the .pbs files are gitignored, so override at submit time:
+#   qsub -l walltime=12:00:00 src/sweep/submit_geomcontrol.pbs
 #
 # EKE stays comparable with Fig. 4b because the diagnostic is unchanged; the
 # HsLs runs are themselves 50 days, so if the deep cases there are also still
@@ -75,7 +80,7 @@ shoal_length    = 40000.0
 shelf_break_end = 12000.0
 rise_mid        = 63500.0
 dx              = 500.0
-sim_days        = 100.0
+sim_days        = 120.0
 
 [[runs]]
 run_label       = "Zs15_ref"
@@ -84,7 +89,7 @@ shoal_length    = 40000.0
 shelf_break_end = 12000.0
 rise_mid        = 63500.0
 dx              = 500.0
-sim_days        = 100.0
+sim_days        = 120.0
 
 [[runs]]
 run_label       = "Zs15_Lsfix"
@@ -93,7 +98,7 @@ shoal_length    = 48300.0
 shelf_break_end = 12000.0
 rise_mid        = 63500.0
 dx              = 500.0
-sim_days        = 100.0
+sim_days        = 120.0
 
 [[runs]]
 run_label       = "Zs05_Lsmatch"
@@ -102,7 +107,7 @@ shoal_length    = 32400.0
 shelf_break_end = 12000.0
 rise_mid        = 63500.0
 dx              = 500.0
-sim_days        = 100.0
+sim_days        = 120.0
 
 [[runs]]
 run_label       = "Zs15_slopefix"
@@ -111,4 +116,4 @@ shoal_length    = 51800.0
 shelf_break_end = 20000.0
 rise_mid        = 76000.0
 dx              = 500.0
-sim_days        = 100.0
+sim_days        = 120.0
