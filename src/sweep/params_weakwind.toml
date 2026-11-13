@@ -20,10 +20,40 @@
 # part of any apparent regime change at small |tau| comes from the parameter-
 # isation, not the model. These runs are the data that can separate the two.
 #
-# 500 m, 50 days -- same as the Fnnie wind runs, so they are directly
-# comparable. ~12 h each.
+# 500 m, 120 days. This was 50, to match the Fnnie wind runs -- but at 50
+# days these runs have not equilibrated, and the quantity this sweep exists
+# to measure is still moving. EKE per 10-day window (x1e-5):
 #
-# Submit:  qsub src/sweep/submit_weakwind.pbs     (array 1-6)
+#   tau       d10-20  d20-30  d30-40  d40-50
+#   -0.020      3.22    3.19    1.47    1.14   fell 2.8x
+#   -0.010      2.03    2.06    2.47    3.22   ROSE 58%, still growing
+#   -0.005      1.74    1.78    1.76    1.62   flat -- the only settled run
+#   +0.005      2.90    3.25    2.65    1.01   collapsed 62% in the last window
+#   +0.010      4.06    3.29    1.30    0.99   falling
+#   +0.020      4.75    2.39    1.65    1.39   falling
+#
+# One of six is equilibrated, and the runs are not even moving the same way:
+# tau = -0.010 is growing while the whole upwelling side is collapsing. The
+# consequence is that the peak of the tau-curve MOVES every window --
+# +0.020, then +0.010, then +0.005, then -0.010 -- so the shape of the
+# transition is whichever window you stop on, and any upwelling/downwelling
+# asymmetry read off it is an artifact of where each run is in its own
+# adjustment.
+#
+# 120 days is a judgement, not a convergence proof: at 50 days nothing has
+# plateaued, so there is no decay timescale to extrapolate. Re-check with
+#   ./tools/run_eke_geometry_controls.sh <cluster>
+# and read the per-window table -- extend again if the peak is still moving.
+#
+# Walltime: the 50-day runs finished inside 04:00:00, so 120 days needs
+# roughly 2.4x that. The .pbs files are gitignored, so override at submit:
+#   qsub -l walltime=12:00:00 src/sweep/submit_weakwind.pbs     (array 1-6)
+#
+# NOTE this breaks direct comparability with the Fnnie wind runs, which are
+# 50 days -- and 6 of those 10 are still collapsing too (wind_0p08 at x0.25
+# per window). Extending this sweep without extending those leaves the
+# combined tau curve mixing 120-day and 50-day points, which is worse than
+# either alone. Extend both, or neither.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── downwelling-favourable (negative) ────────────────────────────────────────
@@ -32,18 +62,21 @@ run_label    = "wind_m0p020"
 wind_stress  = -0.020
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "wind_m0p010"
 wind_stress  = -0.010
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "wind_m0p005"
 wind_stress  = -0.005
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
 
 # ── upwelling-favourable (positive) ──────────────────────────────────────────
 [[runs]]
@@ -51,15 +84,18 @@ run_label    = "wind_0p005"
 wind_stress  = 0.005
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "wind_0p010"
 wind_stress  = 0.010
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "wind_0p020"
 wind_stress  = 0.020
 Zs           = -5.0
 shoal_length = 40000.0
+sim_days     = 120.0
