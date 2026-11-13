@@ -347,7 +347,10 @@ drawnow;
 % --- line plots: eddy fraction vs y ---
 % Square axes, top-aligned with the maps of the same row.
 for r = 1:numel(rows)
-    mapP = map_axs(r, 3).Position;
+    % Rightmost map THIS row actually has, not a literal column 3: on a short
+    % row that tile is an unassigned GraphicsPlaceholder and .Position throws.
+    % Any map in the row would do for the top/height alignment this uses.
+    mapP = map_axs(r, numel(rows(r).runs)).Position;
     phP  = line_ph(r).Position;
     % =========================================================================
     % 🟢 EDIT LINE-PLOT SIZE / LEGEND POSITION HERE
