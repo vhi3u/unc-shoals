@@ -65,6 +65,12 @@ addParameter(p, 'no_outlier', false, @(x)islogical(x)&&isscalar(x));
 % difference, and the cost is nearly independent of dpi because it is
 % per-primitive rather than per-pixel. 'pcolor' is kept as an escape hatch.
 addParameter(p, 'raster', 'imagesc', @(x)ischar(x) && ismember(x, {'imagesc','pcolor'}));
+% Frame resolution. Was a hardcoded 100, which is soft for a 12-panel figure:
+% axis labels and colorbar ticks are small, go mushy in the render, and the
+% H.264 encode blurs them again. Under pcolor raising it was nearly free
+% (print cost was per-primitive -- -r50 only 14% cheaper than -r100), and
+% imagesc leaves headroom at 0.456 s/frame.
+addParameter(p, 'frame_dpi', 150, @(x)isnumeric(x)&&isscalar(x)&&x>=50);
 addParameter(p, 'scan_skip_days', 10, @(x)isnumeric(x) && isscalar(x) && x>=0);
 addParameter(p, 'last_days', Inf, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 
@@ -87,6 +93,7 @@ climRo_user  = p.Results.climRo;
 climKE_user  = p.Results.climKE;
 no_outlier   = p.Results.no_outlier;
 use_imagesc  = strcmp(p.Results.raster, 'imagesc');
+frame_dpi    = p.Results.frame_dpi;
 vel_comp     = p.Results.vel;
 vort_comp    = p.Results.vort;
 scan_skip    = p.Results.scan_skip_days;
@@ -473,12 +480,28 @@ end
         xv = XX(1,:); yv = YY(:,1);
         if use_imagesc
             h = imagesc(ax, xv, yv, C);
+            % A surface simply omits a NaN face, so the axes colour shows
+            % through. An IMAGE instead maps NaN to the first colormap entry,
+            % which rendered the immersed bathymetry as the darkest colour of
+            % each colormap rather than the grey set below. AlphaData makes
+            % those cells transparent, restoring the grey.
+            set(h, 'AlphaData', ~isnan(C));
         else
             h = pcolor(ax, XX, YY, C);
             shading(ax, smooth_mode);
         end
         xlim(ax, [min(xv) max(xv)]);
         ylim(ax, [min(yv) max(yv)]);
+    end
+
+    function setC_(h, C)
+        % CData and the NaN mask have to move together. AlphaData is static
+        % once set, so updating CData alone would stamp the first frame's
+        % land mask onto every later frame.
+        set(h, 'CData', C);
+        if strcmp(get(h, 'Type'), 'image')
+            set(h, 'AlphaData', ~isnan(C));
+        end
     end
 
     function [ax,h,cb] = panel_xy(tileIdx, titleStr, clim, cmap, cbLabel, isFirstCol)
@@ -488,6 +511,7 @@ end
         % thrown away by the rasterizer while costing 26% more than flat.
         h  = raster_(ax, Xc, Yc, nan(size(Xc)), 'interp');
         set(ax,'YDir','normal');
+        set(ax, 'Color', [0.9 0.9 0.9]);   % masked cells grey, as in the XZ row
         set(ax, 'Layer', 'top'); box(ax, 'on'); set(ax, 'LineWidth', 0.8, 'XColor', 'k', 'YColor', 'k');
         colormap(ax, cmap); caxis(ax, clim);
         cb = colorbar(ax);
@@ -794,7 +818,6 @@ end
 % ---------- animate ----------
 delay    = 1/fps;
 is_first = true;
-frame_dpi  = 100;    % frame resolution (dots per inch) for the print-engine render
 frame_size = [];
 crop_box   = [];
 set(fig, 'InvertHardcopy', 'off', 'PaperPositionMode', 'auto');   % keep white bg, on-screen layout
@@ -806,15 +829,15 @@ for t = anim_start:frame_skip:Nt
         roxy = read_surf_safe('Ro', t)';   kexy = read_surf_safe('KE', t)';
         land_xy = (uxy == 0 & vcxy == 0);
         uxy(land_xy) = NaN; vcxy(land_xy) = NaN; roxy(land_xy) = NaN; kexy(land_xy) = NaN;
-        set(h3,'CData', uxy);  set(h4,'CData', vcxy);
-        set(h9,'CData', roxy); set(h10,'CData', kexy);
+        setC_(h3, uxy);  setC_(h4, vcxy);
+        setC_(h9, roxy); setC_(h10, kexy);
 
         uxz  = read_xz_safe('u_c', t)';  vcxz = read_xz_safe('v_c', t)';
         roxz = read_xz_safe('Ro', t)';   kexz = read_xz_safe('KE', t)';
         land_xz = (uxz == 0 & vcxz == 0);
         uxz(land_xz) = NaN; vcxz(land_xz) = NaN; roxz(land_xz) = NaN; kexz(land_xz) = NaN;
-        set(h7,'CData', uxz);   set(h8,'CData', vcxz);
-        set(h12,'CData', roxz); set(h13,'CData', kexz);
+        setC_(h7, uxz);   setC_(h8, vcxz);
+        setC_(h12, roxz); setC_(h13, kexz);
     else
     % Surface XY — transpose for pcolor (Ny×Nx)
     Txy  = surf_tracer('T', t)';
@@ -829,18 +852,18 @@ for t = anim_start:frame_skip:Nt
         uxy(isnan(Txy)) = NaN; vcxy(isnan(Txy)) = NaN;
         roxy(isnan(Txy)) = NaN; kexy(isnan(Txy)) = NaN;
         
-        set(h1,'CData', Txy); set(h2,'CData', Sxy);
-        set(h3,'CData', uxy); set(h4,'CData', vcxy);
-        set(h9,'CData', roxy); set(h10,'CData', kexy);
+        setC_(h1, Txy); setC_(h2, Sxy);
+        setC_(h3, uxy); setC_(h4, vcxy);
+        setC_(h9, roxy); setC_(h10, kexy);
     else
         vxy  = read_surf_safe(vel_ncvar, t)';
         Roxy = read_surf_safe(vort_ncvar, t)';
         vxy(isnan(Txy)) = NaN; Roxy(isnan(Txy)) = NaN;
         
-        set(h1,'CData', Txy);
-        set(h2,'CData', Sxy);
-        set(h3,'CData', vxy);
-        set(h4,'CData', Roxy);
+        setC_(h1, Txy);
+        setC_(h2, Sxy);
+        setC_(h3, vxy);
+        setC_(h4, Roxy);
     end
 
     % XZ transect — transpose for pcolor (Nz×Nx)
@@ -856,18 +879,18 @@ for t = anim_start:frame_skip:Nt
         uxz(isnan(Txz)) = NaN; vcxz(isnan(Txz)) = NaN;
         roxz(isnan(Txz)) = NaN; kexz(isnan(Txz)) = NaN;
         
-        set(h5,'CData', Txz); set(h6,'CData', Sxz);
-        set(h7,'CData', uxz); set(h8,'CData', vcxz);
-        set(h12,'CData', roxz); set(h13,'CData', kexz);
+        setC_(h5, Txz); setC_(h6, Sxz);
+        setC_(h7, uxz); setC_(h8, vcxz);
+        setC_(h12, roxz); setC_(h13, kexz);
     else
         vxz  = read_xz_safe(vel_ncvar, t)';
         Roxz = read_xz_safe(vort_ncvar, t)';
         vxz(isnan(Txz)) = NaN; Roxz(isnan(Txz)) = NaN;
         
-        set(h5,'CData', Txz);
-        set(h6,'CData', Sxz);
-        set(h7,'CData', vxz);
-        set(h8,'CData', Roxz);
+        setC_(h5, Txz);
+        setC_(h6, Sxz);
+        setC_(h7, vxz);
+        setC_(h8, Roxz);
     end
     end   % if no_TS
 
