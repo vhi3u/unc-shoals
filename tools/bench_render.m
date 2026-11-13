@@ -55,7 +55,9 @@ end
 f_top  = fullfile(datadir, ['top_'  run_tag '.nc']);
 f_midy = fullfile(datadir, ['midy_' run_tag '.nc']);
 
-xc = ncread(f_top, 'xC');  yc = ncread(f_top, 'yC');  zc = ncread(f_midy, 'zC');
+xc = try_nc_(f_top,  {'xC','x_caa','xc','x'});
+yc = try_nc_(f_top,  {'yC','y_aca','yc','y'});
+zc = try_nc_(f_midy, {'zC','z_aac','zc','z'});
 Nt = numel(ncread(f_top, 'time'));
 ix = 1:numel(xc); iy = 1:numel(yc);
 if o.clipped
@@ -69,6 +71,18 @@ xk = xc(ix)/1e3; yk = yc(iy)/1e3;
 rd_xy = @(v) squeeze(ncread(f_top,  v, [ix(1) iy(1) 1 Nt], [Nx Ny 1 1]))';
 rd_xz = @(v) squeeze(ncread(f_midy, v, [ix(1) 1 1 Nt], [Nx 1 Nz 1]))';
 F = {'T','S','u_c','v_c','Ro','KE'};
+
+% No NaN-fill fallback here, deliberately. Painters does not emit quads for
+% NaN cells, so a silently empty panel would make the render look cheap and
+% invalidate the measurement. If a field is missing, say so and stop.
+have = {ncinfo(f_top).Variables.Name};
+miss = F(~ismember(F, have));
+if ~isempty(miss)
+    error('bench_render:missingFields', ...
+          'Not in %s: %s\nAvailable: %s', f_top, strjoin(miss, ', '), ...
+          strjoin(have, ', '));
+end
+
 XY = cell(1,6); XZ = cell(1,6);
 for k = 1:6, XY{k} = rd_xy(F{k}); XZ{k} = rd_xz(F{k}); end
 
@@ -78,6 +92,11 @@ fprintf('╚══════════════════════�
 fprintf('  XY %d x %d, XZ %d x %d  ->  %s quads/frame for pcolor\n', ...
         Nx, Ny, Nx, Nz, addcommas_(6*(Nx-1)*(Ny-1) + 6*(Nx-1)*(Nz-1)));
 fprintf('  %d reps per cell, median reported\n', o.reps);
+fin_xy = mean(cellfun(@(A) mean(isfinite(A(:)) & A(:) ~= 0), XY));
+fin_xz = mean(cellfun(@(A) mean(isfinite(A(:)) & A(:) ~= 0), XZ));
+fprintf('  live cells: XY %.0f%%, XZ %.0f%%  (painters skips NaN, so near-0%% would\n', ...
+        100*fin_xy, 100*fin_xz);
+fprintf('              mean the render cost below is not representative)\n');
 
 % ── is OpenGL even available in this MATLAB? ──────────────────────────────
 fprintf('\n── renderer availability ─────────────────────────────────────────\n');
@@ -201,6 +220,14 @@ switch kind
     case 'imagesc'
         imagesc(ax, xv, yv, C);
 end
+end
+
+function data = try_nc_(fname, names)
+for i = 1:numel(names)
+    try, data = ncread(fname, names{i}); return; catch, end
+end
+error('No coordinate among {%s} in %s. Available: %s', strjoin(names, ', '), ...
+      fname, strjoin({ncinfo(fname).Variables.Name}, ', '));
 end
 
 function s = addcommas_(n)

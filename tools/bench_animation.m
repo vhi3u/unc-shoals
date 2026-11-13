@@ -117,6 +117,17 @@ rd_xy = @(v,t) safe_(@() squeeze(ncread(f_top,  v, [ix(1) iy(1) 1 t], [Nx Ny 1 1
 rd_xz = @(v,t) safe_(@() squeeze(ncread(f_midy, v, [ix(1) 1 1 t], [Nx 1 Nz 1]))', Nz, Nx);
 FIELDS = {'T','S','u_c','v_c','Ro','KE'};
 
+% safe_() NaN-fills a failed read, which would hide a wrong variable name --
+% and because painters emits no quads for NaN cells, empty panels would make
+% print() look cheap and invalidate the whole measurement. Check up front.
+have_ = {ncinfo(f_top).Variables.Name};
+miss_ = FIELDS(~ismember(FIELDS, have_));
+if ~isempty(miss_)
+    error('bench_animation:missingFields', ...
+          'Not in %s: %s\nAvailable: %s', f_top, strjoin(miss_, ', '), ...
+          strjoin(have_, ', '));
+end
+
 % ══ PHASE 1: the colour-limit scan (vishoals.m:289-298) — reads only ══════
 t0 = tic;
 for t = frames
