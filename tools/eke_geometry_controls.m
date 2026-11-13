@@ -103,14 +103,12 @@ for k = 1:numel(labels)
 end
 
 % ── the contrasts the sweep exists to form ───────────────────────────────
-% Each holds two of the three covarying properties fixed and moves the third.
-C = {
- 'Zs15_ref',      'Zs05_ref',     'Fig 4b pair (CONFOUNDED: depth+crest+flank)'
- 'Zs15_Lsfix',    'Zs15_ref',     'CREST LENGTH, deep side  (32.4 -> 40.6 km)'
- 'Zs05_Lsmatch',  'Zs05_ref',     'CREST LENGTH, shallow side (40.4 -> 32.9 km)'
- 'Zs15_slopefix', 'Zs15_Lsfix',   'FLANK SLOPE (0.00349 -> 0.00165)'
- 'Zs15_Lsfix',    'Zs05_ref',     'DEPTH with crest length controlled'
-};
+% Which pairs those are depends on the cluster: params_geomcontrol.toml
+% breaks the depth/crest/flank collinearity, params_res250.toml crosses the
+% same depth axis with dx. Hardcoding the geomcontrol pairs printed five n/a
+% rows under a "how to read it" block about controls that cluster does not
+% contain.
+[C, ticks, howto, head] = contrast_spec_(labels);
 
 fprintf('\n── contrasts ────────────────────────────────────────────────────\n');
 fprintf('  %-34s %10s %8s\n', 'what it isolates', 'ratio', 'change');
@@ -129,19 +127,19 @@ for i = 1:size(C,1)
     fprintf('  %-34s %10.3f %+7.0f%%%s\n', C{i,3}, ratio(i), 100*(ratio(i)-1), verdict);
 end
 
-fprintf(['\n── how to read it ───────────────────────────────────────────────\n' ...
-         '  The confounded pair is row 1. If rows 2-4 are all near 1.0, crest\n' ...
-         '  length and flank slope are not driving it and the Fig. 4b axis is\n' ...
-         '  shoal height after all -- row 5 should then match row 1.\n' ...
-         '  If row 2 or 4 is comparable in size to row 1, the axis is doing\n' ...
-         '  more than one job and Fig. 4b needs re-cutting.\n' ...
-         '  Rows 2 and 3 are the same test from opposite sides: they should\n' ...
-         '  move in OPPOSITE directions by a similar factor. If they do not,\n' ...
-         '  the effect depends on which run was altered, which would mean the\n' ...
-         '  control itself is not clean.\n']);
+if isempty(C)
+    fprintf(['  none -- no recognised contrast pair in this cluster.\n' ...
+             '  Pairs are matched on run_label: the geomcontrol set (Zs05_ref,\n' ...
+             '  Zs15_ref, Zs15_Lsfix, Zs05_Lsmatch, Zs15_slopefix) or the\n' ...
+             '  resolution set (R<dx>_Zs<depth>). The per-run EKE and geometry\n' ...
+             '  tables above are unaffected.\n']);
+end
+
+fprintf('\n── how to read it ───────────────────────────────────────────────\n');
+fprintf('%s', howto);
 
 % ── figure ───────────────────────────────────────────────────────────────
-fig = figure('Color','w','Position',[80 80 1150 450]);
+fig = figure('Color','w','Position',[80 80 max(1150, 420 + 80*size(C,1)) 450]);
 tl = tiledlayout(fig, 1, 2, 'TileSpacing','compact','Padding','compact');
 
 ax = nexttile(tl);
@@ -155,7 +153,11 @@ grid(ax,'on');
 
 ax2 = nexttile(tl);
 hold(ax2,'on');
-cols = [0.55 0.55 0.55; 0.85 0.35 0.15; 0.95 0.60 0.20; 0.20 0.55 0.35; 0.30 0.45 0.70];
+if size(C,1) <= 5
+    cols = [0.55 0.55 0.55; 0.85 0.35 0.15; 0.95 0.60 0.20; 0.20 0.55 0.35; 0.30 0.45 0.70];
+else
+    cols = lines(size(C,1));
+end
 for i = 1:numel(ratio)
     % BaseValue 1, so a bar grows UP for an increase and DOWN for a decrease
     % and its length is the size of the effect either way.
@@ -166,8 +168,7 @@ yline(ax2, 1, 'k--', 'no effect', 'LineWidth', 1.2);
 % in opposite directions, and only a log axis renders them symmetrically
 % about 1. On a linear axis a halving looks half as important as a doubling.
 rr = ratio(isfinite(ratio) & ratio > 0);
-set(ax2, 'XTick', 1:size(C,1), 'XTickLabel', ...
-    {'Fig 4b (conf.)','crest, deep','crest, shallow','flank slope','depth (ctrl)'}, ...
+set(ax2, 'XTick', 1:size(C,1), 'XTickLabel', ticks, ...
     'XTickLabelRotation', 30, 'FontSize', 11, 'YScale', 'log');
 if ~isempty(rr)
     m = max(max(rr), 1/min(rr)) * 1.6;
@@ -177,8 +178,8 @@ ylabel(ax2, 'EKE ratio (log)', 'FontWeight','bold');
 title(ax2, 'Each contrast isolates one property', 'FontWeight','bold');
 grid(ax2,'on');
 
-title(tl, sprintf('%s  —  geometry controls for the Fig. 4b shoal-height axis', ...
-      strrep(cluster_name,'_','\_')), 'FontWeight','bold', 'FontSize', 13);
+title(tl, sprintf('%s  —  %s', strrep(cluster_name,'_','\_'), head), ...
+      'FontWeight','bold', 'FontSize', 13);
 
 if ~exist(o.outdir,'dir'), mkdir(o.outdir); end
 out = fullfile(o.outdir, sprintf('%s_eke_geometry_controls.png', cluster_name));
@@ -258,6 +259,105 @@ close(fig2);
 
 R = struct('labels', {labels}, 'eke', eke, 'contrasts', {C}, 'ratio', ratio, ...
            'Zs', Zs, 'crest_km', Lc, 'flank', Sf);
+end
+
+function [C, ticks, howto, head] = contrast_spec_(labels)
+% Which pairs to form, chosen from the run_labels that are present.
+%
+% Two clusters ask different questions with the same machinery:
+%   params_geomcontrol.toml  separate depth from the crest length and flank
+%                            slope that Zs varies along with it
+%   params_res250.toml       cross that same depth axis with dx, so the depth
+%                            contrast can be formed twice and compared
+% The RATIO of those two depth contrasts is the answer to "does Fig. 4b
+% survive dx/2": at 1.0 the trend is resolution-independent whatever its
+% size; away from 1.0 the trend is partly numerical.
+
+geom  = {'Zs05_ref','Zs15_ref','Zs15_Lsfix','Zs05_Lsmatch','Zs15_slopefix'};
+tok   = regexp(labels, '^R(\d+)_Zs(\d+)$', 'tokens', 'once');
+isres = ~cellfun(@isempty, tok);
+
+if any(ismember(geom, labels)) || ~any(isres)
+    C = {
+     'Zs15_ref',      'Zs05_ref',     'Fig 4b pair (CONFOUNDED: depth+crest+flank)'
+     'Zs15_Lsfix',    'Zs15_ref',     'CREST LENGTH, deep side  (32.4 -> 40.6 km)'
+     'Zs05_Lsmatch',  'Zs05_ref',     'CREST LENGTH, shallow side (40.4 -> 32.9 km)'
+     'Zs15_slopefix', 'Zs15_Lsfix',   'FLANK SLOPE (0.00349 -> 0.00165)'
+     'Zs15_Lsfix',    'Zs05_ref',     'DEPTH with crest length controlled'
+    };
+    ticks = {'Fig 4b (conf.)','crest, deep','crest, shallow','flank slope','depth (ctrl)'};
+    head  = 'geometry controls for the Fig. 4b shoal-height axis';
+    howto = [ ...
+     '  The confounded pair is row 1. If rows 2-4 are all near 1.0, crest\n' ...
+     '  length and flank slope are not driving it and the Fig. 4b axis is\n' ...
+     '  shoal height after all -- row 5 should then match row 1.\n' ...
+     '  If row 2 or 4 is comparable in size to row 1, the axis is doing\n' ...
+     '  more than one job and Fig. 4b needs re-cutting.\n' ...
+     '  Rows 2 and 3 are the same test from opposite sides: they should\n' ...
+     '  move in OPPOSITE directions by a similar factor. If they do not,\n' ...
+     '  the effect depends on which run was altered, which would mean the\n' ...
+     '  control itself is not clean.\n'];
+    if ~any(ismember(geom, labels))
+        % Neither naming scheme: report the runs, claim no contrasts.
+        C = cell(0,3); ticks = {};
+        head  = 'per-run EKE (no contrast pairs recognised)';
+        howto = '  No contrasts were formed, so there is nothing here to read.\n';
+    end
+    return;
+end
+
+% ── resolution cluster ───────────────────────────────────────────────────
+dxv = nan(1, numel(labels));
+zsv = nan(1, numel(labels));
+for k = find(isres(:)')
+    dxv(k) = str2double(tok{k}{1});
+    zsv(k) = -str2double(tok{k}{2});
+end
+dxs = sort(unique(dxv(isres)), 'descend');   % coarse first: 500, 250
+zss = sort(unique(zsv(isres)), 'descend');   % shallow first: -5, -10, -15
+
+has_ = @(d,z) any(isres & dxv == d & zsv == z);
+lab_ = @(d,z) labels{find(isres & dxv == d & zsv == z, 1)};
+
+C = cell(0,3); ticks = {};
+
+% 1. dx at FIXED geometry -- pure numerics, no physics in it
+for z = zss(:)'
+    if has_(dxs(1), z) && has_(dxs(end), z)
+        C(end+1,:) = {lab_(dxs(end), z), lab_(dxs(1), z), ...
+            sprintf('RESOLUTION, Zs = %g m (%g->%g)', z, dxs(1), dxs(end))};
+        ticks{end+1} = sprintf('dx, Zs%g', z);
+    end
+end
+
+% 2. the Fig. 4b depth axis, formed once per resolution. Adjacent rows are
+%    the same physical contrast at the two dx, so the comparison that matters
+%    is between neighbours rather than against 1.0.
+for i = 1:numel(zss)
+    for j = i+1:numel(zss)
+        for d = dxs(:)'
+            if has_(d, zss(i)) && has_(d, zss(j))
+                C(end+1,:) = {lab_(d, zss(j)), lab_(d, zss(i)), ...
+                    sprintf('DEPTH %g/%g m at dx = %g m', zss(j), zss(i), d)};
+                ticks{end+1} = sprintf('%g/%g @%g', zss(j), zss(i), d);
+            end
+        end
+    end
+end
+
+head  = 'does the shoal-height trend survive \Deltax/2?';
+howto = [ ...
+ '  Rows 1-3 are dx at FIXED geometry, so they contain no physics: their\n' ...
+ '  size is how far from converged each case is, and they should shrink as\n' ...
+ '  Ld/dx grows (0.1, 0.8, 1.5 at Zs = -5, -10, -15 m).\n' ...
+ '  The rest are the Fig. 4b depth axis, formed separately at each dx.\n' ...
+ '  COMPARE EACH ADJACENT PAIR, not each row against 1.0: equal ratios mean\n' ...
+ '  that depth contrast is resolution-independent and can be reported as\n' ...
+ '  physics; a pair differing by more than the within-run spread means that\n' ...
+ '  contrast is partly a resolution artifact and its 500 m value cannot be\n' ...
+ '  quoted.\n' ...
+ '  A non-zero row 1-3 BOUNDS the sensitivity; it does not remove it. dx is\n' ...
+ '  not converged at 250 m either.\n'];
 end
 
 function r = rank_corr_(x, y)
