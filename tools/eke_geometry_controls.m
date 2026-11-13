@@ -53,17 +53,52 @@ fprintf('  EKE = 1/2[(<uu>-<u>^2) + (<vv>-<v>^2)], depth-averaged,\n');
 fprintf('  area-averaged over x = %g-%g km, y = %g-%g km\n\n', ...
         o.x_box(1), o.x_box(2), o.y_box(1), o.y_box(2));
 
-eke = nan(1, numel(labels));
-nwin = nan(1, numel(labels));
+eke    = nan(1, numel(labels));
+nwin   = nan(1, numel(labels));
+spread = nan(1, numel(labels));
+all_w  = cell(1, numel(labels));
+Zs   = nan(1, numel(labels));   % crest depth        [m]
+Lc   = nan(1, numel(labels));   % flat crest length  [km]
+Sf   = nan(1, numel(labels));   % inshore flank |dh/dx|
 for k = 1:numel(labels)
     f = find_tavg_(cluster_dir, labels{k}, tags{k});
     if isempty(f)
         fprintf('  %-16s no time_avg_3d file -- skipped\n', labels{k});
         continue;
     end
-    [eke(k), nwin(k)] = eke_one_(f, o);
-    fprintf('  %-16s EKE = %.4e m^2/s^2   sqrt(EKE) = %.4f m/s   (window %d)\n', ...
-            labels{k}, eke(k), sqrt(eke(k)), nwin(k));
+    [eke(k), nwin(k), ew] = eke_one_(f, o);
+    [Zs(k), Lc(k), Sf(k)] = geom_one_(f, nwin(k));
+    all_w{k} = ew; %#ok<AGROW>
+    spread(k) = range_after_spinup_(ew);
+    fprintf('  %-16s EKE = %.4e   sqrt(EKE) = %.4f m/s   window %d of %d\n', ...
+            labels{k}, eke(k), sqrt(eke(k)), nwin(k), numel(ew));
+end
+
+% ── how big is a difference that means nothing? ──────────────────────────
+% Each run is n = 1, so a contrast on its own cannot be told apart from
+% internal variability. The 10-day averaging windows are not independent
+% samples, but their spread after spin-up is the cheapest available floor on
+% run-to-run noise -- a contrast inside that band is not evidence.
+fprintf('\n── EKE across the 10-day windows (spin-up window 1 dropped) ─────\n');
+fprintf('  %-16s %11s %11s %11s %9s\n', 'run', 'mean', 'min', 'max', 'spread');
+for k = 1:numel(labels)
+    ew = all_w{k};
+    if numel(ew) < 2, fprintf('  %-16s single window\n', labels{k}); continue; end
+    e2 = ew(2:end);
+    fprintf('  %-16s %11.4e %11.4e %11.4e %8.1f%%\n', labels{k}, ...
+            mean(e2,'omitnan'), min(e2), max(e2), 100*spread(k));
+end
+typ = median(spread(~isnan(spread)));
+fprintf(['\n  Typical within-run spread: %.1f%%. Treat a contrast below roughly\n' ...
+         '  this as indistinguishable from noise, not as a null result.\n'], 100*typ);
+
+% Geometry is MEASURED from the model's own wet mask, not taken from the
+% design table in params_geomcontrol.toml. If a control did not land where it
+% was meant to, that shows up here rather than silently skewing the scatter.
+fprintf('\n── geometry as the model actually built it ──────────────────────\n');
+fprintf('  %-16s %8s %12s %14s\n', 'run', 'Zs (m)', 'crest (km)', 'inshore |dh/dx|');
+for k = 1:numel(labels)
+    fprintf('  %-16s %8.1f %12.1f %14.5f\n', labels{k}, Zs(k), Lc(k), Sf(k));
 end
 
 % ── the contrasts the sweep exists to form ───────────────────────────────
@@ -87,7 +122,10 @@ for i = 1:size(C,1)
         continue;
     end
     ratio(i) = eke(a) / eke(b);
-    fprintf('  %-34s %10.3f %+7.0f%%\n', C{i,3}, ratio(i), 100*(ratio(i)-1));
+    chg = 100*abs(ratio(i)-1);
+    if isfinite(typ) && chg < 100*typ, verdict = '  <- within noise';
+    else,                              verdict = ''; end
+    fprintf('  %-34s %10.3f %+7.0f%%%s\n', C{i,3}, ratio(i), 100*(ratio(i)-1), verdict);
 end
 
 fprintf(['\n── how to read it ───────────────────────────────────────────────\n' ...
@@ -136,7 +174,107 @@ exportgraphics(fig, out, 'Resolution', 200);
 fprintf('\nSaved: %s\n', out);
 close(fig);
 
-R = struct('labels', {labels}, 'eke', eke, 'contrasts', {C}, 'ratio', ratio);
+% ── scatter: EKE against each covarying property ─────────────────────────
+% The three properties move together across the ORIGINAL Fig. 4b pair, so a
+% scatter against any one of them in isolation would look convincing. Showing
+% all three side by side is the point: the driver is the one the five runs
+% collapse onto, and the controls exist precisely to break the collinearity
+% that makes a single-panel scatter meaningless here.
+props = {Zs,  'Z_S (m)',               'crest depth'
+         Lc,  'flat crest length (km)','crest length'
+         Sf,  'inshore |dh/dx|',       'flank slope'};
+
+fig2 = figure('Color','w','Position',[80 80 1350 460]);
+tl2  = tiledlayout(fig2, 1, 3, 'TileSpacing','compact','Padding','compact');
+mk   = {'o','s','^','d','v','p','h'};
+cc   = lines(numel(labels));
+
+for j = 1:size(props,1)
+    ax = nexttile(tl2); hold(ax,'on'); grid(ax,'on');
+    x = props{j,1};
+    % Join each control pair, so which property a contrast moved is visible
+    % rather than having to be matched up from the legend.
+    for i = 1:size(C,1)
+        a = find(strcmp(labels, C{i,1}), 1);
+        b = find(strcmp(labels, C{i,2}), 1);
+        if isempty(a) || isempty(b), continue; end
+        plot(ax, [x(a) x(b)], [eke(a) eke(b)], '-', ...
+             'Color', [0.6 0.6 0.6 0.5], 'LineWidth', 1.0, 'HandleVisibility','off');
+    end
+    for k = 1:numel(labels)
+        if isfinite(spread(k)) && numel(all_w{k}) > 1
+            e2 = all_w{k}(2:end);
+            plot(ax, [x(k) x(k)], [min(e2) max(e2)], '-', 'Color', [0.35 0.35 0.35], ...
+                 'LineWidth', 1.2, 'HandleVisibility', 'off');
+        end
+        plot(ax, x(k), eke(k), mk{min(k,numel(mk))}, 'MarkerSize', 11, ...
+             'MarkerFaceColor', cc(k,:), 'MarkerEdgeColor', 'k', ...
+             'LineWidth', 0.8, 'DisplayName', strrep(labels{k},'_','\_'));
+    end
+    xlabel(ax, props{j,2}, 'FontWeight','bold');
+    if j == 1
+        ylabel(ax, 'EKE (m^2 s^{-2})', 'FontWeight','bold');
+        legend(ax, 'Location','best', 'FontSize', 9);
+    end
+    title(ax, sprintf('EKE vs %s', props{j,3}), 'FontWeight','bold');
+    set(ax, 'FontSize', 11);
+    % Spearman rank correlation: monotonic association without assuming a
+    % functional form, and robust at n = 5 where a fitted line would not be.
+    ok = isfinite(x) & isfinite(eke);
+    if sum(ok) >= 3
+        rho = rank_corr_(x(ok), eke(ok));
+        text(ax, 0.04, 0.96, sprintf('\\rho_s = %+.2f', rho), 'Units','normalized', ...
+             'VerticalAlignment','top', 'FontSize', 11, 'FontWeight','bold');
+    end
+end
+title(tl2, sprintf(['%s  —  EKE against each covarying property ' ...
+      '(n = %d, so \\rho_s is indicative only)'], ...
+      strrep(cluster_name,'_','\_'), numel(labels)), 'FontWeight','bold', 'FontSize', 13);
+
+out2 = fullfile(o.outdir, sprintf('%s_eke_geometry_scatter.png', cluster_name));
+exportgraphics(fig2, out2, 'Resolution', 200);
+fprintf('Saved: %s\n', out2);
+close(fig2);
+
+R = struct('labels', {labels}, 'eke', eke, 'contrasts', {C}, 'ratio', ratio, ...
+           'Zs', Zs, 'crest_km', Lc, 'flank', Sf);
+end
+
+function r = rank_corr_(x, y)
+% Spearman without the Statistics Toolbox: Pearson on the ranks.
+[~, ix] = sort(x(:)); rx = zeros(size(x(:))); rx(ix) = 1:numel(x);
+[~, iy] = sort(y(:)); ry = zeros(size(y(:))); ry(iy) = 1:numel(y);
+rx = rx - mean(rx); ry = ry - mean(ry);
+r = sum(rx.*ry) / sqrt(sum(rx.^2) * sum(ry.^2));
+end
+
+function [zs, crest_km, flank] = geom_one_(f, it)
+% Bathymetry recovered from the wet mask on the shoal centreline. <uu> is
+% <u^2>: strictly positive in water, exactly 0 in immersed cells.
+xc = try_nc_(f, {'xC','x_caa','xc'});
+yc = try_nc_(f, {'yC','y_aca','yc'});
+zc = try_nc_(f, {'zC','z_aac','zc'});
+[~, jc] = min(abs(yc - mean(yc)));          % shoal centreline
+uu = squeeze(ncread(f, 'uu', [1 jc 1 it], [numel(xc) 1 numel(zc) 1]));
+dz = uniform_dz_(zc);
+h  = -sum(uu > 0, 2) * dz;                  % bottom depth h(x) <= 0
+x_km = xc(:) / 1e3;
+
+zs = min(h);                                % crest depth (most negative top)
+% Flat crest: contiguous run of cells at the crest depth, within one cell.
+on = abs(h - zs) < dz * 1.5;
+if any(on)
+    i1 = find(on, 1, 'first'); i2 = find(on, 1, 'last');
+    crest_km = x_km(i2) - x_km(i1);
+else
+    i1 = 1; crest_km = NaN;
+end
+% Inshore flank: steepest gradient shoreward of the crest.
+if i1 > 2
+    flank = max(abs(diff(h(1:i1))) ./ diff(x_km(1:i1) * 1e3));
+else
+    flank = 0;   % no inshore flank: the crest reaches the coast
+end
 end
 
 % ================== helpers ==================
@@ -153,7 +291,7 @@ for k = 1:numel(d)
 end
 end
 
-function [e, it] = eke_one_(f, o)
+function [e, it, ew] = eke_one_(f, o)
 xc = try_nc_(f, {'xC','x_caa','xc'});
 yc = try_nc_(f, {'yC','y_aca','yc'});
 zc = try_nc_(f, {'zC','z_aac','zc'});
@@ -188,6 +326,37 @@ H  = sum(wet, 3) * dz;                 % local water depth
 col = sum(e3, 3) * dz;                 % int EKE dz   [m^3/s^2]
 col(H <= 0) = NaN;
 e = mean(col(H > 0) ./ H(H > 0), 'omitnan');   % (1/H) int EKE dz, area mean
+
+if nargout > 2
+    ew = nan(1, nt);
+    for t = 1:nt
+        ew(t) = eke_window_(f, o, ix, iy, nz, t);
+    end
+end
+end
+
+function e = eke_window_(f, o, ix, iy, nz, t) %#ok<INUSL>
+st = [ix(1) iy(1) 1 t]; ct = [numel(ix) numel(iy) nz 1];
+u  = squeeze(ncread(f, 'u_c', st, ct));
+v  = squeeze(ncread(f, 'v_c', st, ct));
+uu = squeeze(ncread(f, 'uu',  st, ct));
+vv = squeeze(ncread(f, 'vv',  st, ct));
+wet = uu > 0;
+e3 = 0.5 * ((uu - u.^2) + (vv - v.^2));
+e3(~isfinite(e3) | e3 < 0) = 0;
+e3(~wet) = 0;
+zc = try_nc_(f, {'zC','z_aac','zc'});
+dz = uniform_dz_(zc);
+H  = sum(wet, 3) * dz;
+col = sum(e3, 3) * dz;
+e = mean(col(H > 0) ./ H(H > 0), 'omitnan');
+end
+
+function s = range_after_spinup_(ew)
+% Fractional peak-to-peak spread, window 1 dropped as spin-up.
+if numel(ew) < 3, s = NaN; return; end
+e2 = ew(2:end);
+s = (max(e2) - min(e2)) / mean(e2, 'omitnan');
 end
 
 function dz = uniform_dz_(zc)
