@@ -79,7 +79,8 @@ fprintf('╚══════════════════════�
 fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n');
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
-[APE_qg, APE_srt, gp, H0, Ld, Wmeas, dxv, nfloor] = deal(nan(1, n));
+[APE_qg, APE_srt, gp, H0, Ld, Wmeas, WE, dxv, nfloor] = deal(nan(1, n));
+mixed = repmat({''}, 1, n);
 BP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
 
 for k = 1:n
@@ -133,7 +134,14 @@ for k = 1:n
     bp = b - reshape(b_ref, 1, 1, []);                  % b'
 
     % ── shelf box: coast out to the shelf break ──────────────────────────
-    H0(k)   = abs(read_att_(fn, 'Zsh', -25));           % shelf depth, as in the theory
+    % Zsh lives in sweep_metadata_<tag>.nc, NOT in time_avg_3d, so reading it
+    % off the averages file silently returned the -25 m default for every run
+    % -- including Zsh_m10 and Zsh_m50, the only two runs in the sweep that
+    % give H0 any dynamic range. Worse, H0 also sets the shelf-break search,
+    % so those two had their integration box cut at the wrong x: 8.7 km for
+    % Zsh_m50 (a sliver) and 63 km for Zsh_m10 (past the break). Resolved the
+    % same way plot_theory_vs_model.m does it: run name first, metadata on top.
+    H0(k)   = abs(zsh_for_(cluster_dir, labels{k}, tags{k}));
     depth_x = median(sum(wet .* reshape(dz, 1, 1, []), 3), 2);
     ib = shelf_break_(depth_x, H0(k));
     if isempty(ib), [~, ib] = min(abs(x_km - o.x_break)); end
@@ -177,7 +185,27 @@ for k = 1:n
     % ── g' and Ld, defined exactly as in plot_theory_vs_model.m ──────────
     ixg = find(x_km >= o.x_g_range(1) & x_km <= o.x_g_range(2));
     gp(k) = column_contrast_(b(ixg,:,:), wet(ixg,:,:), zc);
-    if ~(gp(k) > 0), gp(k) = 1e-3; end
+
+    % A forced run mixes the shelf column vertically, and then the SURFACE-
+    % MINUS-BOTTOM contrast -- which is how g' is defined here and in
+    % plot_theory_vs_model.m -- goes to zero. Ld = sqrt(g' H0)/f goes with it,
+    % and C = APE/(g' H0^2 Ld) divides by something approaching zero. Flooring
+    % g' at 1e-3 (what this used to do) hid that behind a plausible-looking
+    % number and produced C values of 1e5.
+    %
+    % It is not a numerical problem to paper over: it says the predictor is
+    % UNDEFINED for those runs. The APE is still there -- it has just moved
+    % into the horizontal structure, which a vertical contrast cannot see.
+    % So g' is left as NaN and the run drops out of the fit, while its
+    % measured APE is still reported.
+    gp_amb = ambient_contrast_(b_ref);
+    if ~(gp(k) > 0)
+        gp(k) = NaN;
+        mixed{k} = 'vertically mixed: no surface-to-bottom contrast, g'' undefined';
+    elseif isfinite(gp_amb) && gp_amb > 0 && gp(k) < 0.1 * gp_amb
+        mixed{k} = sprintf('nearly mixed: g'' is %.1f%% of the ambient contrast', ...
+                           100*gp(k)/gp_amb);
+    end
     Ld(k) = sqrt(gp(k) * H0(k)) / f;
 
     % ── how wide is the anomaly, really? ─────────────────────────────────
@@ -192,14 +220,27 @@ for k = 1:n
         Wmeas(k) = sum(P .* dx(ix)) / max(P);
     end
 
+    % ...and the same width weighted by b'^2 rather than |b'|. APE goes as the
+    % SQUARE of the anomaly, so the long weak offshore tail that dominates W
+    % contributes almost nothing to the energy. W_E is therefore the width
+    % that actually matters, and it is the honest comparison against Ld.
+    b2 = bpx.^2; b2(~wx) = 0;
+    P2 = squeeze(sum(sum(b2 .* V, 2), 3));
+    if max(P2) > 0
+        WE(k) = sum(P2 .* dx(ix)) / max(P2);
+    end
+
     % Keep the alongshore-mean cross-section for the wedge figure.
     bpm = bpx; bpm(~wx) = NaN;
     BP{k} = squeeze(mean(bpm, 2, 'omitnan'))';          % (Nz x Nx)
     XK{k} = x_km(ix);  ZK{k} = zc;
 
     fprintf(['  %-16s g'' = %.3e  H0 = %4.1f m  Ld = %6.0f m (Ld/dx = %4.1f)  ' ...
-             'W = %6.0f m  APE_qg = %.3e  APE_srt = %.3e\n'], ...
-            labels{k}, gp(k), H0(k), Ld(k), Ld(k)/dxv(k), Wmeas(k), APE_qg(k), APE_srt(k));
+             'W = %6.0f m  W_E = %6.0f m  APE_srt = %.3e\n'], ...
+            labels{k}, gp(k), H0(k), Ld(k), Ld(k)/dxv(k), Wmeas(k), WE(k), APE_srt(k));
+    if ~isempty(mixed{k})
+        fprintf('                   ** %s\n', mixed{k});
+    end
     if nfloor(k) > 0
         fprintf('                   (%d of %d reference levels floored -- APE_qg is soft here)\n', ...
                 nfloor(k), numel(N2_ref));
@@ -209,18 +250,31 @@ end
 % ── the number this script exists to produce ─────────────────────────────
 base_Ld = gp .* H0.^2 .* Ld;
 base_W  = gp .* H0.^2 .* Wmeas;
+base_WE = gp .* H0.^2 .* WE;
 C_Ld_qg  = APE_qg  ./ base_Ld;
 C_Ld_srt = APE_srt ./ base_Ld;
 C_W_srt  = APE_srt ./ base_W;
+C_WE_srt = APE_srt ./ base_WE;
 
-fprintf('\n── C_geom = APE / (g'' H0^2 L) ───────────────────────────────────\n');
-fprintf('  %-16s %12s %12s %12s\n', 'run', 'qg, L=Ld', 'sorted,Ld', 'sorted,W');
+fprintf('\n── C_geom = APE_sorted / (g'' H0^2 L) ────────────────────────────\n');
+fprintf('  %-16s %12s %12s %12s   %s\n', 'run', 'L = Ld', 'L = W', 'L = W_E', '');
 for k = 1:n
-    fprintf('  %-16s %12.4f %12.4f %12.4f\n', labels{k}, C_Ld_qg(k), C_Ld_srt(k), C_W_srt(k));
+    fprintf('  %-16s %12.4f %12.4f %12.4f   %s\n', labels{k}, ...
+            C_Ld_srt(k), C_W_srt(k), C_WE_srt(k), mixed{k});
+end
+
+nmix = sum(~cellfun(@isempty, mixed));
+if nmix > 0
+    fprintf(['\n  %d run(s) excluded below: the shelf column is vertically mixed, so the\n' ...
+             '  surface-to-bottom g'' -- and every scale built on it -- is undefined.\n' ...
+             '  Their measured APE is still in the table above and is not small, which\n' ...
+             '  is the point: the energy is in the HORIZONTAL structure, where a\n' ...
+             '  vertical contrast cannot see it.\n'], nmix);
 end
 
 report_spread_('with L = Ld  (as the theory assumes)', C_Ld_srt);
 report_spread_('with L = measured width W',            C_W_srt);
+report_spread_('with L = energy-weighted width W_E',   C_WE_srt);
 
 fprintf(['\n  Reference values: 1/6 = %.3f (triangular wedge, Zhao et al. Eq. 8)\n' ...
          '                    1/2 = %.3f (anomaly fills the H0 x L box)\n'], 1/6, 1/2);
@@ -261,16 +315,17 @@ if ~isempty(ok)
         hold(ax, 'on');
         % Ld and the measured width, drawn from the coast for comparison
         plot(ax, [0 Ld(q)/1e3],    [-2 -2], 'k-',  'LineWidth', 3);
-        plot(ax, [0 Wmeas(q)/1e3], [-5 -5], 'k--', 'LineWidth', 2);
-        title(ax, sprintf('%s   L_d = %.1f km,  W = %.1f km', ...
-              strrep(labels{q},'_','\_'), Ld(q)/1e3, Wmeas(q)/1e3), 'FontWeight','bold');
+        plot(ax, [0 WE(q)/1e3],    [-4 -4], 'k-.', 'LineWidth', 2);
+        plot(ax, [0 Wmeas(q)/1e3], [-6 -6], 'k--', 'LineWidth', 2);
+        title(ax, sprintf('%s   L_d = %.1f,  W_E = %.1f,  W = %.1f km', ...
+              strrep(labels{q},'_','\_'), Ld(q)/1e3, WE(q)/1e3, Wmeas(q)/1e3), 'FontWeight','bold');
         xlabel(ax, 'x (km)');  ylabel(ax, 'z (m)');
         set(ax, 'FontSize', 10);
     end
     cb = colorbar(nexttile(t1, numel(ok)));
     cb.Label.String = 'b'' = b - b_{ref}(z)   (m s^{-2})';
     title(t1, sprintf(['%s  —  the buoyancy anomaly whose shape C_{geom} stands in for' ...
-          '   (solid bar = L_d, dashed = measured width)'], strrep(cluster_name,'_','\_')), ...
+          '   (solid = L_d, dash-dot = W_E, dashed = W)'], strrep(cluster_name,'_','\_')), ...
           'FontWeight','bold', 'FontSize', 12);
     out1 = fullfile(o.outdir, sprintf('%s_ape_wedge.png', cluster_name));
     exportgraphics(f1, out1, 'Resolution', 200);
@@ -285,9 +340,9 @@ t2 = tiledlayout(f2, 1, 2, 'TileSpacing','compact','Padding','compact');
 scatter_panel_(nexttile(t2), base_Ld, APE_srt, labels, ...
     'g'' H_0^2 L_d   (m^4 s^{-2})', 'measured APE_\Delta   (m^4 s^{-2})', ...
     'L = L_d  (what the theory assumes)');
-scatter_panel_(nexttile(t2), base_W, APE_srt, labels, ...
-    'g'' H_0^2 W   (m^4 s^{-2})', '', ...
-    'L = measured anomaly width');
+scatter_panel_(nexttile(t2), base_WE, APE_srt, labels, ...
+    'g'' H_0^2 W_E   (m^4 s^{-2})', '', ...
+    'L = energy-weighted width  (APE \propto b''^2)');
 
 title(t2, sprintf(['%s  —  a constant C_{geom} means the points sit on one line ' ...
       'through the origin'], strrep(cluster_name,'_','\_')), 'FontWeight','bold', 'FontSize', 12);
@@ -297,8 +352,9 @@ fprintf('Saved: %s\n', out2);
 close(f2);
 
 R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
-           'g_prime', gp, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'dx', dxv, ...
-           'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, 'C_W_sorted', C_W_srt);
+           'g_prime', gp, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
+           'mixed', {mixed}, 'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, ...
+           'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt);
 end
 
 % ================== helpers ==================
@@ -350,6 +406,37 @@ if ~any(okc(:)), gpr = NaN; return; end
 [ii, jj] = ndgrid(1:size(b,1), 1:size(b,2));
 gpr = median(b(sub2ind(size(b), ii(okc), jj(okc), k_top(okc))) ...
            - b(sub2ind(size(b), ii(okc), jj(okc), k_bot(okc))), 'omitnan');
+end
+
+function zsh = zsh_for_(cluster_dir, label, tag)
+% Shelf depth: from the run label if it names one, then from sweep_metadata
+% if that file is present. Mirrors params_from_name + read_att in
+% plot_theory_vs_model.m, so both scripts agree on H0.
+zsh = -25;
+tok = regexp(label, 'Zsh_m(\d+)', 'tokens', 'once');
+if ~isempty(tok), zsh = -str2double(tok{1}); end
+d = dir(fullfile(cluster_dir, 'sweep_*'));
+d = d([d.isdir]);
+for k = 1:numel(d)
+    if ~isempty(regexp(d(k).name, [regexptranslate('escape', label) '$'], 'once'))
+        for cand = {fullfile(cluster_dir, d(k).name, ['sweep_metadata_' tag '.nc']), ...
+                    fullfile(cluster_dir, d(k).name, ['sweep_metadata_sweep_' tag '.nc'])}
+            if isfile(cand{1})
+                try, zsh = double(ncreadatt(cand{1}, '/', 'Zsh')); catch, end
+                return;
+            end
+        end
+    end
+end
+end
+
+function gpa = ambient_contrast_(b_ref)
+% Surface-to-bottom contrast of the offshore reference column itself, as the
+% yardstick for deciding that a shelf column has been mixed.
+ok = isfinite(b_ref);
+if sum(ok) < 2, gpa = NaN; return; end
+bb = b_ref(ok);
+gpa = bb(end) - bb(1);
 end
 
 function ib = shelf_break_(depth_x, H0)
