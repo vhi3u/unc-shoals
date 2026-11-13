@@ -28,7 +28,11 @@ addParameter(p, 'iso_linewidth',0.8,  @(x)isnumeric(x)&&isscalar(x)&&x>0);
 addParameter(p, 'clabel_every', 10,   @(x)isnumeric(x)&&isscalar(x)&&x>=1);
 addParameter(p, 'climu',  [], @(v)isnumeric(v)&&numel(v)==2);
 addParameter(p, 'climv',  [], @(v)isnumeric(v)&&numel(v)==2);
-addParameter(p, 'climRo', [], @(v)isnumeric(v)&&numel(v)==2);
+% climRo default [-1 1], not auto. An auto scale is per-run, so a weak-wind
+% case rescales to fill the same colormap as a strong one and reads as
+% equally energetic -- Ro panels were not comparable between runs. Pass
+% 'climRo', [] to restore auto-scaling (the validator accepts empty).
+addParameter(p, 'climRo', [-1, 1], @(v)isempty(v) || (isnumeric(v)&&numel(v)==2));
 addParameter(p, 'climKE', [], @(v)isnumeric(v)&&numel(v)==2);
 addParameter(p, 'velocity_field', 'u', @(s) ismember(s, {'u', 'v', 'Ro'}));
 

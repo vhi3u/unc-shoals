@@ -41,7 +41,11 @@ addParameter(p, 'climT', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'climS', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'climu', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'climv', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
-addParameter(p, 'climRo', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
+% climRo default [-1 1], not auto. An auto scale is per-run, so a weak-wind
+% case rescales to fill the same colormap as a strong one and reads as
+% equally energetic -- Ro panels were not comparable between runs. Pass
+% 'climRo', [] to restore auto-scaling (the validator accepts empty).
+addParameter(p, 'climRo', [-1, 1], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'climKE', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'no_outlier', false, @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'scan_skip_days', 10, @(x)isnumeric(x) && isscalar(x) && x>=0);

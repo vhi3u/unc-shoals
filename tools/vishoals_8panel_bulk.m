@@ -56,7 +56,7 @@ clipped    = true;    % clip XY to x=0-100 km, y=20-200 km (XZ clipped to same x
 % climv  = [-0.06, 0.06];   % u velocity (m/s)
 climv = []; % Empty to allow auto-scanning
 climu = [-0.1, 0.1];
-climRo = [-0.5, 0.5];
+climRo = [-1, 1];    % same Ro scale as every other vorticity figure
 climKE = [];
 
 outdir = '/glade/work/nguyen/unc-shoals/animations';

@@ -62,7 +62,11 @@ addParameter(p, 'rho_levels', [23:0.025:24.0, 24.1:0.4:26.4, 26.6:0.8:28], @(v)i
 addParameter(p, 'iso_color', 'k', @ischar);
 addParameter(p, 'iso_linewidth', 0.8, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 % Manual color limits (optional)
-addParameter(p, 'climRo', [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
+% climRo default [-1 1], not auto. An auto scale is per-run, so a weak-wind
+% case rescales to fill the same colormap as a strong one and reads as
+% equally energetic -- Ro panels were not comparable between runs. Pass
+% 'climRo', [] to restore auto-scaling (the validator accepts empty).
+addParameter(p, 'climRo', [-1, 1], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));
 addParameter(p, 'no_outlier', false, @(x)islogical(x)&&isscalar(x));
 
 parse(p, varargin{:});
