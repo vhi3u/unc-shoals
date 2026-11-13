@@ -79,15 +79,16 @@ end
 % internal variability. The 10-day averaging windows are not independent
 % samples, but their spread after spin-up is the cheapest available floor on
 % run-to-run noise -- a contrast inside that band is not evidence.
-fprintf('\n── EKE across the 10-day windows (spin-up window 1 dropped) ─────\n');
-fprintf('  %-16s %11s %11s %11s %9s\n', 'run', 'mean', 'min', 'max', 'spread');
+fprintf('\n── EKE per 10-day window (the run is still adjusting early on) ──\n');
 for k = 1:numel(labels)
     ew = all_w{k};
-    if numel(ew) < 2, fprintf('  %-16s single window\n', labels{k}); continue; end
-    e2 = ew(2:end);
-    fprintf('  %-16s %11.4e %11.4e %11.4e %8.1f%%\n', labels{k}, ...
-            mean(e2,'omitnan'), min(e2), max(e2), 100*spread(k));
+    fprintf('  %-16s', labels{k});
+    fprintf(' %9.3e', ew);
+    fprintf('   last-3 spread %5.1f%%\n', 100*spread(k));
 end
+fprintf(['  ^ read left to right. EKE falls by more than a decade from the\n' ...
+         '    early windows, so that decline is spin-up, not variability --\n' ...
+         '    which is why the floor below uses only the last three.\n']);
 typ = median(spread(~isnan(spread)));
 fprintf(['\n  Typical within-run spread: %.1f%%. Treat a contrast below roughly\n' ...
          '  this as indistinguishable from noise, not as a null result.\n'], 100*typ);
@@ -249,8 +250,15 @@ r = sum(rx.*ry) / sqrt(sum(rx.^2) * sum(ry.^2));
 end
 
 function [zs, crest_km, flank] = geom_one_(f, it)
-% Bathymetry recovered from the wet mask on the shoal centreline. <uu> is
-% <u^2>: strictly positive in water, exactly 0 in immersed cells.
+% Shoal geometry on the centreline. <uu> is <u^2>: strictly positive in
+% water, exactly 0 in immersed cells, so it gives the bottom depth h(x).
+%
+% Zs is READ from sweep_metadata, not inferred. Deriving it was wrong twice
+% over: min(h) is the DEEPEST point, i.e. the 50 m offshore basin, which
+% reported Zs = -50 m and a 79 km "crest" for every run; and max(h) would
+% pick the -5 m coastal ramp, which is shallower than the crest whenever
+% Zs < -5. The crest is neither extreme -- it is the plateau between them --
+% so it needs the requested depth to be identified at all.
 xc = try_nc_(f, {'xC','x_caa','xc'});
 yc = try_nc_(f, {'yC','y_aca','yc'});
 zc = try_nc_(f, {'zC','z_aac','zc'});
@@ -260,21 +268,51 @@ dz = uniform_dz_(zc);
 h  = -sum(uu > 0, 2) * dz;                  % bottom depth h(x) <= 0
 x_km = xc(:) / 1e3;
 
-zs = min(h);                                % crest depth (most negative top)
-% Flat crest: contiguous run of cells at the crest depth, within one cell.
-on = abs(h - zs) < dz * 1.5;
-if any(on)
-    i1 = find(on, 1, 'first'); i2 = find(on, 1, 'last');
-    crest_km = x_km(i2) - x_km(i1);
-else
-    i1 = 1; crest_km = NaN;
+zs = meta_att_(f, 'Zs');
+if isnan(zs)
+    warning('eke_geometry_controls:noMeta', ...
+            'No sweep_metadata beside %s; crest and flank cannot be measured.', f);
+    crest_km = NaN; flank = NaN; return;
 end
+
+% Longest CONTIGUOUS run at the crest depth. Contiguity matters: the coastal
+% ramp also sits at -5 m, so at Zs = -5 the crest and the coast are the same
+% depth and a non-contiguous test would merge them into one huge "crest".
+on = abs(h - zs) < dz * 1.5;
+[i1, i2] = longest_run_(on);
+if isempty(i1)
+    crest_km = NaN; flank = NaN; return;
+end
+crest_km = x_km(i2) - x_km(i1);
+
 % Inshore flank: steepest gradient shoreward of the crest.
 if i1 > 2
     flank = max(abs(diff(h(1:i1))) ./ diff(x_km(1:i1) * 1e3));
 else
-    flank = 0;   % no inshore flank: the crest reaches the coast
+    flank = 0;   % the crest reaches the coast; there is no inshore flank
 end
+end
+
+function [i1, i2] = longest_run_(mask)
+i1 = []; i2 = [];
+d = diff([false; mask(:); false]);
+s = find(d == 1); e = find(d == -1) - 1;
+if isempty(s), return; end
+[~, b] = max(e - s);
+i1 = s(b); i2 = e(b);
+end
+
+function v = meta_att_(f, name)
+% Global attribute from sweep_metadata_<tag>.nc, which sweep_driver.jl writes
+% beside the output with the REQUESTED parameters for the run.
+v = NaN;
+d = fileparts(f);
+[~, base] = fileparts(f);
+tag = regexprep(base, '^time_avg_3d_', '');
+mf = fullfile(d, ['sweep_metadata_' tag '.nc']);
+if ~isfile(mf), return; end
+try, v = ncreadatt(mf, '/', name); catch, end
+if ischar(v), v = str2double(v); end
 end
 
 % ================== helpers ==================
@@ -353,9 +391,17 @@ e = mean(col(H > 0) ./ H(H > 0), 'omitnan');
 end
 
 function s = range_after_spinup_(ew)
-% Fractional peak-to-peak spread, window 1 dropped as spin-up.
+% Fractional peak-to-peak spread over the EQUILIBRATED windows only.
+%
+% Taking it over all windows after the first gave ~410% for every run and
+% flagged every contrast as noise. That was measuring the initial-adjustment
+% transient, not variability: EKE falls monotonically by more than a decade
+% from the early windows to the last, so peak-to-peak across them is a trend.
+% The last three windows are the closest thing here to repeated samples of
+% the same state, and even they are consecutive rather than independent, so
+% this stays a floor and not an interval.
 if numel(ew) < 3, s = NaN; return; end
-e2 = ew(2:end);
+e2 = ew(max(1, end-2):end);
 s = (max(e2) - min(e2)) / mean(e2, 'omitnan');
 end
 
