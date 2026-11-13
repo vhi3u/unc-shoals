@@ -157,7 +157,11 @@ end
 fprintf('  (<~1 px/cell: interp cannot be seen. >~2 px/cell: flat shows steps.)\n');
 close(pf);
 
-variants  = {'pcolor+flat', 'pcolor+interp', 'imagesc', 'mixed'};
+% 'current' FIRST, so every speedup and every image difference is measured
+% against what vishoals actually draws today -- interp on XY (vishoals.m:459)
+% and flat on XZ (:476). None of the other four is today's figure, so the
+% earlier run compared imagesc against a baseline that is not in use.
+variants  = {'current', 'pcolor+flat', 'pcolor+interp', 'imagesc', 'mixed'};
 if gl_usable
     renderers = {'default', '-painters', '-opengl'};
 else
@@ -220,7 +224,7 @@ for iv = 1:numel(variants)
 end
 
 base = T(1,1);
-fprintf('\n── speedup vs pcolor+flat/default ───────────────────────────────\n');
+fprintf('\n── speedup vs CURRENT/default ───────────────────────────────────\n');
 for iv = 1:numel(variants)
     for ir = 1:numel(renderers)
         if ~isnan(T(iv,ir)) && ~(iv==1 && ir==1)
@@ -229,32 +233,42 @@ for iv = 1:numel(variants)
     end
 end
 
-% ── does imagesc actually look the same? ──────────────────────────────────
-fprintf('\n── imagesc vs pcolor+flat, rendered image difference ────────────\n');
-if ~isempty(img{1}) && ~isempty(img{3}) && isequal(size(img{1}), size(img{3}))
-    d = abs(double(img{1}) - double(img{3}));
-    fprintf('  identical pixels : %.2f%%\n', 100*mean(d(:) == 0));
-    fprintf('  mean |difference|: %.2f / 255\n', mean(d(:)));
-    fprintf('  max  |difference|: %.0f / 255\n', max(d(:)));
-    fprintf('  (a half-cell offset is expected; large values mean something else moved)\n');
-else
-    fprintf('  frame sizes differ -- compare the two PNGs by eye instead.\n');
+% ── how far does each candidate move the picture from TODAY? ─────────────
+fprintf('\n── image difference vs CURRENT (interp XY + flat XZ) ─────────────\n');
+fprintf('  %-16s %9s %9s %9s %9s\n', 'candidate', 'identical', 'mean|d|', 'max|d|', '>32/255');
+for iv = 2:numel(variants)
+    if isempty(img{1}) || isempty(img{iv}) || ~isequal(size(img{1}), size(img{iv}))
+        fprintf('  %-16s %9s\n', variants{iv}, 'size differs');
+        continue;
+    end
+    d  = abs(double(img{1}) - double(img{iv}));
+    dg = max(d, [], 3);
+    fprintf('  %-16s %8.2f%% %9.2f %9.0f %8.2f%%\n', variants{iv}, ...
+            100*mean(d(:) == 0), mean(d(:)), max(d(:)), 100*mean(dg(:) > 32));
 end
+fprintf(['\n  A half-cell offset is expected wherever pcolor is replaced: pcolor\n' ...
+         '  colours each face from its lower-left corner, so it never draws the\n' ...
+         '  last row and column, while imagesc centres cells on the points.\n' ...
+         '  WHERE the difference sits decides whether it matters -- on XY at\n' ...
+         '  ~1 px/cell it is sub-pixel, on XZ at ~4 px/cell it is not. The\n' ...
+         '  PNGs show that; these numbers cannot.\n']);
 
 % Where the difference IS matters more than how big it is. Concentrated on
 % cell edges means sub-pixel resampling and is invisible in motion;
 % concentrated inside panels or on the colorbars means something moved.
-if ~isempty(img{1}) && ~isempty(img{3}) && isequal(size(img{1}), size(img{3}))
-    dg = max(abs(double(img{1}) - double(img{3})), [], 3);
-    fprintf('\n  pixels differing by >32/255 : %.2f%%\n', 100*mean(dg(:) > 32));
-    fprintf('  ... of those, how they cluster is what the PNGs show.\n');
-    if ~isempty(o.save_png)
-        imwrite(uint8(min(255, dg*4)), fullfile(o.save_png, 'render_diff_x4.png'));
+if ~isempty(o.save_png)
+    for iv = 2:numel(variants)
+        if isempty(img{iv}) || ~isequal(size(img{1}), size(img{iv})), continue; end
+        dg = max(abs(double(img{1}) - double(img{iv})), [], 3);
+        imwrite(uint8(min(255, dg*4)), fullfile(o.save_png, ...
+                sprintf('render_diff_%s_x4.png', strrep(variants{iv}, '+', '_'))));
+    end
+    if true
         fprintf('\n  wrote, for side-by-side inspection:\n');
-        fprintf('    %s/render_pcolor_flat.png\n', o.save_png);
-        fprintf('    %s/render_pcolor_interp.png   <- what vishoals draws now\n', o.save_png);
-        fprintf('    %s/render_imagesc.png         <- the 6.4x candidate\n', o.save_png);
-        fprintf('    %s/render_diff_x4.png         <- |flat - imagesc|, x4 contrast\n', o.save_png);
+        fprintf('    %s/render_current.png   <- BASELINE: what vishoals draws today\n', o.save_png);
+        fprintf('    %s/render_imagesc.png   <- 6.1x, flat everywhere\n', o.save_png);
+        fprintf('    %s/render_mixed.png     <- 3.0x, imagesc XY + interp XZ\n', o.save_png);
+        fprintf('    %s/render_diff_*_x4.png <- |current - candidate|, x4 contrast\n', o.save_png);
     end
 end
 
@@ -313,6 +327,10 @@ switch kind
         else
             pcolor(ax, XX, YY, C); shading(ax, 'interp');
         end
+    case 'current'
+        % Exactly vishoals today: interp on the XY maps, flat on the XZ row.
+        pcolor(ax, XX, YY, C);
+        if is_xy, shading(ax, 'interp'); else, shading(ax, 'flat'); end
 end
 end
 
