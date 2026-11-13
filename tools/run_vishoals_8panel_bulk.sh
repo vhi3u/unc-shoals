@@ -1,13 +1,23 @@
 #!/bin/bash
-# run_vishoals_8panel_bulk.sh — Generate 8-panel (T,S,u,Ro) animations for all sweeps
+# run_vishoals_8panel_bulk.sh — animate every sweep in a cluster.
+#
+# Twelve panels, not eight: six columns (T, S, u cross-shore, v along-shore,
+# Ro, KE), each as a surface XY panel and a mid-y XZ panel. The '8panel' in
+# the name and the '_14panel' in the output filename are both historical;
+# see the note in vishoals_8panel_bulk.m. This is the bulk counterpart of
+# run_vishoals.sh.
 #
 # Usage:
 #   ./run_vishoals_8panel_bulk.sh [cluster_name]
 #
 # Examples:
-#   ./run_vishoals_8panel_bulk.sh                    # defaults to cluster10_81_89
-#   ./run_vishoals_8panel_bulk.sh cluster10_81_89
-#   ./run_vishoals_8panel_bulk.sh cluster07_70_80
+#   ./run_vishoals_8panel_bulk.sh cluster_weakwinds
+#   ./run_vishoals_8panel_bulk.sh cluster_Fnnie_1_19
+#
+# ALWAYS pass the cluster. The default below is cluster13_111_117, which is
+# long dead -- a bare call plots months-old data and reports no error. (The
+# comment here used to say the default was cluster10_81_89, which did not
+# match the code either.)
 
 CLUSTER_NAME="${1:-cluster13_111_117}"
 
