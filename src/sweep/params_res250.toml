@@ -35,28 +35,57 @@
 #
 # so T_wall(500 m) ~ 8.5 min + 0.19 min/day: ~8-9 min of Julia compilation
 # and setup that does not scale, plus stepping that does. 6.0M cells at
-# 35 ms/step is 5.8 ns per cell-step on a V100, and 4.1 GB.
+# 35 ms/step is 5.8 ns per cell-step on a V100.
 #
-# Scaling that to 250 m:
+# And 250 m, measured (res250_6.log, R250_Zs15, 120 days):
 #
-#   cells        4x  (600x800x50 vs 300x400x50; Nz is unchanged)
-#   timesteps  ~1.25x  NOT 2x
-#   -> ~8.5 min + ~1 min/day, i.e. ~2 h for 120 days
+#   3.139 h wall   77994 steps @ 136.8 ms   = 2.96 h stepping, 10.5 min fixed
+#   -> T_wall(250 m) ~ 10 min + 1.48 min/day
 #
-# The timestep factor is the part that is easy to get wrong. Halving Δx does
-# not halve Δt here, because the health callback shows the VERTICAL term is
-# 61-78% of the CFL budget at 500 m (74-76% through the last day of the
-# 120-day run, at Δt = 245-280 s), and Δz = 1 m is unchanged at 250 m. Only
-# the horizontal quarter doubles, so Δt falls by ~20%, not 50%. The earlier
-# "~8x overall" in this file assumed Δt halves.
+# Against the 500 m run of the same length:
+#
+#   cells        4x    (600x800x50 vs 300x400x50; Nz is unchanged)
+#   ms/step   3.90x    slightly sublinear -- the GPU is better fed at 250 m
+#   timesteps 1.99x    Δt HALVED: 245-280 s -> 133-137 s
+#   wall      6.08x    0.52 h -> 3.14 h
+#
+# THE TIMESTEP FACTOR WAS PREDICTED WRONG HERE, and the reason is worth
+# keeping. The argument was: the vertical term is ~75% of the CFL budget and
+# Δz = 1 m is unchanged at 250 m, so only the horizontal quarter tightens and
+# Δt falls ~20%. That treats w as a property of the flow, independent of the
+# grid. It is not. max|w| went 2.86e-3 -> 5.52e-3 m/s, almost exactly 2x: the
+# finer grid resolves stronger vertical velocities, so wΔt/Δz tightened by
+# the same factor as the horizontal term and Δt halved after all. The
+# vertical share of the budget is unchanged at 75% precisely BECAUSE both
+# terms scaled together.
+#
+# So the "~8x overall" this file once dismissed was right (7.75x on stepping,
+# 6.1x on wall once the fixed compile is counted), and the 1.25x correction
+# that replaced it was the error. The only estimate that survived is the
+# hedge: "unless w grows enough at 250 m to tighten the vertical CFL, which
+# would push it to ~3 h."
 #
 # The earlier "~19 h for 20 days on an A100" warning here was wrong by well
-# over an order of magnitude -- it predates any measured runtime. 4 h on a
-# V100 was ample: all six runs completed inside it.
+# over an order of magnitude -- it predates any measured runtime.
 #
-# TODO replace the 250 m estimate above with the measured number --
-#   grep 'walltime =' out/sweep/res250_4.log | tail -1
-# (indices 1-3 are the 500 m baseline, 4-6 are the 250 m runs).
+# WALLTIME: 3.14 h under a 04:00:00 cap is 25 min of margin, and Δt depends
+# on the run, so any 250 m sweep wants 06:00:00. All six runs did complete
+# inside 4 h, but that is not a safe margin to plan the next sweep on.
+#
+# That change does NOT travel with this file: submit_*.pbs is gitignored on
+# purpose (see .gitignore -- the live scripts carry local edits that a pull
+# would clobber), so the cap has to be raised on the machine you submit
+# from, or overridden per submission, which takes precedence over the
+# directive in the script:
+#
+#   qsub -l walltime=06:00:00 src/sweep/submit_res250.pbs
+#
+# MEMORY: peak_memusage reports 4108 MiB at 500 m and 5474 MiB at 250 m --
+# 1.33x for 4x the cells, which cannot be the field storage. That tool
+# measures HOST RSS; the fields live on the GPU and are not in these numbers.
+# The "~11 GB, well inside a 32 GB V100" claim below is a calculation, not a
+# measurement, and nothing here confirms it. Use CUDA.memory_status() or
+# nvidia-smi if the GPU-side figure ever matters.
 #
 # Memory: ~50 full 3D Float64 fields at 228 MB each (608x808x58 with halos) is
 # ~11 GB, well inside a 32 GB V100.
