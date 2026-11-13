@@ -145,24 +145,35 @@ fig = figure('Color','w','Position',[80 80 1150 450]);
 tl = tiledlayout(fig, 1, 2, 'TileSpacing','compact','Padding','compact');
 
 ax = nexttile(tl);
-bar(ax, eke, 'FaceColor', [0.30 0.45 0.70]);
+bar(ax, eke, 'FaceColor', [0.30 0.45 0.70], 'BaseValue', min(eke)/3);
 set(ax, 'XTick', 1:numel(labels), 'XTickLabel', strrep(labels, '_', '\_'), ...
-    'XTickLabelRotation', 30, 'FontSize', 11);
+    'XTickLabelRotation', 30, 'FontSize', 11, 'YScale', 'log');
+ylim(ax, [min(eke)/3, max(eke)*3]);
 ylabel(ax, 'EKE (m^2 s^{-2})', 'FontWeight','bold');
-title(ax, 'Depth-averaged EKE', 'FontWeight','bold');
+title(ax, 'Depth-averaged EKE (log)', 'FontWeight','bold');
 grid(ax,'on');
 
 ax2 = nexttile(tl);
 hold(ax2,'on');
 cols = [0.55 0.55 0.55; 0.85 0.35 0.15; 0.95 0.60 0.20; 0.20 0.55 0.35; 0.30 0.45 0.70];
 for i = 1:numel(ratio)
-    bar(ax2, i, ratio(i), 'FaceColor', cols(min(i,size(cols,1)),:));
+    % BaseValue 1, so a bar grows UP for an increase and DOWN for a decrease
+    % and its length is the size of the effect either way.
+    bar(ax2, i, ratio(i), 'FaceColor', cols(min(i,size(cols,1)),:), 'BaseValue', 1);
 end
 yline(ax2, 1, 'k--', 'no effect', 'LineWidth', 1.2);
+% Log axis, because these are RATIOS: x2 and /2 are the same size of effect
+% in opposite directions, and only a log axis renders them symmetrically
+% about 1. On a linear axis a halving looks half as important as a doubling.
+rr = ratio(isfinite(ratio) & ratio > 0);
 set(ax2, 'XTick', 1:size(C,1), 'XTickLabel', ...
     {'Fig 4b (conf.)','crest, deep','crest, shallow','flank slope','depth (ctrl)'}, ...
-    'XTickLabelRotation', 30, 'FontSize', 11);
-ylabel(ax2, 'EKE ratio', 'FontWeight','bold');
+    'XTickLabelRotation', 30, 'FontSize', 11, 'YScale', 'log');
+if ~isempty(rr)
+    m = max(max(rr), 1/min(rr)) * 1.6;
+    ylim(ax2, [1/m, m]);
+end
+ylabel(ax2, 'EKE ratio (log)', 'FontWeight','bold');
 title(ax2, 'Each contrast isolates one property', 'FontWeight','bold');
 grid(ax2,'on');
 
@@ -203,8 +214,13 @@ for j = 1:size(props,1)
              'Color', [0.6 0.6 0.6 0.5], 'LineWidth', 1.0, 'HandleVisibility','off');
     end
     for k = 1:numel(labels)
-        if isfinite(spread(k)) && numel(all_w{k}) > 1
-            e2 = all_w{k}(2:end);
+        if isfinite(spread(k)) && numel(all_w{k}) > 2
+            % Last three windows, matching range_after_spinup_. These used to
+            % span everything after window 1, which includes the spin-up
+            % transient at ~2.7e-4 -- an order of magnitude above the
+            % equilibrated values, so every bar ran off the top of the axes
+            % and the markers were squashed onto the baseline.
+            e2 = all_w{k}(max(1,end-2):end);
             plot(ax, [x(k) x(k)], [min(e2) max(e2)], '-', 'Color', [0.35 0.35 0.35], ...
                  'LineWidth', 1.2, 'HandleVisibility', 'off');
         end
@@ -212,6 +228,9 @@ for j = 1:size(props,1)
              'MarkerFaceColor', cc(k,:), 'MarkerEdgeColor', 'k', ...
              'LineWidth', 0.8, 'DisplayName', strrep(labels{k},'_','\_'));
     end
+    % EKE spans a decade across these runs, so a linear axis puts everything
+    % on the baseline.
+    set(ax, 'YScale', 'log');
     xlabel(ax, props{j,2}, 'FontWeight','bold');
     if j == 1
         ylabel(ax, 'EKE (m^2 s^{-2})', 'FontWeight','bold');
