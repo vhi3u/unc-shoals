@@ -27,24 +27,36 @@
 # a difference between them says as much about their adjustment rates as
 # about resolution. Now 120 days, matching the other sweeps.
 #
-# COST, derived from the measured 500 m runs rather than guessed. geomcontrol_1
-# did 50 days in 18.6 min: 16152 steps at 34.4 ms/step on 6.0M cells, i.e.
-# 5.7 ns per cell-step on a V100.
+# COST. The 500 m side of this table is now measured at both run lengths
+# (res250_1.log):
+#
+#   50 days   18.6 min wall   16152 steps @ 34.4 ms   =  9.3 min stepping
+#   120 days  31.0 min wall   39250 steps @ 35.1 ms   = 23.0 min stepping
+#
+# so T_wall(500 m) ~ 8.5 min + 0.19 min/day: ~8-9 min of Julia compilation
+# and setup that does not scale, plus stepping that does. 6.0M cells at
+# 35 ms/step is 5.8 ns per cell-step on a V100, and 4.1 GB.
+#
+# Scaling that to 250 m:
 #
 #   cells        4x  (600x800x50 vs 300x400x50; Nz is unchanged)
 #   timesteps  ~1.25x  NOT 2x
-#   -> ~45-50 min for 50 days, ~2 h for 120 days
+#   -> ~8.5 min + ~1 min/day, i.e. ~2 h for 120 days
 #
 # The timestep factor is the part that is easy to get wrong. Halving Δx does
 # not halve Δt here, because the health callback shows the VERTICAL term is
-# 61-78% of the CFL budget at 500 m, and Δz = 1 m is unchanged at 250 m. Only
+# 61-78% of the CFL budget at 500 m (74-76% through the last day of the
+# 120-day run, at Δt = 245-280 s), and Δz = 1 m is unchanged at 250 m. Only
 # the horizontal quarter doubles, so Δt falls by ~20%, not 50%. The earlier
 # "~8x overall" in this file assumed Δt halves.
 #
 # The earlier "~19 h for 20 days on an A100" warning here was wrong by well
 # over an order of magnitude -- it predates any measured runtime. 4 h on a
-# V100 is ample for 120 days unless w grows enough at 250 m to tighten the
-# vertical CFL, which would push it to ~3 h.
+# V100 was ample: all six runs completed inside it.
+#
+# TODO replace the 250 m estimate above with the measured number --
+#   grep 'walltime =' out/sweep/res250_4.log | tail -1
+# (indices 1-3 are the 500 m baseline, 4-6 are the 250 m runs).
 #
 # Memory: ~50 full 3D Float64 fields at 228 MB each (608x808x58 with halos) is
 # ~11 GB, well inside a 32 GB V100.
