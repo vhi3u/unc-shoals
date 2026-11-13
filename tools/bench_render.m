@@ -113,12 +113,24 @@ end
 % Probe -opengl ONCE. Under -nodisplay MATLAB refuses it and warns on every
 % single print call, so 3 variants x reps buries the table in identical
 % warnings. Detect it here, drop the column, and say why.
-probe = figure('Visible','off'); plot(probe, 1:3);
+% Empty on purpose: the refusal comes from print's inputcheck during
+% argument validation, before anything is rendered, so no content is needed
+% and the probe stays instant.
+probe = figure('Visible','off');
+% Refusal can arrive as a warning OR as an error depending on release, and a
+% swallowed error must not read as success -- so check both paths.
+gl_usable = true;
 lastwarn('');
 ws = warning('off', 'all');
-try, print(probe, '-RGBImage', '-r50', '-opengl'); catch, end
+try
+    print(probe, '-RGBImage', '-r50', '-opengl');
+catch
+    gl_usable = false;
+end
 warning(ws);
-gl_usable = ~contains(lower(lastwarn), 'opengl');
+if contains(lower(lastwarn), 'opengl') || contains(lower(lastwarn), 'nodisplay')
+    gl_usable = false;
+end
 close(probe);
 
 variants  = {'pcolor+flat', 'pcolor+interp', 'imagesc'};
