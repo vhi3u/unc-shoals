@@ -110,8 +110,29 @@ catch ME
     fprintf('  -> almost certainly -nodisplay with no OpenGL, so painters is forced.\n');
 end
 
+% Probe -opengl ONCE. Under -nodisplay MATLAB refuses it and warns on every
+% single print call, so 3 variants x reps buries the table in identical
+% warnings. Detect it here, drop the column, and say why.
+probe = figure('Visible','off'); plot(probe, 1:3);
+lastwarn('');
+ws = warning('off', 'all');
+try, print(probe, '-RGBImage', '-r50', '-opengl'); catch, end
+warning(ws);
+gl_usable = ~contains(lower(lastwarn), 'opengl');
+close(probe);
+
 variants  = {'pcolor+flat', 'pcolor+interp', 'imagesc'};
-renderers = {'default', '-painters', '-opengl'};
+if gl_usable
+    renderers = {'default', '-painters', '-opengl'};
+else
+    renderers = {'default', '-painters'};
+    fprintf(['\n  -opengl SKIPPED: MATLAB refuses it under -nodisplay, so painters\n' ...
+             '  is forced and no renderer flag can change that. To get an OpenGL\n' ...
+             '  context on Casper you would have to run MATLAB under a virtual\n' ...
+             '  framebuffer instead of -nodisplay, e.g.\n' ...
+             '      xvfb-run -a matlab -nosplash -softwareopengl -r "..."\n' ...
+             '  which is worth testing only if imagesc below is not enough.\n']);
+end
 T   = nan(numel(variants), numel(renderers));
 img = cell(1, numel(variants));
 
@@ -123,6 +144,7 @@ for iv = 1:numel(variants)
         ts = nan(1, o.reps);
         for r = 1:o.reps
             try
+                wss = warning('off', 'all');
                 t0 = tic;
                 if strcmp(renderers{ir}, 'default')
                     A = print(fig, '-RGBImage', '-r100');
@@ -130,6 +152,7 @@ for iv = 1:numel(variants)
                     A = print(fig, '-RGBImage', '-r100', renderers{ir});
                 end
                 ts(r) = toc(t0);
+                warning(wss);
             catch ME
                 fprintf('  %s / %s failed: %s\n', variants{iv}, renderers{ir}, ME.message);
                 break;
