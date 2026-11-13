@@ -35,8 +35,18 @@ end
 ld  = strsplit(getenv('LD_LIBRARY_PATH'), ':');
 ld  = ld(~contains(ld, matlabroot) & ~cellfun(@isempty, ld));
 % H.264 requires even frame dimensions; MATLAB figures are frequently odd.
+% -crf 16: x264's default is 23, tuned for camera footage. Scientific
+% figures are the worst case for it -- large flat areas next to one-pixel
+% text and thin contour lines, exactly what the rate control throws away
+% first. 16 is visually lossless for this content and the files are small
+% anyway at 51 frames. -preset slow buys better quality at the same CRF;
+% encode time is seconds here.
+%
+% yuv420p is kept for player compatibility even though chroma subsampling
+% costs some sharpness on coloured text. yuv444p would be sharper but will
+% not open in QuickTime or in a lot of presentation software.
 cmd = sprintf(['LD_LIBRARY_PATH="%s" ffmpeg -y -loglevel error -i "%s" ' ...
-               '-c:v libx264 -pix_fmt yuv420p ' ...
+               '-c:v libx264 -preset slow -crf 16 -pix_fmt yuv420p ' ...
                '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -r %g "%s"'], ...
               strjoin(ld, ':'), avi_path, fps, mp4_path);
 

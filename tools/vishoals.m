@@ -65,12 +65,19 @@ addParameter(p, 'no_outlier', false, @(x)islogical(x)&&isscalar(x));
 % difference, and the cost is nearly independent of dpi because it is
 % per-primitive rather than per-pixel. 'pcolor' is kept as an escape hatch.
 addParameter(p, 'raster', 'imagesc', @(x)ischar(x) && ismember(x, {'imagesc','pcolor'}));
-% Frame resolution. Was a hardcoded 100, which is soft for a 12-panel figure:
-% axis labels and colorbar ticks are small, go mushy in the render, and the
-% H.264 encode blurs them again. Under pcolor raising it was nearly free
-% (print cost was per-primitive -- -r50 only 14% cheaper than -r100), and
-% imagesc leaves headroom at 0.456 s/frame.
-addParameter(p, 'frame_dpi', 150, @(x)isnumeric(x)&&isscalar(x)&&x>=50);
+% Frame resolution. Was a hardcoded 100, then 150; now 200, because a
+% 12-panel figure puts axis labels and colorbar ticks at a few pixels tall
+% and they turn to mush. 200 makes the 1350x700 figure a 2812x1458 frame.
+%
+% Cost scales with output PIXELS once the panels are imagesc (it did not
+% under pcolor, where print was per-primitive). 150 -> 200 is 1.78x the
+% pixels, so roughly 1.0 -> 1.8 s/frame, which on 51 daily frames is about
+% 1.5 min per run. Drop it for a draft: 'frame_dpi', 100.
+%
+% Resolution is only the FIRST of three lossy stages -- see video_writer_open
+% (MJPEG quality) and video_writer_finish (H.264 CRF) for the other two.
+% Raising this alone will not fix soft text.
+addParameter(p, 'frame_dpi', 200, @(x)isnumeric(x)&&isscalar(x)&&x>=50);
 addParameter(p, 'scan_skip_days', 10, @(x)isnumeric(x) && isscalar(x) && x>=0);
 addParameter(p, 'last_days', Inf, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 

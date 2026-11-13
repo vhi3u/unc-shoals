@@ -29,7 +29,12 @@ catch ME
     fprintf('MPEG-4 not available (%s).\nWriting Motion-JPEG AVI instead: %s\n', ...
             ME.message, avi_path);
     vw = VideoWriter(avi_path, 'Motion JPEG AVI');
-    vw.Quality = 95;
+    % 100, not 95. This AVI is a throwaway intermediate that
+    % video_writer_finish immediately re-encodes to H.264, so every JPEG
+    % artefact introduced here is baked in before the real encode starts and
+    % then has to be preserved by it. Quality 100 costs disk on a file that
+    % is deleted minutes later.
+    vw.Quality = 100;
 end
 vw.FrameRate = fps;
 open(vw);

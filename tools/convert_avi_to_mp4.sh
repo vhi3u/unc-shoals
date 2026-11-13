@@ -39,7 +39,11 @@ for avi in "${files[@]}"; do
     mp4="${avi%.avi}.mp4"
     echo "Converting: $avi"
     # H.264 needs even width/height -> round down to even
-    if ffmpeg -y -loglevel error -i "$avi" -c:v libx264 -pix_fmt yuv420p \
+    # Same settings as video_writer_finish.m, so converting by hand does not
+    # quietly produce a worse file than the in-MATLAB path. x264 defaults to
+    # CRF 23, which is tuned for camera footage and discards exactly what a
+    # figure is made of: one-pixel text and thin contour lines.
+    if ffmpeg -y -loglevel error -i "$avi" -c:v libx264 -preset slow -crf 16 -pix_fmt yuv420p \
            -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -r "$FPS" "$mp4"; then
         echo "  -> $mp4"
         [ "${KEEP_AVI:-0}" = "1" ] || rm -f "$avi"
