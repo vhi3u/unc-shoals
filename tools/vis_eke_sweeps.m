@@ -76,7 +76,30 @@ cluster_dir = fullfile(p.Results.sweep_root, cluster_name);
 [avail_labels_, ~] = discover_sweeps(cluster_dir);
 is_res_check_ = any(~cellfun(@isempty, regexp(avail_labels_, '^R\d+_Zs\d+$', 'once')));
 
-if is_res_check_
+is_geom_ = any(ismember({'Zs15_Lsfix','Zs05_Lsmatch','Zs15_slopefix'}, avail_labels_));
+
+if is_geom_
+    % Geometry controls (params_geomcontrol.toml). Laid out so the two
+    % properties that covary with crest depth can be read off separately:
+    %
+    %   ACROSS a row    -> crest length at FIXED crest depth
+    %   DOWN a column   -> crest depth at MATCHED crest length
+    %   row 2, cols 2-3 -> flank slope at fixed depth AND crest length
+    %
+    % Row 1 has no third entry on purpose: there is no shallow counterpart to
+    % Zs15_slopefix, because at Z_S = -5 m the crest already reaches the coast,
+    % the inshore flank slope is 0, and there is nothing left to halve.
+    rows = struct([]);
+    rows(1).runs   = {'Zs05_Lsmatch', 'Zs05_ref'};
+    rows(1).titles = {'L_c = 33 km', 'L_c = 40 km'};
+    rows(1).legend = rows(1).titles;
+    rows(1).name   = 'Z_S = -5 m';
+
+    rows(2).runs   = {'Zs15_ref', 'Zs15_Lsfix', 'Zs15_slopefix'};
+    rows(2).titles = {'L_c = 32 km', 'L_c = 41 km', 'L_c = 41 km, flank /2'};
+    rows(2).legend = rows(2).titles;
+    rows(2).name   = 'Z_S = -15 m';
+elseif is_res_check_
     % Resolution check: one row per grid spacing, shoal height along the row.
     % This is the comparison the sweep exists for -- read DOWN a column to see
     % whether halving dx changes that case.
