@@ -19,20 +19,41 @@
 # a 5 m column of surface mixed layer has almost no baroclinic Ld. The test is
 # about the SENSITIVITY of the trend to resolution, not about resolving it.
 #
-# Cost: 250 m costs ~4x the 500 m case in cells, and Δt is now capped at
-# max_Δt = 10 min * (Δh/500) = 5 min here, so ~8x overall.
+# RUN LENGTH. This was 20 days, which cannot answer the question the table is
+# asking. At 20 days the Z_S = -15 m cases are mid-collapse -- EKE halves
+# every 10-day window and does not settle inside 50 days, let alone 20 (see
+# params_geomcontrol.toml and params_weakwind.toml for the per-window
+# evidence). Comparing 500 m and 250 m at day 20 compares two transients, and
+# a difference between them says as much about their adjustment rates as
+# about resolution. Now 120 days, matching the other sweeps.
 #
-# WALLTIME WARNING. This table's own earlier estimate was ~19 h for 20 days at
-# 250 m on an A100. The submit script now asks for 4 h on a V100, which has
-# roughly half the memory bandwidth of an A100 -- and these kernels are
-# bandwidth-bound, so the same work takes LONGER, not shorter. 4 h will very
-# likely cut these runs off part-way. The 500 m tables are the ones that fit
-# comfortably; raise it per-submit without editing the file:
+# COST, derived from the measured 500 m runs rather than guessed. geomcontrol_1
+# did 50 days in 18.6 min: 16152 steps at 34.4 ms/step on 6.0M cells, i.e.
+# 5.7 ns per cell-step on a V100.
 #
-#   qsub -l walltime=24:00:00 src/sweep/submit_res250.pbs
+#   cells        4x  (600x800x50 vs 300x400x50; Nz is unchanged)
+#   timesteps  ~1.25x  NOT 2x
+#   -> ~45-50 min for 50 days, ~2 h for 120 days
 #
-# Memory is not the problem: ~50 full 3D Float64 fields at 228 MB each
-# (608x808x58 with halos) is ~11 GB, well inside a 32 GB V100.
+# The timestep factor is the part that is easy to get wrong. Halving Δx does
+# not halve Δt here, because the health callback shows the VERTICAL term is
+# 61-78% of the CFL budget at 500 m, and Δz = 1 m is unchanged at 250 m. Only
+# the horizontal quarter doubles, so Δt falls by ~20%, not 50%. The earlier
+# "~8x overall" in this file assumed Δt halves.
+#
+# The earlier "~19 h for 20 days on an A100" warning here was wrong by well
+# over an order of magnitude -- it predates any measured runtime. 4 h on a
+# V100 is ample for 120 days unless w grows enough at 250 m to tighten the
+# vertical CFL, which would push it to ~3 h.
+#
+# Memory: ~50 full 3D Float64 fields at 228 MB each (608x808x58 with halos) is
+# ~11 GB, well inside a 32 GB V100.
+#
+# This sweep is now the gate on converting the whole project to 250 m. It
+# answers three things at once: whether R250_Zs15 is stable with the
+# min_change = 0.2 fix, what 250 m actually costs (measured, not derived),
+# and whether the EKE trend survives Δx/2 when both resolutions are compared
+# at equilibrium instead of mid-transient.
 #
 # Submit:  qsub src/sweep/submit_res250.pbs      (array 1-6)
 #
@@ -68,21 +89,21 @@ run_label    = "R500_Zs05"
 Zs           = -5.0
 shoal_length = 40000.0
 dx           = 500.0
-sim_days     = 20.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "R500_Zs10"
 Zs           = -10.0
 shoal_length = 40000.0
 dx           = 500.0
-sim_days     = 20.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "R500_Zs15"
 Zs           = -15.0
 shoal_length = 40000.0
 dx           = 500.0
-sim_days     = 20.0
+sim_days     = 120.0
 
 # ── 250 m ────────────────────────────────────────────────────────────────────
 [[runs]]
@@ -90,18 +111,18 @@ run_label    = "R250_Zs05"
 Zs           = -5.0
 shoal_length = 40000.0
 dx           = 250.0
-sim_days     = 20.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "R250_Zs10"
 Zs           = -10.0
 shoal_length = 40000.0
 dx           = 250.0
-sim_days     = 20.0
+sim_days     = 120.0
 
 [[runs]]
 run_label    = "R250_Zs15"
 Zs           = -15.0
 shoal_length = 40000.0
 dx           = 250.0
-sim_days     = 20.0
+sim_days     = 120.0
