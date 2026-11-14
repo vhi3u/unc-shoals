@@ -1,0 +1,81 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Weak-wind sweep at 250 m: the tau curve with the resolution error removed
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/sweep/submit_weakwind250.pbs.template
+#
+# Everything is set. Nothing in this file needs editing before submission.
+#
+# WHY THE .template SUFFIX: .gitignore ignores *.pbs on purpose, because the
+# live job scripts carry machine-local edits that a git pull would clobber.
+# That also means a new .pbs cannot reach Casper through git at all. This is
+# the escape hatch .gitignore itself names -- a tracked template that travels.
+# qsub does not care about the extension, so submit it directly. Copy it to
+# src/sweep/submit_weakwind250.pbs only if you want to make local edits.
+#
+# Runs params_weakwind250.toml: the same six tau as params_weakwind.toml,
+# same Zs = -5, same Ls = 40 km, same 120 days, same run_labels -- dx is the
+# only difference, so the existing tau-curve scripts read the new cluster
+# unchanged and the two clusters differ in one thing only.
+#
+# Every point on the 500 m tau curve sits at Zs = -5, which cluster_res250_120
+# showed is the worst-resolved case in the project: EKE there rose x3.46 under
+# dx/2, against x1.61 and x1.66 at Zs = -10 and -15.
+#
+# Cost: measured 3.14 h per run at 250 m / 120 days (res250_6.log), so the
+# 06:00:00 below is ~1.9x margin. 6 runs, ~19 GPU-h total.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N weakwind250
+#PBS -k eod
+#PBS -o logs/weakwind250.out
+#PBS -e logs/weakwind250.err
+#PBS -l walltime=06:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-6
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+module load peak-memusage
+module li
+
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
+
+export SWEEP_PARAMS="params_weakwind250.toml"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep sweep_output
+
+# Guard against the array range and the table disagreeing. Submitting a copied
+# script whose -J still matched the sweep it was copied FROM is how two
+# finished sweeps got re-run; the driver errors on an out-of-range index, but
+# only after paying for a GPU allocation and a Julia startup.
+NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
+if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+    echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
+    exit 1
+fi
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/weakwind250_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"
