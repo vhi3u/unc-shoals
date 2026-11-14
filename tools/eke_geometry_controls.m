@@ -140,7 +140,10 @@ if isempty(C)
 end
 
 fprintf('\n── how to read it ───────────────────────────────────────────────\n');
-fprintf('%s', howto);
+% fprintf(fmt) processes escapes in the FORMAT string only, so passing the
+% text as a %s argument printed the \n sequences literally. Every howto
+% string escapes its own percent signs for this.
+fprintf(howto);
 
 % ── figure ───────────────────────────────────────────────────────────────
 fig = figure('Color','w','Position',[80 80 max(1150, 420 + 80*size(C,1)) 450]);
