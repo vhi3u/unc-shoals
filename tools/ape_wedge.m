@@ -79,7 +79,7 @@ fprintf('╚══════════════════════�
 fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n');
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
-[APE_qg, APE_srt, gp, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max] = deal(nan(1, n));
+[APE_qg, APE_srt, gp, N2bar, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max] = deal(nan(1, n));
 mixed = repmat({''}, 1, n);
 BP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
 
@@ -203,7 +203,7 @@ for k = 1:n
 
     % ── g' and Ld, defined exactly as in plot_theory_vs_model.m ──────────
     ixg = find(x_km >= o.x_g_range(1) & x_km <= o.x_g_range(2));
-    gp(k) = column_contrast_(b(ixg,:,:), wet(ixg,:,:), zc);
+    [gp(k), N2bar(k)] = column_contrast_(b(ixg,:,:), wet(ixg,:,:), zc, dz);
 
     % A forced run mixes the shelf column vertically, and then the SURFACE-
     % MINUS-BOTTOM contrast -- which is how g' is defined here and in
@@ -259,10 +259,10 @@ for k = 1:n
     % forced run: wind_0p03 and wind_0p05 clear the 10% flag but still sit at
     % 34% and 19% of ambient, which is enough to put their C_geom off by more
     % than an order of magnitude.
-    fprintf(['  %-16s g'' = %.3e (%5.1f%% of ambient)  H0 = %4.1f m  Ld = %6.0f m ' ...
-             '(Ld/dx = %4.1f)  W_E = %6.0f m  eta/H = %.2f (max %.2f)  APE_srt = %.3e\n'], ...
-            labels{k}, gp(k), 100*gp(k)/gp_amb, H0(k), Ld(k), Ld(k)/dxv(k), ...
-            WE(k), etaH(k), etaH_max(k), APE_srt(k));
+    fprintf(['  %-16s g'' = %.3e (%5.1f%% amb)  N2 = %.3e  H0 = %4.1f m  ' ...
+             'Ld = %6.0f m (Ld/dx = %4.1f)  W_E = %6.0f m  eta/H = %.2f  APE_srt = %.3e\n'], ...
+            labels{k}, gp(k), 100*gp(k)/gp_amb, N2bar(k), H0(k), Ld(k), Ld(k)/dxv(k), ...
+            WE(k), etaH(k), APE_srt(k));
     if ~isempty(mixed{k})
         fprintf('                   ** %s\n', mixed{k});
     end
@@ -331,16 +331,36 @@ end
 Hs = unique(H0(usable));
 if numel(Hs) > 1
     fprintf('\n── C_geom (L = Ld) grouped by shelf depth ───────────────────────\n');
-    fprintf('  %8s %5s %10s %10s\n', 'H0 (m)', 'n', 'median', 'spread');
+    fprintf('  %8s %5s %10s %10s %12s %12s\n', ...
+            'H0 (m)', 'n', 'C median', 'spread', 'g''', 'N2bar');
     for hh = Hs(:)'
         m = usable & H0 == hh;
         c = C_Ld_srt(m);
         if numel(c) == 1
-            fprintf('  %8.1f %5d %10.4f %10s\n', hh, 1, c, '--');
+            fprintf('  %8.1f %5d %10.4f %10s %12.4e %12.4e\n', hh, 1, c, '--', ...
+                    median(gp(m)), median(N2bar(m)));
         else
-            fprintf('  %8.1f %5d %10.4f %9.0f%%\n', hh, numel(c), median(c), ...
-                    100*(max(c)-min(c))/median(c));
+            fprintf('  %8.1f %5d %10.4f %9.0f%% %12.4e %12.4e\n', hh, numel(c), ...
+                    median(c), 100*(max(c)-min(c))/median(c), ...
+                    median(gp(m)), median(N2bar(m)));
         end
+    end
+    % Split the g' change across depths into stratification and depth. If
+    % N2bar is flat while g' tracks H0, then g' carries no information that
+    % H0 does not already carry, and Eq. 8 is counting the depth twice.
+    gg = arrayfun(@(hh) median(gp(usable & H0 == hh)), Hs);
+    nn = arrayfun(@(hh) median(N2bar(usable & H0 == hh)), Hs);
+    if numel(Hs) > 1
+        pg = log(gg(end)/gg(1)) / log(Hs(end)/Hs(1));
+        pn = log(nn(end)/nn(1)) / log(Hs(end)/Hs(1));
+        fprintf(['\n  Across these depths  g'' ~ H0^%.2f  and  N2bar ~ H0^%.2f.\n' ...
+                 '  g'' is a column integral (g'' = N2bar x H_col), so an exponent near\n' ...
+                 '  +1 on g'' with N2bar near flat means g'' is carrying the depth and\n' ...
+                 '  nothing else. Eq. 8 then counts H0 twice: once in g'' and again in\n' ...
+                 '  H0^2 (and a third time through Ld = sqrt(g'' H0)/f).\n' ...
+                 '  Zhao et al. avoid this because their g'' is a plume-vs-ambient\n' ...
+                 '  SALINITY contrast -- a water-mass property, independent of depth.\n' ...
+                 '  The clean pair of independent parameters here is (N2bar, H0).\n'], pg, pn);
     end
     cg = arrayfun(@(hh) median(C_Ld_srt(usable & H0 == hh)), Hs);
     fprintf(['  C_geom changes by a factor of %.1f across these depths. Eq. 8 asks it\n' ...
@@ -426,7 +446,7 @@ fprintf('Saved: %s\n', out2);
 close(f2);
 
 R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
-           'g_prime', gp, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
+           'g_prime', gp, 'N2bar', N2bar, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
            'mixed', {mixed}, 'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, ...
            'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt, ...
            'eta_over_H', etaH, 'eta_over_H_max', etaH_max);
@@ -467,21 +487,36 @@ title(ax, ttl, 'FontWeight','bold');
 legend(ax, 'Location','southeast', 'FontSize', 8);
 end
 
-function gpr = column_contrast_(b, wet, zc)
-% Surface-minus-bottom buoyancy contrast, median over columns. Same
-% definition as plot_theory_vs_model.m: the density structure here is
-% vertical, so Zhao et al.'s horizontal plume-vs-ambient contrast does not
-% apply.
+function [gpr, n2bar] = column_contrast_(b, wet, zc, dz)
+% Surface-minus-bottom buoyancy contrast, median over columns -- the same
+% definition plot_theory_vs_model.m uses -- AND the column-mean
+% stratification that goes with it.
+%
+% The second output is the point. g' defined this way is a COLUMN INTEGRAL,
+% g' = N2bar * H_col, so it is not independent of the depth that Eq. 8 also
+% puts in explicitly as H0^2. Measured across the shelf-depth runs g' goes
+% as H0^0.77, and substituting that into APE = C g' H0^2 Ld gives
+% APE ~ H0^3.65 against a measured H0^1.76 -- which is exactly the
+% C ~ H0^-1.89 the grouping below reports. Reporting N2bar separately shows
+% how much of a g' difference between runs is stratification and how much is
+% just a deeper column.
+%
+% N2bar is formed PER COLUMN (contrast divided by that column's own depth)
+% before the median, not as median(g')/H0, so a box spanning the shoal and
+% the shelf is handled correctly.
 [~, kup] = sort(zc, 'ascend');
-b = b(:,:,kup);  wet = wet(:,:,kup);
+b = b(:,:,kup);  wet = wet(:,:,kup);  dzs = dz(kup);
 nz = size(b,3);  kk = reshape(1:nz, 1, 1, []);
 k_top = max(wet .* kk, [], 3);
 k_bot = min(wet .* kk + ~wet * (nz+1), [], 3);
 okc = (k_top > k_bot);
-if ~any(okc(:)), gpr = NaN; return; end
+if ~any(okc(:)), gpr = NaN; n2bar = NaN; return; end
 [ii, jj] = ndgrid(1:size(b,1), 1:size(b,2));
-gpr = median(b(sub2ind(size(b), ii(okc), jj(okc), k_top(okc))) ...
-           - b(sub2ind(size(b), ii(okc), jj(okc), k_bot(okc))), 'omitnan');
+dbc = b(sub2ind(size(b), ii(okc), jj(okc), k_top(okc))) ...
+    - b(sub2ind(size(b), ii(okc), jj(okc), k_bot(okc)));
+gpr = median(dbc, 'omitnan');
+Hcol  = sum(wet .* reshape(dzs, 1, 1, []), 3);
+n2bar = median(dbc ./ max(Hcol(okc), eps), 'omitnan');
 end
 
 function zsh = zsh_for_(cluster_dir, label, tag)
