@@ -1,0 +1,81 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Zhao end-member: our model and forcing, their bathymetry
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/sweep/submit_zhao_endmember.pbs.template
+#
+# Everything is set. Nothing in this file needs editing before submission.
+#
+# WHY THE .template SUFFIX: .gitignore ignores *.pbs on purpose, because the
+# live job scripts carry machine-local edits that a git pull would clobber.
+# That also means a new .pbs cannot reach Casper through git at all. This is
+# the escape hatch .gitignore itself names -- a tracked template that travels.
+# qsub does not care about the extension, so submit it directly. Copy it to
+# src/sweep/submit_zhao_endmember.pbs only if you want to make local edits.
+#
+# Runs params_zhao_endmember.toml: ONE run, our model and forcing in a Cape
+# Farewell-like geometry -- bottom sloping from the coast to -180 m by x = 50
+# km, flat deep ocean at -200 m, no shoal. Changing the bathymetry alone is
+# the point; the stratification, Coriolis, inflow and forcing stay ours, so a
+# disagreement with the preprint is attributable.
+#
+# Cost: Lz = 200 m at dz = 1 m is Nz = 200, so 24M cells, 4x the standard
+# configuration: ~1.7 h for 120 days at 500 m and ~10 GB on the GPU. dt
+# should be close to unchanged -- the vertical CFL is set by the MINIMUM dz
+# and that is still 1 m -- but a 200 m basin admits larger w than a 50 m one,
+# so the walltime carries margin.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N zhao_endmember
+#PBS -k eod
+#PBS -o logs/zhao_endmember.out
+#PBS -e logs/zhao_endmember.err
+#PBS -l walltime=06:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-1
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+module load peak-memusage
+module li
+
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
+
+export SWEEP_PARAMS="params_zhao_endmember.toml"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep sweep_output
+
+# Guard against the array range and the table disagreeing. Submitting a copied
+# script whose -J still matched the sweep it was copied FROM is how two
+# finished sweeps got re-run; the driver errors on an out-of-range index, but
+# only after paying for a GPU allocation and a Julia startup.
+NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
+if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+    echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
+    exit 1
+fi
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/zhao_endmember_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

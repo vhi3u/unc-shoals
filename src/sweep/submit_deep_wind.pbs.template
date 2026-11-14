@@ -1,0 +1,83 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Deep domain (Lz = 100 m): wind across the stratification-collapse boundary
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/sweep/submit_deep_wind.pbs.template
+#
+# Everything is set. Nothing in this file needs editing before submission.
+#
+# WHY THE .template SUFFIX: .gitignore ignores *.pbs on purpose, because the
+# live job scripts carry machine-local edits that a git pull would clobber.
+# That also means a new .pbs cannot reach Casper through git at all. This is
+# the escape hatch .gitignore itself names -- a tracked template that travels.
+# qsub does not care about the extension, so submit it directly. Copy it to
+# src/sweep/submit_deep_wind.pbs only if you want to make local edits.
+#
+# Runs params_deep_wind.toml: tau = 0, +/-0.005, +/-0.01, +/-0.02, +/-0.03 at
+# the reference geometry on the deep domain. Everything below 0.03 is new --
+# the Fnnie wind runs all start AT 0.03, where the column-mean stratification
+# has already fallen to 33% of unforced on the upwelling side and gone
+# negative (convecting) on the downwelling side.
+#
+# The sweep brackets the boundary where Zhao et al.'s baroclinic-instability
+# framework stops applying, and tests whether the 120-day EKE peak at
+# tau = -0.005 is where APE buildup is maximal just before the wind mixes
+# away the stratification holding it.
+#
+# Cost: Nz = 100 is 12M cells, ~55 min per run for 120 days at 500 m.
+# 9 runs, ~8 GPU-h.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N deep_wind
+#PBS -k eod
+#PBS -o logs/deep_wind.out
+#PBS -e logs/deep_wind.err
+#PBS -l walltime=04:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-9
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2 cuda
+module load peak-memusage
+module li
+
+# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
+# required: without it this replaces the depot list instead of prepending,
+# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
+export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
+
+export SWEEP_PARAMS="params_deep_wind.toml"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep sweep_output
+
+# Guard against the array range and the table disagreeing. Submitting a copied
+# script whose -J still matched the sweep it was copied FROM is how two
+# finished sweeps got re-run; the driver errors on an out-of-range index, but
+# only after paying for a GPU allocation and a Julia startup.
+NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
+if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+    echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
+    exit 1
+fi
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/deep_wind_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

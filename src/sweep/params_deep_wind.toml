@@ -1,0 +1,183 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# DEEP DOMAIN — wind sweep across the stratification-collapse boundary
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Same deep configuration as params_deep_geom.toml (Lz = 100 m, h_deep = -100,
+# rise_width = 15 km to hold the break slope at 0.0025, deep_strat_frac = 0.2)
+# at the reference geometry, with tau as the only variable.
+#
+# ── why these tau values ───────────────────────────────────────────────────
+# The column-mean stratification measured on cluster_Fnnie_1_19 collapses
+# under wind, and those runs all START at |tau| = 0.03, by which point it is
+# already mostly gone:
+#
+#   tau     +0.03   +0.05   +0.08   +0.10   +0.15     all tau < 0
+#   N2bar     33%     18%    1.4%   0.85%   0.09%     <= 0  (convecting)
+#   (as a percentage of the unforced 2.19e-4)
+#
+# N2bar <= 0 means statically unstable on the column average. Zhao et al.'s
+# framework is a BAROCLINIC INSTABILITY framework -- APE converted to EKE via
+# w'b', with Ld, the slope Burger number and the whole conversion scaling
+# built on stratification. In a convecting column there is no baroclinic
+# instability to parameterise, so those runs sit outside the theory's domain
+# of validity rather than constituting a failed test of it.
+#
+# This sweep brackets the boundary: 0, +/-0.005, +/-0.01, +/-0.02, +/-0.03.
+# Everything below 0.03 is new. Run ape_wedge.m on the result and read N2bar
+# down the table -- where it leaves the unforced value is where the theory
+# stops applying, expressed in tau.
+#
+# ── the hypothesis this is built to test ───────────────────────────────────
+# The 120-day weak-wind EKE curve peaks at tau = -0.005 and has its minimum
+# at tau = 0. If the peak is where wind-driven APE buildup is maximal just
+# BEFORE the wind mixes away the stratification holding it, then N2bar should
+# still be near 2.2e-4 at +/-0.005 and visibly eroded by +/-0.02. That would
+# turn a curve shape into a mechanism. If N2bar is flat across the whole
+# range, the peak needs a different explanation.
+#
+# ── note on comparability ──────────────────────────────────────────────────
+# These are NOT comparable to cluster_weakwind_120: the domain, the offshore
+# depth, the break width and the deep stratification all differ. tau = 0 here
+# is the overlap point -- compare it against Zs05_ref in cluster_geometry_120
+# to measure what the domain change alone did.
+#
+# Cost: Nz = 100 gives 12M cells, ~55 min per run for 120 days at 500 m.
+# 9 runs, ~8 GPU-h.
+#
+# Submit:  qsub src/sweep/submit_deep_wind.pbs.template       (array 1-9)
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label       = "dwind_m0p030"
+wind_stress     = -0.030
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_m0p020"
+wind_stress     = -0.020
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_m0p010"
+wind_stress     = -0.010
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_m0p005"
+wind_stress     = -0.005
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_0"
+wind_stress     = 0.000
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_0p005"
+wind_stress     = 0.005
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_0p010"
+wind_stress     = 0.010
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_0p020"
+wind_stress     = 0.020
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "dwind_0p030"
+wind_stress     = 0.030
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+shelf_break_end = 12000.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0

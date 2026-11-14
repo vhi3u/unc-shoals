@@ -26,8 +26,16 @@ Shoal Geometry:
 
 # ── Background bathymetry ───────────────────────────────────────────────
 
-@inline function param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width)
-    h0, h1, h4 = -5.0, -7.0, -50.0
+@inline function param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width, h_deep)
+    # h_deep was hardcoded at -50.0, which is also the domain floor. That made
+    # Zsh = -50 erase the shelf break entirely -- the offshore ramp term below
+    # is (h_deep - Zsh)*smooth_step, identically zero when they are equal -- so
+    # the shelf merged into the deep ocean and every "coast to shelf break"
+    # diagnostic silently fell back to a fixed 50 km box. It also capped the
+    # usable shelf-depth range at about -40 m, which is the axis the APE
+    # scaling most needs. Now a parameter.
+    h0, h1 = -5.0, -7.0
+    h4 = h_deep
     h2 = Zsh
 
     # 1. Coastal ramp (0-5km)
@@ -72,9 +80,9 @@ end
 
 @inline function _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
                                      shelf_break_end, rise_mid, rise_width,
-                                     shoal_start, shoal_inner_width)
+                                     shoal_start, shoal_inner_width, h_deep)
     # 1. Background depth
-    hw = param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width)
+    hw = param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width, h_deep)
 
     # 2. Along-shore window (compact support)
     window = param_shoal_window(y, y0, half_extent)
@@ -162,6 +170,11 @@ puts the shoal against the coast at full amplitude -- the original geometry.
 Set them to put the shoal on the shelf, so that the crest length
 (shoal_length - shoal_start) and the inshore flank slope stop being functions
 of Zs. See the comment in `_param_shoal_bottom` for why that matters.
+h_deep is the flat offshore depth (default -50.0, the old hardcoded value).
+It must be DEEPER than Zsh or there is no shelf break at all. Note that the
+break's steepness is (h_deep - Zsh)/(2*rise_width), so deepening the basin
+without widening the ramp makes the break steeper in proportion -- and the
+break is exactly where the offshore flux is measured.
 """
 function dshoal_param_bottom(Ly;
     sigma=8e3,
@@ -173,13 +186,14 @@ function dshoal_param_bottom(Ly;
     rise_mid=63.5e3,
     rise_width=5.0e3,
     shoal_start=0.0,
-    shoal_inner_width=0.0)
+    shoal_inner_width=0.0,
+    h_deep=-50.0)
 
     y0 = Ly / 2.0
     half_extent = Ly_shoal / 2.0
 
     bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
                                        shelf_break_end, rise_mid, rise_width,
-                                       shoal_start, shoal_inner_width)
+                                       shoal_start, shoal_inner_width, h_deep)
     return bottom
 end

@@ -73,6 +73,27 @@ sweep_rise_width = Float64(get(this_run, "rise_width", 5000.0))
 sweep_shoal_start = Float64(get(this_run, "shoal_start", 0.0))
 sweep_shoal_inner_width = Float64(get(this_run, "shoal_inner_width", 0.0))
 
+# Flat offshore depth, domain depth, vertical spacing, and the stratification
+# below the deepest T/S breakpoint. All four default to the values every run
+# before 2025-11 used, so an existing table is unchanged by their presence.
+#
+# h_deep was hardcoded at -50.0 in dshoal_vn_param.jl, which is also the old
+# domain floor -- so Zsh = -50 had no shelf break, and the usable shelf-depth
+# range stopped around -40 m. Deepening the basin is what unblocks it.
+sweep_h_deep = Float64(get(this_run, "h_deep", -50.0))
+sweep_Lz = Float64(get(this_run, "Lz", 50.0))
+sweep_dz = Float64(get(this_run, "dz", 1.0))
+sweep_deep_strat = Float64(get(this_run, "deep_strat_frac", 0.0))
+
+if sweep_h_deep >= sweep_Zsh
+    error("h_deep ($(sweep_h_deep)) must be deeper than Zsh ($(sweep_Zsh)); " *
+          "otherwise the offshore ramp is zero and there is no shelf break.")
+end
+if sweep_Lz < abs(sweep_h_deep)
+    error("Lz ($(sweep_Lz)) is shallower than |h_deep| ($(abs(sweep_h_deep))); " *
+          "the offshore basin would be cut off by the domain floor.")
+end
+
 sweep_run_label = String(this_run["run_label"])
 
 # New parameters
@@ -96,6 +117,9 @@ sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
  shoal_length:    $sweep_shoal_length m  (crest $(round((sweep_shoal_length - sweep_shoal_start)/1e3, digits=1)) km)
  shoal_start:     $sweep_shoal_start m
  shoal_inner_w:   $sweep_shoal_inner_width m
+ h_deep:          $sweep_h_deep m  (break slope $(round((abs(sweep_h_deep) - abs(sweep_Zsh))/(2*sweep_rise_width), sigdigits=3)))
+ Lz x dz:         $sweep_Lz m / $sweep_dz m  ($(round(Int, sweep_Lz/sweep_dz)) levels)
+ deep_strat_frac: $sweep_deep_strat
  sigma:           $sweep_sigma m
  Zsh (shelf_depth):$sweep_Zsh m
  shelf_break_end: $sweep_shelf_break_end m
@@ -145,6 +169,10 @@ ENV["SWEEP_RISE_MID"] = string(sweep_rise_mid)
 ENV["SWEEP_RISE_WIDTH"] = string(sweep_rise_width)
 ENV["SWEEP_SHOAL_START"] = string(sweep_shoal_start)
 ENV["SWEEP_SHOAL_INNER_WIDTH"] = string(sweep_shoal_inner_width)
+ENV["SWEEP_H_DEEP"] = string(sweep_h_deep)
+ENV["SWEEP_LZ"] = string(sweep_Lz)
+ENV["SWEEP_DZ"] = string(sweep_dz)
+ENV["SWEEP_DEEP_STRAT_FRAC"] = string(sweep_deep_strat)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)

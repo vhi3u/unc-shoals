@@ -57,13 +57,13 @@ runs = TOML.parsefile(params_file)["runs"]
 
 println("\n", basename(params_file), " -- geometry as the model will build it")
 println("  flank is the steepest slope over a $(round(Int, FLANK_WINDOW)) m window, shoreward of the crest\n")
-@printf("  %-16s %7s %9s %9s %8s %10s   %s\n",
-        "run_label", "Zs", "start", "w_in", "crest", "flank", "crest extent")
+@printf("  %-16s %7s %7s %8s %9s %8s %10s   %s\n",
+        "run_label", "Zs", "Zsh", "h_deep", "brk slope", "crest", "flank", "crest extent")
 for r in runs
     Zs = haskey(r, "Zs") ? Float64(r["Zs"]) :
          Float64(get(r, "Zsh", -25.0)) + Float64(r["Hs"])
     dx = Float64(get(r, "dx", 500.0))
-    Lx = 200e3
+    Lx = 150e3
     Ly = 200e3
     bottom = dshoal_param_bottom(Ly;
         Zs = Zs,
@@ -74,11 +74,17 @@ for r in runs
         rise_mid = Float64(get(r, "rise_mid", 63500.0)),
         rise_width = Float64(get(r, "rise_width", 5000.0)),
         shoal_start = Float64(get(r, "shoal_start", 0.0)),
-        shoal_inner_width = Float64(get(r, "shoal_inner_width", 0.0)))
+        shoal_inner_width = Float64(get(r, "shoal_inner_width", 0.0)),
+        h_deep = Float64(get(r, "h_deep", -50.0)))
 
-    crest, flank, x1, x2 = measure(bottom, Zs, Lx, dx, 1.0, Ly / 2)
-    @printf("  %-16s %7.1f %9.0f %9.0f %7.1f km %10.5f   %.1f-%.1f km\n",
-            r["run_label"], Zs, Float64(get(r, "shoal_start", 0.0)),
-            Float64(get(r, "shoal_inner_width", 0.0)), crest, flank, x1, x2)
+    crest, flank, x1, x2 = measure(bottom, Zs, Lx, dx, Float64(get(r, "dz", 1.0)), Ly / 2)
+    # Break steepness is (|h_deep| - |Zsh|)/(2*rise_width): deepening the basin
+    # without widening the ramp steepens the break in proportion, and the break
+    # is exactly where the offshore flux is measured.
+    Zsh = Float64(get(r, "Zsh", get(r, "shelf_depth", -25.0)))
+    hd  = Float64(get(r, "h_deep", -50.0))
+    brk = (abs(hd) - abs(Zsh)) / (2 * Float64(get(r, "rise_width", 5000.0)))
+    @printf("  %-16s %7.1f %7.1f %8.1f %9.5f %7.1f km %10.5f   %.1f-%.1f km\n",
+            r["run_label"], Zs, Zsh, hd, brk, crest, flank, x1, x2)
 end
 println()

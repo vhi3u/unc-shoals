@@ -1,0 +1,171 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# DEEP DOMAIN — the shelf-depth axis, finally unblocked
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Lz = 100 m with h_deep = -100 m. Everything before this ran Lz = 50 m with
+# the offshore depth HARDCODED at -50 m in dshoal_vn_param.jl, which had two
+# consequences:
+#
+#   1. Zsh = -50 had no shelf break at all -- the offshore ramp is
+#      (h_deep - Zsh)*smooth_step, identically zero when they are equal -- so
+#      Zsh_m50 integrated over an arbitrary fallback box and could not
+#      constrain anything. Usable shelf depths stopped near -40 m.
+#   2. The offshore "deep ocean" was a 50 m column whose bottom 40% sat below
+#      the deepest T/S breakpoint and was therefore unstratified. That is why
+#      10-15 of 50 reference levels get floored in ape_wedge.m on every run,
+#      and why eta/H and APE_qg need caveats there.
+#
+# deep_strat_frac = 0.2 continues each T/S profile below its last breakpoint
+# at 20% of the gradient above it, instead of holding it constant. For the
+# offshore column that is N^2 ~ 4.8e-5 against 2.4e-4 in the thermocline:
+# weak, stable, and about 20x the floor ape_wedge.m applies, so no level
+# should be floored any more.
+#
+# ── the break slope is held fixed, deliberately ────────────────────────────
+# Break steepness is (|h_deep| - |Zsh|)/(2*rise_width), and the break is
+# exactly where the offshore flux is measured. Deepening the basin from -50
+# to -100 at the old rise_width = 5 km would have made it 3x steeper, which
+# would change the cross-shelf exchange being quantified. rise_width is
+# therefore set PER RUN to hold the slope at 0.00250, the value every earlier
+# run used:
+#
+#   Zsh    |dh|   rise_width   slope
+#   -15     85 m    17.0 km    0.00250
+#   -25     75 m    15.0 km    0.00250
+#   -40     60 m    12.0 km    0.00250
+#   -50     50 m    10.0 km    0.00250
+#
+# The INSHORE break needs the same treatment. It drops from -7 m to Zsh over
+# 5 km to shelf_break_end, so its steepness is (|Zsh| - 7)/(2*sb_width) with
+# sb_width = (shelf_break_end - 5 km)/2.8 -- which would have run 0.0016 to
+# 0.0080 across this axis, a 5x change, purely as a side effect of varying
+# Zsh. shelf_break_end is therefore also set per run to hold it at 0.00360,
+# the Zsh = -25 value:
+#
+#   Zsh    shelf_break_end   inshore slope
+#   -15          8.1 km         0.00360
+#   -25         12.0 km         0.00360
+#   -40         17.8 km         0.00360
+#   -50         21.7 km         0.00360
+#
+# With both breaks pinned, Zsh is the only thing that moves.
+#
+# rise_mid moves to 90 km so a wider ramp still leaves a real flat shelf
+# inshore of it and a real flat basin outside it (the ambient strip that sets
+# b_ref is the outer 10 km of the 150 km domain).
+#
+# ── two sub-axes, each varying one thing ───────────────────────────────────
+# Runs 1-4 have NO SHOAL: Zs is set equal to Zsh, so potential_height =
+# max(0, Zs - hw) is identically zero and the bathymetry is the pure
+# shelf-slope background. That is the clean shelf-depth axis -- the APE work
+# says the buoyancy wedge is a shelf-scale object (shoal height and length
+# move APE by under 7%, shelf depth by 5x), so this isolates the quantity
+# that actually matters, over a 3.3x range.
+#
+# Holding a shoal fixed across this axis is not possible: at fixed Zs = -5 the
+# shoal height would run 10 to 45 m and stop being a perturbation, while at
+# fixed height the crest depth would run -5 to -40 and change its own
+# resolution. Leaving it out is the only way to vary one thing.
+#
+# Runs 5-6 add the shoal back at the reference shelf depth. Run 5 against run
+# 2 differ ONLY by the presence of the shoal, which is the cleanest measure of
+# what the shoal contributes that we have had.
+#
+# ── what this still does not separate ──────────────────────────────────────
+# N2bar falls with shelf depth (~H0^-0.26 measured) because T/S is prescribed
+# against absolute z with the sharpest gradient near the surface, so a
+# shallower column samples only the sharp part. Deepening the domain does not
+# fix that. g' = N2bar x H_col therefore carries only ~H0^0.77, not H0^1.
+# ape_wedge.m now prints N2bar per run and fits both exponents, so the size of
+# the residual confound is measured rather than assumed. A stratification axis
+# at fixed depth is what would remove it.
+#
+# Cost: Nz = 100 gives 300x400x100 = 12M cells, 2x the old configuration, so
+# ~55 min per run for 120 days at 500 m. 6 runs, ~6 GPU-h.
+#
+# Submit:  qsub src/sweep/submit_deep_geom.pbs.template      (array 1-6)
+# Check:   julia tools/check_bathymetry.jl src/sweep/params_deep_geom.toml
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── shelf depth, no shoal ────────────────────────────────────────────────────
+[[runs]]
+run_label       = "deepShelf15"
+Zs              = -15.0
+Zsh             = -15.0
+h_deep          = -100.0
+shelf_break_end = 8100.0
+rise_mid        = 90000.0
+rise_width      = 17000.0
+shoal_length    = 1000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "deepShelf25"
+Zs              = -25.0
+Zsh             = -25.0
+h_deep          = -100.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 1000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "deepShelf40"
+Zs              = -40.0
+Zsh             = -40.0
+h_deep          = -100.0
+shelf_break_end = 17800.0
+rise_mid        = 90000.0
+rise_width      = 12000.0
+shoal_length    = 1000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "deepShelf50"
+Zs              = -50.0
+Zsh             = -50.0
+h_deep          = -100.0
+shelf_break_end = 21700.0
+rise_mid        = 90000.0
+rise_width      = 10000.0
+shoal_length    = 1000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+# ── the shoal, added back at the reference shelf depth ───────────────────────
+[[runs]]
+run_label       = "deepShoal05"
+Zs              = -5.0
+Zsh             = -25.0
+h_deep          = -100.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0
+
+[[runs]]
+run_label       = "deepShoal15"
+Zs              = -15.0
+Zsh             = -25.0
+h_deep          = -100.0
+rise_mid        = 90000.0
+rise_width      = 15000.0
+shoal_length    = 40000.0
+Lz              = 100.0
+deep_strat_frac = 0.2
+dx              = 500.0
+sim_days        = 120.0

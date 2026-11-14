@@ -41,6 +41,20 @@ sweep_rise_width = parse(Float64, get(ENV, "SWEEP_RISE_WIDTH", "5000.0"))
 # 0.0 reproduces the shoal-welded-to-the-coast geometry exactly.
 sweep_shoal_start = parse(Float64, get(ENV, "SWEEP_SHOAL_START", "0.0"))
 sweep_shoal_inner_width = parse(Float64, get(ENV, "SWEEP_SHOAL_INNER_WIDTH", "0.0"))
+# Flat offshore depth. Must be deeper than Zsh or no shelf break exists.
+sweep_h_deep = parse(Float64, get(ENV, "SWEEP_H_DEEP", "-50.0"))
+# Domain depth and vertical spacing. Nz is derived, so changing Lz cannot
+# silently change the vertical resolution.
+sweep_Lz = parse(Float64, get(ENV, "SWEEP_LZ", "50.0"))
+sweep_dz = parse(Float64, get(ENV, "SWEEP_DZ", "1.0"))
+# Stratification below the deepest T/S breakpoint, as a FRACTION of the
+# gradient in the segment above it. The profiles were constant below their
+# last breakpoint, which left the bottom 40% of a 50 m column unstratified --
+# 10 to 15 of 50 levels in the offshore reference column, every run, which is
+# what forces ape_wedge.m to floor N^2 and makes eta and APE_qg unreliable
+# there. A deeper domain would make that worse, not better. 0.0 reproduces
+# the old constant tail exactly, so existing runs are unchanged.
+const DEEP_STRAT_FRAC = parse(Float64, get(ENV, "SWEEP_DEEP_STRAT_FRAC", "0.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
@@ -107,9 +121,9 @@ run_tag = "sweep_$(sweep_run_label)"
 # parameter moves it, so 150 km leaves 87 km of offshore room — more than the
 # 37 km the sponged 250 km domain actually left usable.
 if LES
-    params = (; Lx=150e3, Ly=200e3, Lz=50)
+    params = (; Lx=150e3, Ly=200e3, Lz=sweep_Lz)
 else
-    params = (; Lx=150000, Ly=200000, Lz=50)
+    params = (; Lx=150000, Ly=200000, Lz=sweep_Lz)
 end
 
 # Horizontal grid spacing is the knob, not Nx/Ny, so changing Lx can never
@@ -123,7 +137,7 @@ else
     params = (; params...,
         Nx=round(Int, params.Lx / Δh),
         Ny=round(Int, params.Ly / Δh),
-        Nz=50)
+        Nz=round(Int, params.Lz / sweep_dz))
 end
 
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
@@ -146,7 +160,8 @@ if shoal_bath
         rise_mid=sweep_rise_mid,
         rise_width=sweep_rise_width,
         shoal_start=sweep_shoal_start,
-        shoal_inner_width=sweep_shoal_inner_width)
+        shoal_inner_width=sweep_shoal_inner_width,
+        h_deep=sweep_h_deep)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -195,7 +210,7 @@ const δ_smooth = 2.5
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -210,7 +225,7 @@ end
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -225,7 +240,7 @@ end
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -240,7 +255,7 @@ end
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -256,7 +271,7 @@ end
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -272,7 +287,7 @@ end
     val1 = v1
     val2 = v1 + m12 * (z - z1)
     val3 = v2 + m23 * (z - z2)
-    val4 = v3
+    val4 = v3 + DEEP_STRAT_FRAC * m23 * (z - z3)
     w1 = smooth_step_z(z, z1)
     w2 = smooth_step_z(z, z2)
     w3 = smooth_step_z(z, z3)
@@ -748,6 +763,9 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["Zsh"] = sweep_Zsh
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
     ds.attrib["rise_mid"] = sweep_rise_mid
+    ds.attrib["rise_width"] = sweep_rise_width
+    ds.attrib["h_deep"] = sweep_h_deep
+    ds.attrib["Lz"] = sweep_Lz
     ds.attrib["dx"] = sweep_dx
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
