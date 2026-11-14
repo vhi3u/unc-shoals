@@ -79,7 +79,7 @@ fprintf('╚══════════════════════�
 fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n');
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
-[APE_qg, APE_srt, gp, H0, Ld, Wmeas, WE, dxv, nfloor] = deal(nan(1, n));
+[APE_qg, APE_srt, gp, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max] = deal(nan(1, n));
 mixed = repmat({''}, 1, n);
 BP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
 
@@ -155,6 +155,25 @@ for k = 1:n
     e = 0.5 * bpx.^2 ./ reshape(N2_ref, 1, 1, []);
     e(~wx | ~isfinite(e)) = 0;
     APE_qg(k) = sum(e .* V, 'all') / Ly;
+
+    % ── how far are the isopycnals displaced, relative to the depth? ────
+    % eta = b'/N^2 is the vertical displacement of an isopycnal from its
+    % far-field level. Normalised by the LOCAL water depth it answers the
+    % question behind both of the empirical results: whether the wedge is
+    % limited by the stratification (eta/H << 1, isopycnals free to tilt
+    % further, APE should go as the square of the forcing) or by the
+    % bathymetry (eta/H ~ 1, isopycnals already near outcropping, extra
+    % forcing buys little, APE goes sub-quadratically and a shoal perturbing
+    % an already-saturated column does almost nothing).
+    H_loc = sum(wx .* reshape(dz, 1, 1, []), 3);
+    eta   = bpx ./ reshape(N2_ref, 1, 1, []);
+    r_eta = abs(eta) ./ max(H_loc, eps);
+    r_eta(~wx | ~isfinite(r_eta)) = 0;
+    Vw_tot = sum(V(wx), 'all');
+    if Vw_tot > 0
+        etaH(k) = sqrt(sum(r_eta.^2 .* V, 'all') / Vw_tot);   % volume-weighted rms
+        etaH_max(k) = max(r_eta(:));
+    end
 
     % ── APE, estimate 2: Lorenz, by adiabatic sorting ────────────────────
     % PE is proportional to -\int b z dV. The minimum-PE state puts the
@@ -241,9 +260,9 @@ for k = 1:n
     % 34% and 19% of ambient, which is enough to put their C_geom off by more
     % than an order of magnitude.
     fprintf(['  %-16s g'' = %.3e (%5.1f%% of ambient)  H0 = %4.1f m  Ld = %6.0f m ' ...
-             '(Ld/dx = %4.1f)  W_E = %6.0f m  APE_srt = %.3e\n'], ...
+             '(Ld/dx = %4.1f)  W_E = %6.0f m  eta/H = %.2f (max %.2f)  APE_srt = %.3e\n'], ...
             labels{k}, gp(k), 100*gp(k)/gp_amb, H0(k), Ld(k), Ld(k)/dxv(k), ...
-            WE(k), APE_srt(k));
+            WE(k), etaH(k), etaH_max(k), APE_srt(k));
     if ~isempty(mixed{k})
         fprintf('                   ** %s\n', mixed{k});
     end
@@ -293,6 +312,22 @@ report_spread_('with L = energy-weighted width W_E',   C_WE_srt, usable);
 % a change in H0 is the question the closed form lives or dies on. Pooling
 % the depths hides it: C can be tight at each H0 separately and still vary by
 % a large factor between them.
+eh = etaH(usable);
+if ~isempty(eh)
+    fprintf(['\n── isopycnal displacement relative to the water depth ───────────\n' ...
+             '  eta/H (volume-weighted rms): %.2f to %.2f, median %.2f\n'], ...
+            min(eh), max(eh), median(eh));
+    fprintf(['  Near 1 means the wedge is BATHYMETRICALLY limited -- the isopycnals\n' ...
+             '  are already tilted through most of the column, so extra forcing\n' ...
+             '  cannot buy proportionally more tilt and a shoal perturbing an\n' ...
+             '  already-saturated column changes little. That is the single\n' ...
+             '  mechanism behind both empirical results: APE insensitive to shoal\n' ...
+             '  height and length (<7%%), and APE growing as v0^1.09 rather than the\n' ...
+             '  v0^2 that unlimited thermal wind would give.\n' ...
+             '  Well below 1 means the stratification is doing the limiting and\n' ...
+             '  those two results need a different explanation.\n']);
+end
+
 Hs = unique(H0(usable));
 if numel(Hs) > 1
     fprintf('\n── C_geom (L = Ld) grouped by shelf depth ───────────────────────\n');
@@ -393,7 +428,8 @@ close(f2);
 R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
            'g_prime', gp, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
            'mixed', {mixed}, 'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, ...
-           'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt);
+           'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt, ...
+           'eta_over_H', etaH, 'eta_over_H_max', etaH_max);
 end
 
 % ================== helpers ==================
