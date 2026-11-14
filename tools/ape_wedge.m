@@ -235,9 +235,15 @@ for k = 1:n
     BP{k} = squeeze(mean(bpm, 2, 'omitnan'))';          % (Nz x Nx)
     XK{k} = x_km(ix);  ZK{k} = zc;
 
-    fprintf(['  %-16s g'' = %.3e  H0 = %4.1f m  Ld = %6.0f m (Ld/dx = %4.1f)  ' ...
-             'W = %6.0f m  W_E = %6.0f m  APE_srt = %.3e\n'], ...
-            labels{k}, gp(k), H0(k), Ld(k), Ld(k)/dxv(k), Wmeas(k), WE(k), APE_srt(k));
+    % g' as a FRACTION of the ambient contrast is printed on every run, not
+    % only the flagged ones. It is the single most diagnostic number for a
+    % forced run: wind_0p03 and wind_0p05 clear the 10% flag but still sit at
+    % 34% and 19% of ambient, which is enough to put their C_geom off by more
+    % than an order of magnitude.
+    fprintf(['  %-16s g'' = %.3e (%5.1f%% of ambient)  H0 = %4.1f m  Ld = %6.0f m ' ...
+             '(Ld/dx = %4.1f)  W_E = %6.0f m  APE_srt = %.3e\n'], ...
+            labels{k}, gp(k), 100*gp(k)/gp_amb, H0(k), Ld(k), Ld(k)/dxv(k), ...
+            WE(k), APE_srt(k));
     if ~isempty(mixed{k})
         fprintf('                   ** %s\n', mixed{k});
     end
