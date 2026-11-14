@@ -263,18 +263,50 @@ for k = 1:n
             C_Ld_srt(k), C_W_srt(k), C_WE_srt(k), mixed{k});
 end
 
-nmix = sum(~cellfun(@isempty, mixed));
+% A run whose column is mixed has no usable g', whether that shows up as a
+% NaN or as a tiny positive residual. Both must leave the statistics: a
+% "nearly mixed" run with g' at 0.1% of ambient still divides by almost
+% nothing and drags the spread to six figures.
+usable = cellfun(@isempty, mixed) & isfinite(gp) & gp > 0;
+nmix = sum(~usable);
 if nmix > 0
-    fprintf(['\n  %d run(s) excluded below: the shelf column is vertically mixed, so the\n' ...
-             '  surface-to-bottom g'' -- and every scale built on it -- is undefined.\n' ...
-             '  Their measured APE is still in the table above and is not small, which\n' ...
-             '  is the point: the energy is in the HORIZONTAL structure, where a\n' ...
-             '  vertical contrast cannot see it.\n'], nmix);
+    fprintf(['\n  %d run(s) excluded from the statistics below: the shelf column is\n' ...
+             '  vertically mixed, so the surface-to-bottom g'' -- and every scale built\n' ...
+             '  on it -- is undefined or numerically meaningless. Their measured APE is\n' ...
+             '  still in the table above and is NOT small, which is the point: the\n' ...
+             '  energy has moved into horizontal structure, where a vertical contrast\n' ...
+             '  cannot see it.\n'], nmix);
 end
 
-report_spread_('with L = Ld  (as the theory assumes)', C_Ld_srt);
-report_spread_('with L = measured width W',            C_W_srt);
-report_spread_('with L = energy-weighted width W_E',   C_WE_srt);
+report_spread_('with L = Ld  (as the theory assumes)', C_Ld_srt, usable);
+report_spread_('with L = measured width W',            C_W_srt,  usable);
+report_spread_('with L = energy-weighted width W_E',   C_WE_srt, usable);
+
+% ── and the same thing grouped by shelf depth ────────────────────────────
+% Eq. 8 puts the entire depth dependence in H0^2, so whether C_geom survives
+% a change in H0 is the question the closed form lives or dies on. Pooling
+% the depths hides it: C can be tight at each H0 separately and still vary by
+% a large factor between them.
+Hs = unique(H0(usable));
+if numel(Hs) > 1
+    fprintf('\n── C_geom (L = Ld) grouped by shelf depth ───────────────────────\n');
+    fprintf('  %8s %5s %10s %10s\n', 'H0 (m)', 'n', 'median', 'spread');
+    for hh = Hs(:)'
+        m = usable & H0 == hh;
+        c = C_Ld_srt(m);
+        if numel(c) == 1
+            fprintf('  %8.1f %5d %10.4f %10s\n', hh, 1, c, '--');
+        else
+            fprintf('  %8.1f %5d %10.4f %9.0f%%\n', hh, numel(c), median(c), ...
+                    100*(max(c)-min(c))/median(c));
+        end
+    end
+    cg = arrayfun(@(hh) median(C_Ld_srt(usable & H0 == hh)), Hs);
+    fprintf(['  C_geom changes by a factor of %.1f across these depths. Eq. 8 asks it\n' ...
+             '  to be constant, so a factor well above the within-depth spread means\n' ...
+             '  the H0^2 form does not hold here and the Eq. 7 test should use the\n' ...
+             '  MEASURED APE rather than the closed form.\n'], max(cg)/min(cg));
+end
 
 fprintf(['\n  Reference values: 1/6 = %.3f (triangular wedge, Zhao et al. Eq. 8)\n' ...
          '                    1/2 = %.3f (anomaly fills the H0 x L box)\n'], 1/6, 1/2);
@@ -337,10 +369,11 @@ end
 f2 = figure('Color','w','Position',[60 60 1250 470]);
 t2 = tiledlayout(f2, 1, 2, 'TileSpacing','compact','Padding','compact');
 
-scatter_panel_(nexttile(t2), base_Ld, APE_srt, labels, ...
+APE_fit = APE_srt; APE_fit(~usable) = NaN;    % mixed columns do not constrain C
+scatter_panel_(nexttile(t2), base_Ld, APE_fit, labels, ...
     'g'' H_0^2 L_d   (m^4 s^{-2})', 'measured APE_\Delta   (m^4 s^{-2})', ...
     'L = L_d  (what the theory assumes)');
-scatter_panel_(nexttile(t2), base_WE, APE_srt, labels, ...
+scatter_panel_(nexttile(t2), base_WE, APE_fit, labels, ...
     'g'' H_0^2 W_E   (m^4 s^{-2})', '', ...
     'L = energy-weighted width  (APE \propto b''^2)');
 
@@ -359,8 +392,9 @@ end
 
 % ================== helpers ==================
 
-function report_spread_(what, C)
-c = C(isfinite(C) & C > 0);
+function report_spread_(what, C, usable)
+if nargin < 3, usable = true(size(C)); end
+c = C(isfinite(C) & C > 0 & usable);
 if numel(c) < 2, return; end
 fprintf('\n  %s\n', what);
 fprintf('    median %.4f, range %.4f to %.4f, spread %.0f%% of the median\n', ...
