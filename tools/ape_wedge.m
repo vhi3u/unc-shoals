@@ -79,8 +79,9 @@ fprintf('╚══════════════════════�
 fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n');
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
-[APE_qg, APE_srt, gp, N2bar, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max] = deal(nan(1, n));
-mixed = repmat({''}, 1, n);
+[APE_qg, APE_srt, gp, N2bar, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max, etaH_frac] = deal(nan(1, n));
+mixed   = repmat({''}, 1, n);
+nobreak = repmat({''}, 1, n);
 BP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
 
 for k = 1:n
@@ -128,7 +129,8 @@ for k = 1:n
         continue;
     end
     N2_floor   = 0.01 * median(good);
-    nfloor(k)  = sum(N2_ref < N2_floor);
+    lev_ok     = N2_ref >= N2_floor;          % levels NOT floored
+    nfloor(k)  = sum(~lev_ok);
     N2_ref     = max(N2_ref, N2_floor);
 
     bp = b - reshape(b_ref, 1, 1, []);                  % b'
@@ -144,7 +146,15 @@ for k = 1:n
     H0(k)   = abs(zsh_for_(cluster_dir, labels{k}, tags{k}));
     depth_x = median(sum(wet .* reshape(dz, 1, 1, []), 3), 2);
     ib = shelf_break_(depth_x, H0(k));
-    if isempty(ib), [~, ib] = min(abs(x_km - o.x_break)); end
+    if isempty(ib)
+        % No break exists. The background's offshore depth is hardcoded at
+        % -50 m in dshoal_vn_param.jl, so at Zsh = -50 the shelf merges into
+        % the deep ocean and the integration box becomes an arbitrary 50 km.
+        % Such a run cannot constrain a depth scaling and must not sit in the
+        % fit; it used to drag the g' and N2 exponents on its own.
+        nobreak{k} = 'no shelf break found -- box is the fixed fallback';
+        [~, ib] = min(abs(x_km - o.x_break));
+    end
     ix = 1:ib;
 
     V = reshape(dx(ix), [], 1) .* reshape(dy(iy), 1, []) .* reshape(dz, 1, 1, []);
@@ -165,14 +175,19 @@ for k = 1:n
     % bathymetry (eta/H ~ 1, isopycnals already near outcropping, extra
     % forcing buys little, APE goes sub-quadratically and a shoal perturbing
     % an already-saturated column does almost nothing).
+    % eta = b'/N^2 divides by the reference stratification, so any level where
+    % N2_ref was floored returns a meaningless ratio -- that is how the first
+    % version of this produced eta/H = 1038. Two changes: floored levels are
+    % dropped outright, and the statistic is a volume-weighted MEDIAN rather
+    % than an rms, because an rms is dominated by whatever tail survives.
     H_loc = sum(wx .* reshape(dz, 1, 1, []), 3);
     eta   = bpx ./ reshape(N2_ref, 1, 1, []);
     r_eta = abs(eta) ./ max(H_loc, eps);
-    r_eta(~wx | ~isfinite(r_eta)) = 0;
-    Vw_tot = sum(V(wx), 'all');
-    if Vw_tot > 0
-        etaH(k) = sqrt(sum(r_eta.^2 .* V, 'all') / Vw_tot);   % volume-weighted rms
-        etaH_max(k) = max(r_eta(:));
+    keep  = wx & isfinite(r_eta) & repmat(reshape(lev_ok, 1, 1, []), size(wx,1), size(wx,2), 1);
+    if any(keep(:))
+        etaH(k)     = wmedian_(r_eta(keep), V(keep));
+        etaH_max(k) = wquantile_(r_eta(keep), V(keep), 0.90);
+        etaH_frac(k) = sum(V(keep), 'all') / max(sum(V(wx), 'all'), eps);
     end
 
     % ── APE, estimate 2: Lorenz, by adiabatic sorting ────────────────────
@@ -263,9 +278,8 @@ for k = 1:n
              'Ld = %6.0f m (Ld/dx = %4.1f)  W_E = %6.0f m  eta/H = %.2f  APE_srt = %.3e\n'], ...
             labels{k}, gp(k), 100*gp(k)/gp_amb, N2bar(k), H0(k), Ld(k), Ld(k)/dxv(k), ...
             WE(k), etaH(k), APE_srt(k));
-    if ~isempty(mixed{k})
-        fprintf('                   ** %s\n', mixed{k});
-    end
+    if ~isempty(mixed{k}),   fprintf('                   ** %s\n', mixed{k});   end
+    if ~isempty(nobreak{k}), fprintf('                   ** %s\n', nobreak{k}); end
     if nfloor(k) > 0
         fprintf('                   (%d of %d reference levels floored -- APE_qg is soft here)\n', ...
                 nfloor(k), numel(N2_ref));
@@ -292,7 +306,7 @@ end
 % NaN or as a tiny positive residual. Both must leave the statistics: a
 % "nearly mixed" run with g' at 0.1% of ambient still divides by almost
 % nothing and drags the spread to six figures.
-usable = cellfun(@isempty, mixed) & isfinite(gp) & gp > 0;
+usable = cellfun(@isempty, mixed) & cellfun(@isempty, nobreak) & isfinite(gp) & gp > 0;
 nmix = sum(~usable);
 if nmix > 0
     fprintf(['\n  %d run(s) excluded from the statistics below: the shelf column is\n' ...
@@ -315,8 +329,10 @@ report_spread_('with L = energy-weighted width W_E',   C_WE_srt, usable);
 eh = etaH(usable);
 if ~isempty(eh)
     fprintf(['\n── isopycnal displacement relative to the water depth ───────────\n' ...
-             '  eta/H (volume-weighted rms): %.2f to %.2f, median %.2f\n'], ...
-            min(eh), max(eh), median(eh));
+             '  eta/H (volume-weighted median): %.2f to %.2f, median %.2f\n' ...
+             '  (computed on the %.0f%%-%.0f%% of the column where N^2_ref is resolved)\n'], ...
+            min(eh), max(eh), median(eh), ...
+            100*min(etaH_frac(usable)), 100*max(etaH_frac(usable)));
     fprintf(['  Near 1 means the wedge is BATHYMETRICALLY limited -- the isopycnals\n' ...
              '  are already tilted through most of the column, so extra forcing\n' ...
              '  cannot buy proportionally more tilt and a shoal perturbing an\n' ...
@@ -449,7 +465,8 @@ R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
            'g_prime', gp, 'N2bar', N2bar, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
            'mixed', {mixed}, 'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, ...
            'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt, ...
-           'eta_over_H', etaH, 'eta_over_H_max', etaH_max);
+           'eta_over_H', etaH, 'eta_over_H_p90', etaH_max, ...
+           'eta_frac_used', etaH_frac, 'no_break', {nobreak});
 end
 
 % ================== helpers ==================
@@ -548,6 +565,23 @@ ok = isfinite(b_ref);
 if sum(ok) < 2, gpa = NaN; return; end
 bb = b_ref(ok);
 gpa = bb(end) - bb(1);
+end
+
+function m = wmedian_(x, w)
+m = wquantile_(x, w, 0.5);
+end
+
+function q = wquantile_(x, w, p)
+% Volume-weighted quantile. Robust where an rms is not: eta/H has a heavy
+% tail wherever the reference stratification is weak, and an rms reports the
+% tail rather than the typical displacement.
+x = x(:); w = w(:);
+ok = isfinite(x) & isfinite(w) & w > 0;
+x = x(ok); w = w(ok);
+if isempty(x), q = NaN; return; end
+[x, i] = sort(x); w = w(i);
+c = (cumsum(w) - 0.5*w) / sum(w);
+q = interp1(c, x, p, 'linear', 'extrap');
 end
 
 function ib = shelf_break_(depth_x, H0)
