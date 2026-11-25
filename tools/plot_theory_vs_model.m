@@ -15,7 +15,10 @@ function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, re
 %           the horizontal g'_h (rms of b - b_init(z) over the shelf
 %           columns), Ld_h = sqrt(g'_h H0)/f, against the MEASURED eddy
 %           transport: the transient eddy buoyancy flux <u'b'>, integrated
-%           alongshore and over depth at the shelf x where it peaks, / g'_h.
+%           alongshore and over depth at the shelf x where it peaks, / g'_h,
+%           times sign(tilt): positive = DOWN-gradient exchange of shelf water
+%           (Zhao's plume is light inshore; our unforced and upwelling shelves
+%           are dense inshore, so the same exchange moves light water onshore).
 %           c is fitted here. Tests the transport step only.
 %       (c) total Q = Q_Ek + that eddy term, against the diagnosed Q. Q is
 %           built from the time-mean u, so it holds no eddy flux: (b) is the
@@ -420,7 +423,7 @@ end
 % the EKE and Q diagnosed above.
 A = load_ape_(cluster_name, sweep_output_root, outdir, y_range_Q, x_g_range, all_sweeps, refresh_ape);
 lab_ape = strrep(A.labels, 'sweep_', '');
-[APEm_val, Abox_val, gph_val, drift_val, gp0_val] = deal(nan(num_sw, 1));
+[APEm_val, Abox_val, gph_val, drift_val, gp0_val, tilt_val] = deal(nan(num_sw, 1));
 for idx = 1:num_sw
     j = find(strcmp(lab_ape, strrep(all_sweeps{idx}, 'sweep_', '')), 1);
     if isempty(j), continue; end
@@ -429,6 +432,7 @@ for idx = 1:num_sw
     gph_val(idx)   = A.g_prime_h(j);
     drift_val(idx) = A.ref_drift(j);
     gp0_val(idx)   = A.g_prime_0(j);
+    tilt_val(idx)  = A.tilt(j);
 end
 
 % Filter out runs without a diagnosed EKE and Q
@@ -453,6 +457,7 @@ Abox_val     = Abox_val(valid);
 gph_val      = gph_val(valid);
 drift_val    = drift_val(valid);
 gp0_val      = gp0_val(valid);
+tilt_val     = tilt_val(valid);
 Ft_val       = Ft_val(valid);
 Fs_val       = Fs_val(valid);
 xFt_val      = xFt_val(valid);
@@ -486,9 +491,19 @@ base_step = APEm_val ./ Abox_val;
 % against the mean overturning (unforced) or Ekman residuals (wind).
 Ldh_val    = sqrt(gph_val .* H0_val) / f;
 basis_step = f * L_val .* Ldh_val .* EKE_diag ./ gph_val;
-Qe_t       = Ft_val ./ gph_val;                % measured transient eddy transport [m^3/s]
+% Eq. 5 describes eddies EXCHANGING shelf water with offshore water by a
+% down-gradient buoyancy flux. Which way that flux points depends on which
+% side is light: Zhao et al.'s plume is light inshore, so it goes offshore;
+% here the unforced and upwelling shelves are DENSE inshore (tilt < 0), so
+% the same exchange carries light water onshore. Multiplying by sign(tilt)
+% makes the measured eddy transport positive for down-gradient exchange in
+% either geometry. Runs with |tilt| < 5% of g'_h have no clear cross-shelf
+% gradient, so the sign is ambiguous: they are circled and left out of the fit.
+tilt_amb   = ~(abs(tilt_val) >= 0.05 * gph_val);
+Qe_t       = sign(tilt_val) .* Ft_val ./ gph_val;   % measured eddy exchange of shelf water [m^3/s]
+counter    = Qe_t < 0 & ~tilt_amb;                  % up-gradient: not baroclinic instability
 Qe_s       = Fs_val ./ gph_val;                % standing-meander transport        [m^3/s]
-fit_ok     = isfinite(basis_step) & isfinite(Qe_t) & ~h_unreliable;
+fit_ok     = isfinite(basis_step) & isfinite(Qe_t) & ~h_unreliable & ~tilt_amb;
 c_raw      = NaN;
 if any(fit_ok), c_raw = basis_step(fit_ok) \ Qe_t(fit_ok); end
 if c_raw > 0
@@ -496,7 +511,7 @@ if c_raw > 0
 else
     c_eddy = 1.1;
     fprintf(['  ** The measured eddy flux points the wrong way for Eq. 5 (fitted c = %.3g):\n' ...
-             '     eddies carry light water ONSHORE here. Using c = 1.1 for the Q panels.\n'], c_raw);
+             '     the eddy flux is mostly UP the cross-shelf gradient. Using c = 1.1 for the Q panels.\n'], c_raw);
 end
 Q_step     = QEk_val + c_eddy * basis_step;
 
@@ -533,15 +548,20 @@ fprintf(['  (EKE in m^2/s^2, Q in m^3/s; drift = offshore-strip drift from the i
          '  offshore flow only, so it cannot go negative, while theory Q is signed: for downwelling\n' ...
          '  (tau < 0) the two are not the same quantity.\n']);
 fprintf('\n=== Eddy buoyancy flux across the shelf (alongshore + depth integrated, / g''_h) ===\n');
-fprintf('  %-14s %11s %7s %11s %7s | %11s %11s %11s\n', 'run', 'transient', 'x (km)', 'standing', 'x (km)', ...
-        'Eq.5 c=1', 'Q_mod-Q_Ek', 'Q_mod');
+fprintf('  %-14s %11s %7s %11s %7s %10s | %11s %11s %11s %11s\n', 'run', 'transient', 'x (km)', 'standing', 'x (km)', ...
+        'tilt', 'eddy exch', 'Eq.5 c=1', 'Q_mod-Q_Ek', 'Q_mod');
 for i = 1:num_valid
-    fprintf('  %-14s %11.3e %7.1f %11.3e %7.1f | %11.3e %11.3e %11.3e\n', sweeps_valid{i}, ...
-            Qe_t(i), xFt_val(i), Qe_s(i), xFs_val(i), basis_step(i), Q_diag(i) - QEk_val(i), Q_diag(i));
+    note = '';
+    if tilt_amb(i), note = '  * no clear gradient: sign ambiguous'; elseif counter(i), note = '  * UP-gradient'; end
+    fprintf('  %-14s %11.3e %7.1f %11.3e %7.1f %+10.2e | %11.3e %11.3e %11.3e %11.3e%s\n', sweeps_valid{i}, ...
+            Ft_val(i)/gph_val(i), xFt_val(i), Qe_s(i), xFs_val(i), tilt_val(i), Qe_t(i), basis_step(i), ...
+            Q_diag(i) - QEk_val(i), Q_diag(i), note);
 end
 fprintf(['  (m^3/s; > 0 = light water offshore, the sense of Zhao''s offshore freshwater flux.\n' ...
          '   transient = <u''b''>, time-varying eddies; standing = steady alongshore meanders.\n' ...
-         '   Eq. 5 predicts the transient part. Compare its size with Q_mod - Q_Ek: if it is far\n' ...
+         '   eddy exch = transient x sign(tilt): > 0 = down-gradient exchange of shelf water, what\n' ...
+         '   Eq. 5 predicts (tilt < 0 = dense inshore, so light water moves ONSHORE).\n' ...
+         '   Compare its size with Q_mod - Q_Ek: if it is far\n' ...
          '   smaller, Q is not eddy-driven and Eq. 5 cannot explain it whatever c is.)\n']);
 fprintf('  Eq. 5 constant c (fitted to the measured transient eddy transport, %d of %d runs): %.3f\n', ...
         sum(fit_ok), num_valid, c_eddy);
@@ -553,7 +573,7 @@ cu = sprintf('%.3f ', C_meas_0(tau_val == 0));  if isempty(cu), cu = 'none in th
 fprintf('  C_geom used in the predictive figure: %.4f. Measured APE / (g''_0 H0^2 Ld_0), unforced runs: %s\n', ...
         C_geom, cu);
 report_skill_('stepwise   EKE', EKE_step, EKE_diag);
-report_skill_('stepwise   eddy Q', c_eddy * basis_step(~h_unreliable), Qe_t(~h_unreliable));
+report_skill_('stepwise   eddy Q', c_eddy * basis_step(fit_ok), Qe_t(fit_ok));
 report_skill_('stepwise   Q  ', Q_step(~h_unreliable), Q_diag(~h_unreliable));
 report_skill_('predictive EKE', EKE_pred, EKE_diag);
 report_skill_('predictive Q  ', Q_pred, Q_diag);
@@ -567,7 +587,7 @@ theory_inputs = struct('sweeps', {sweeps_valid}, 'EKE_diag', EKE_diag, 'Q_diag',
     'ref_drift', drift_val, 'g_prime_0', gp0_val, 'Ld_0', Ld0_val, 'c_eddy', c_eddy, ...
     'EKE_step', EKE_step, 'Q_step', Q_step, 'EKE_pred', EKE_pred, 'Q_pred', Q_pred, ...
     'Q_eddy_transient', Qe_t, 'Q_eddy_standing', Qe_s, 'x_transient_km', xFt_val, 'x_standing_km', xFs_val, ...
-    'F_transient', Ft_val, 'F_standing', Fs_val);
+    'F_transient', Ft_val, 'F_standing', Fs_val, 'tilt', tilt_val, 'tilt_ambiguous', tilt_amb);
 save(fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)), 'theory_inputs');
 fprintf('Saved theory inputs: %s\n', fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)));
 
@@ -641,12 +661,12 @@ if any(iw & tau_val(:)' < 0), leg(end+1) = struct('m', 'v', 'c', col_wind, 'fill
 %% Plotting
 lbl = strrep(cluster_name, '_', '\_');
 lab_eke = {'Theory $\sqrt{EKE}$ (m s$^{-1}$)', 'Simulation $\sqrt{EKE}$ (m s$^{-1}$)'};
-lab_qe  = {'Theory eddy $Q$ (mSv)', 'Measured eddy $Q$, $\langle u''b''\rangle / g''_h$ (mSv)'};
+lab_qe  = {'Theory eddy $Q$ (mSv)', 'Measured eddy exchange, $\pm\langle u''b''\rangle / g''_h$ (mSv)'};
 lab_q   = {'Theory $Q$ (mSv)', 'Simulation $Q$ (mSv)'};
 nof = false(num_valid, 1);
 draw_theory_fig_({sqrt(EKE_step), c_eddy * basis_step / 1e3, Q_step / 1e3}, ...
                  {sqrt(EKE_diag), Qe_t / 1e3, Q_diag / 1e3}, ...
-                 {nof, h_unreliable, h_unreliable}, {lab_eke, lab_qe, lab_q}, [true false false], sty, leg, ...
+                 {nof, h_unreliable | tilt_amb, h_unreliable}, {lab_eke, lab_qe, lab_q}, [true false false], sty, leg, ...
     {'(a) EKE: Eq. 7 with measured APE', ...
      sprintf('(b) eddy $Q$: Eq. 5 term ($c = %.2f$)', c_eddy), ...
      '(c) total $Q$: $Q_{Ek}$ + eddy term'}, ...
@@ -669,7 +689,7 @@ fmat = fullfile(outdir, sprintf('%s_ape_wedge.mat', cluster_name));
 A = [];
 if ~refresh && isfile(fmat)
     S = load(fmat);  A = S.R;
-    need = {'APE_sorted', 'A_box', 'g_prime_h', 'ref_drift', 'g_prime_0', 'y_box', 'x_g_range', 'window'};
+    need = {'APE_sorted', 'A_box', 'g_prime_h', 'ref_drift', 'g_prime_0', 'tilt', 'y_box', 'x_g_range', 'window'};
     why = '';
     if ~all(isfield(A, need))
         why = 'written by an older ape_wedge';
