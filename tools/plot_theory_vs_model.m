@@ -5,18 +5,27 @@ function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, re
 % Eqs. 5, 7, 8). Two figures, because the chain APE -> EKE -> Q can be
 % tested two different ways and they answer different questions:
 %
-%   <cluster>_theory_vs_model_stepwise.png
+%   <cluster>_theory_vs_model_stepwise.png   (three panels)
 %     Each step fed the MEASURED input it needs, so a miss is attributable:
 %       (a) Eq. 7:  EKE = a(1+cs)^n (APE/A_box) / (1+bR), with APE the sorted
 %           (Lorenz) APE from ape_wedge.m and A_box the shelf box's wet
 %           cross-section, i.e. APE per unit volume -- the same average as the
 %           diagnosed shelf-mean EKE. Tests the conversion only.
-%       (b) Eq. 5:  Q = Q_Ek + c f L Ld_h EKE / g'_h, with the MEASURED EKE and
+%       (b) Eq. 5 eddy term, c f L Ld_h EKE / g'_h, with the MEASURED EKE and
 %           the horizontal g'_h (rms of b - b_init(z) over the shelf
-%           columns), Ld_h = sqrt(g'_h H0)/f. Tests the transport only.
+%           columns), Ld_h = sqrt(g'_h H0)/f, against the MEASURED eddy
+%           transport: the transient eddy buoyancy flux <u'b'>, integrated
+%           alongshore and over depth at the shelf x where it peaks, / g'_h.
+%           c is fitted here. Tests the transport step only.
+%       (c) total Q = Q_Ek + that eddy term, against the diagnosed Q. Q is
+%           built from the time-mean u, so it holds no eddy flux: (b) is the
+%           real test of Eq. 5, (c) shows whether eddies matter for Q at all.
 %           Runs whose offshore water has drifted from the initial profile by
-%           more than g'_h (downwelling) are circled and left out of the fit
-%           for c: g'_h does not mean shelf-against-ocean there.
+%           more than g'_h (downwelling) are circled in (b) and (c) and left
+%           out of the fit for c: g'_h does not mean shelf-against-ocean there.
+%     Also printed: the STANDING-eddy flux (u - [u])(b - [b]) of the time-
+%     mean fields -- steady meanders around the shoal -- which carries
+%     buoyancy without appearing in <u'b'>.
 %
 %   <cluster>_theory_vs_model_predictive.png
 %     Only what is known before the run: g'_0 = surface-minus-bottom contrast
@@ -153,6 +162,7 @@ N_val       = nan(num_sw, 1);
 L_val       = nan(num_sw, 1);
 xb_val      = nan(num_sw, 1);
 Qnet_val    = nan(num_sw, 1);
+[Ft_val, Fs_val, xFt_val, xFs_val] = deal(nan(num_sw, 1));   % eddy buoyancy fluxes (see section 4)
 
 fprintf('=== Extracting data from %d sweeps ===\n', num_sw);
 
@@ -348,6 +358,49 @@ for idx = 1:num_sw
             fprintf('  [Fallback Activated] Q_diag calculation failed for %s (%s).\n', sw, ME.message);
             Q_diag(idx) = NaN;
         end
+
+        % ---- 4. Eddy buoyancy flux across the shelf ----
+        % Q above is built from the time-mean u, so it holds the Eulerian-
+        % mean overturning and NO eddy flux. Eq. 5 predicts an eddy flux, so
+        % it is measured here directly, alongshore- and depth-integrated at
+        % every shelf x:
+        %   transient  <u'b'> = g [alpha (<uT> - <u><T>) - beta (<uS> - <u><S>)]
+        %              (time-varying eddies; the model averages every step)
+        %   standing   (u - [u]) (b - [b]), [.] = alongshore mean of the
+        %              time-mean fields: steady meanders around the shoal,
+        %              which carry buoyancy without appearing in <u'b'>
+        % Both are independent of the buoyancy reference. Each is reported at
+        % the x where its magnitude peaks, signed: > 0 means light water
+        % offshore (or dense onshore), the sense of Zhao et al.'s offshore
+        % freshwater flux. Divided by g'_h below, they become volume
+        % transports [m^3/s], which is what Eq. 5 predicts.
+        try
+            rdq = @(v) ncread(fname, v, [1 iyQ(1) 1 t_idx], [ix_b numel(iyQ) Inf 1]);
+            um = rdq('u_c');  Tm = rdq('T');  Sm = rdq('S');
+            wq = (Tm ~= 0) & isfinite(Tm);
+            % covariances in T and S first, then combined: keeps the
+            % cancellation in <uT> - <u><T> at T, S magnitudes, not b's
+            cuT = rdq('uT') - um .* Tm;
+            cuS = rdq('uS') - um .* Sm;
+            ubp = g * (eos_alpha * cuT - eos_beta * cuS);
+            ubp(~wq | ~isfinite(ubp)) = 0;
+            clear cuT cuS;
+            wdy = reshape(dy(iyQ), 1, []) .* wq;                       % wet widths
+            wy  = max(sum(wdy, 2), eps);
+            um(~wq) = 0;  bm = buoy(Tm, Sm);  bm(~wq) = 0;
+            ust = um - sum(um .* wdy, 2) ./ wy;
+            bst = bm - sum(bm .* wdy, 2) ./ wy;
+            sfl = ust .* bst;  sfl(~wq | ~isfinite(sfl)) = 0;
+            dzr = reshape(dz, 1, 1, []);
+            Ftx = squeeze(sum(sum(ubp .* reshape(dy(iyQ), 1, []), 2) .* dzr, 3));   % (Nx,1) [m^4/s^3]
+            Fsx = squeeze(sum(sum(sfl .* reshape(dy(iyQ), 1, []), 2) .* dzr, 3));
+            [~, it_] = max(abs(Ftx));  [~, is_] = max(abs(Fsx));
+            Ft_val(idx) = Ftx(it_);  xFt_val(idx) = xc_km(it_);
+            Fs_val(idx) = Fsx(is_);  xFs_val(idx) = xc_km(is_);
+            clear um Tm Sm wq ubp wdy ust bst sfl bm;
+        catch ME
+            fprintf('  [Fallback Activated] Eddy flux calculation failed for %s (%s).\n', sw, ME.message);
+        end
         
         Ld_dx = Ld / median(dx);
         fprintf('  %s: g'' = %.3e m/s^2, N = %.2e 1/s, H0 = %.1f m, Ld = %.1f km (Ld/dx = %.1f), x_b = %.1f km, EKE = %.2e m^2/s^2, Q = %.2e m^3/s (net %.1e)\n', ...
@@ -400,6 +453,10 @@ Abox_val     = Abox_val(valid);
 gph_val      = gph_val(valid);
 drift_val    = drift_val(valid);
 gp0_val      = gp0_val(valid);
+Ft_val       = Ft_val(valid);
+Fs_val       = Fs_val(valid);
+xFt_val      = xFt_val(valid);
+xFs_val      = xFs_val(valid);
 sweeps_valid = all_sweeps(valid);
 num_valid    = numel(sweeps_valid);
 
@@ -422,10 +479,25 @@ base_step = APEm_val ./ Abox_val;
 % Eq. 5 with MEASURED EKE and the horizontal g'_h:
 %   Q_eddy = c f L Ld_h EKE / g'_h,   Ld_h = sqrt(g'_h H0)/f
 %          = c L EKE sqrt(H0 / g'_h)
+%
+% The constant c is fitted against the MEASURED eddy transport (transient
+% eddy buoyancy flux / g'_h), not against Q - Q_Ek: Q is built from the
+% time-mean u and holds no eddy flux, so fitting c to it calibrated Eq. 5
+% against the mean overturning (unforced) or Ekman residuals (wind).
 Ldh_val    = sqrt(gph_val .* H0_val) / f;
 basis_step = f * L_val .* Ldh_val .* EKE_diag ./ gph_val;
-fit_ok     = isfinite(basis_step) & isfinite(Q_diag) & ~h_unreliable;
-c_eddy     = fit_through_origin_(basis_step(fit_ok), Q_diag(fit_ok) - QEk_val(fit_ok));
+Qe_t       = Ft_val ./ gph_val;                % measured transient eddy transport [m^3/s]
+Qe_s       = Fs_val ./ gph_val;                % standing-meander transport        [m^3/s]
+fit_ok     = isfinite(basis_step) & isfinite(Qe_t) & ~h_unreliable;
+c_raw      = NaN;
+if any(fit_ok), c_raw = basis_step(fit_ok) \ Qe_t(fit_ok); end
+if c_raw > 0
+    c_eddy = c_raw;
+else
+    c_eddy = 1.1;
+    fprintf(['  ** The measured eddy flux points the wrong way for Eq. 5 (fitted c = %.3g):\n' ...
+             '     eddies carry light water ONSHORE here. Using c = 1.1 for the Q panels.\n'], c_raw);
+end
 Q_step     = QEk_val + c_eddy * basis_step;
 
 %% ===== Figure 2: PREDICTIVE -- only what is known before the run =====
@@ -460,7 +532,18 @@ fprintf(['  (EKE in m^2/s^2, Q in m^3/s; drift = offshore-strip drift from the i
          '  Q_Ek is the Ekman part of both theory columns; Q_step - Q_Ek is the eddy term. Q_mod counts\n' ...
          '  offshore flow only, so it cannot go negative, while theory Q is signed: for downwelling\n' ...
          '  (tau < 0) the two are not the same quantity.\n']);
-fprintf('  Eq. 5 constant c (fitted in the stepwise test on %d of %d runs): %.3f\n', ...
+fprintf('\n=== Eddy buoyancy flux across the shelf (alongshore + depth integrated, / g''_h) ===\n');
+fprintf('  %-14s %11s %7s %11s %7s | %11s %11s %11s\n', 'run', 'transient', 'x (km)', 'standing', 'x (km)', ...
+        'Eq.5 c=1', 'Q_mod-Q_Ek', 'Q_mod');
+for i = 1:num_valid
+    fprintf('  %-14s %11.3e %7.1f %11.3e %7.1f | %11.3e %11.3e %11.3e\n', sweeps_valid{i}, ...
+            Qe_t(i), xFt_val(i), Qe_s(i), xFs_val(i), basis_step(i), Q_diag(i) - QEk_val(i), Q_diag(i));
+end
+fprintf(['  (m^3/s; > 0 = light water offshore, the sense of Zhao''s offshore freshwater flux.\n' ...
+         '   transient = <u''b''>, time-varying eddies; standing = steady alongshore meanders.\n' ...
+         '   Eq. 5 predicts the transient part. Compare its size with Q_mod - Q_Ek: if it is far\n' ...
+         '   smaller, Q is not eddy-driven and Eq. 5 cannot explain it whatever c is.)\n']);
+fprintf('  Eq. 5 constant c (fitted to the measured transient eddy transport, %d of %d runs): %.3f\n', ...
         sum(fit_ok), num_valid, c_eddy);
 if sum(fit_ok) < 3
     fprintf(['  ** c rests on %d run(s): the stepwise Q panel then sits on the 1:1 line\n' ...
@@ -470,6 +553,7 @@ cu = sprintf('%.3f ', C_meas_0(tau_val == 0));  if isempty(cu), cu = 'none in th
 fprintf('  C_geom used in the predictive figure: %.4f. Measured APE / (g''_0 H0^2 Ld_0), unforced runs: %s\n', ...
         C_geom, cu);
 report_skill_('stepwise   EKE', EKE_step, EKE_diag);
+report_skill_('stepwise   eddy Q', c_eddy * basis_step(~h_unreliable), Qe_t(~h_unreliable));
 report_skill_('stepwise   Q  ', Q_step(~h_unreliable), Q_diag(~h_unreliable));
 report_skill_('predictive EKE', EKE_pred, EKE_diag);
 report_skill_('predictive Q  ', Q_pred, Q_diag);
@@ -481,7 +565,9 @@ theory_inputs = struct('sweeps', {sweeps_valid}, 'EKE_diag', EKE_diag, 'Q_diag',
     'f', f, 'L', L_val, 'x_break', xb_val, 'cluster', cluster_name, ...
     'APE_sorted', APEm_val, 'A_box', Abox_val, 'g_prime_h', gph_val, 'Ld_h', Ldh_val, ...
     'ref_drift', drift_val, 'g_prime_0', gp0_val, 'Ld_0', Ld0_val, 'c_eddy', c_eddy, ...
-    'EKE_step', EKE_step, 'Q_step', Q_step, 'EKE_pred', EKE_pred, 'Q_pred', Q_pred);
+    'EKE_step', EKE_step, 'Q_step', Q_step, 'EKE_pred', EKE_pred, 'Q_pred', Q_pred, ...
+    'Q_eddy_transient', Qe_t, 'Q_eddy_standing', Qe_s, 'x_transient_km', xFt_val, 'x_standing_km', xFs_val, ...
+    'F_transient', Ft_val, 'F_standing', Fs_val);
 save(fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)), 'theory_inputs');
 fprintf('Saved theory inputs: %s\n', fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)));
 
@@ -554,12 +640,20 @@ if any(iw & tau_val(:)' < 0), leg(end+1) = struct('m', 'v', 'c', col_wind, 'fill
 
 %% Plotting
 lbl = strrep(cluster_name, '_', '\_');
-draw_theory_fig_(sqrt(EKE_step), sqrt(EKE_diag), Q_step / 1e3, Q_diag / 1e3, sty, leg, h_unreliable, ...
+lab_eke = {'Theory $\sqrt{EKE}$ (m s$^{-1}$)', 'Simulation $\sqrt{EKE}$ (m s$^{-1}$)'};
+lab_qe  = {'Theory eddy $Q$ (mSv)', 'Measured eddy $Q$, $\langle u''b''\rangle / g''_h$ (mSv)'};
+lab_q   = {'Theory $Q$ (mSv)', 'Simulation $Q$ (mSv)'};
+nof = false(num_valid, 1);
+draw_theory_fig_({sqrt(EKE_step), c_eddy * basis_step / 1e3, Q_step / 1e3}, ...
+                 {sqrt(EKE_diag), Qe_t / 1e3, Q_diag / 1e3}, ...
+                 {nof, h_unreliable, h_unreliable}, {lab_eke, lab_qe, lab_q}, [true false false], sty, leg, ...
     {'(a) EKE: Eq. 7 with measured APE', ...
-     sprintf('(b) $Q$: Eq. 5 with measured EKE, $g''_h$ ($c = %.2f$)', c_eddy)}, ...
+     sprintf('(b) eddy $Q$: Eq. 5 term ($c = %.2f$)', c_eddy), ...
+     '(c) total $Q$: $Q_{Ek}$ + eddy term'}, ...
     sprintf('%s  --  stepwise: each step fed measured inputs (coeff\\_mode = %s)', lbl, coeff_mode), ...
     fullfile(outdir, sprintf('%s_theory_vs_model_stepwise.png', cluster_name)));
-draw_theory_fig_(sqrt(EKE_pred), sqrt(EKE_diag), Q_pred / 1e3, Q_diag / 1e3, sty, leg, false(num_valid, 1), ...
+draw_theory_fig_({sqrt(EKE_pred), Q_pred / 1e3}, {sqrt(EKE_diag), Q_diag / 1e3}, {nof, nof}, ...
+                 {lab_eke, lab_q}, [true false], sty, leg, ...
     {sprintf('(a) EKE: Eqs. 8 + 7, $C_{geom} = %.3g$', C_geom), ...
      '(b) $Q$: Eqs. 8 + 7 + 5, initial $g''_0$'}, ...
     sprintf('%s  --  predictive: initial stratification only, constants from the stepwise test', lbl), ...
@@ -637,18 +731,6 @@ function EKE = eke_from_coef_(base, s, R, coef)
 EKE = coef(:,1) .* (1 + coef(:,3) .* s).^coef(:,2) .* base ./ (1 + coef(:,4) .* R);
 end
 
-function c = fit_through_origin_(x, y)
-% Least-squares constant in y = c x; Zhao et al.'s O(1) default when the
-% fit is impossible or non-positive.
-ok = isfinite(x) & isfinite(y);
-c = NaN;
-if any(ok), c = x(ok) \ y(ok); end
-if ~(c > 0)
-    c = 1.1;
-    fprintf('  [Fallback Activated] Eq. 5 constant could not be fitted. Using c = 1.1.\n');
-end
-end
-
 function report_skill_(what, th, md)
 ok = isfinite(th) & isfinite(md) & th > 0 & md > 0;
 if sum(ok) < 2, return; end
@@ -657,60 +739,49 @@ fprintf('  %s: theory/model median %.2f, rms log10 error %.2f (factor %.1f), %d 
         what, 10^median(r), sqrt(mean(r.^2)), 10^sqrt(mean(r.^2)), sum(ok));
 end
 
-function draw_theory_fig_(xa, ya, xb, yb, sty, leg, flag, ttl, suptl, outfile)
-% Two panels, theory (x) against model (y): sqrt(EKE) and Q in mSv.
-% flag marks runs whose Q panel is not a test (g'_h unreliable).
-fig = figure('Color', 'w', 'Position', [100, 100, 900, 520]);
-tl  = tiledlayout(1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
-ax1 = nexttile(tl); hold(ax1, 'on');
-ax2 = nexttile(tl); hold(ax2, 'on');
-for i = 1:numel(xa)
-    st = sty(i);
-    fc = 'none'; if st.filled, fc = st.c; end
-    scatter(ax1, xa(i), ya(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
-    scatter(ax2, xb(i), yb(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
-    if flag(i)
-        scatter(ax2, xb(i), yb(i), st.sz * 1.8, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2);
+function draw_theory_fig_(X, Y, F, labs, nonneg, sty, leg, ttl, suptl, outfile)
+% One panel per cell of X / Y: theory (x) against model (y), with a 1:1 line.
+% F{p} marks runs to circle in panel p (g'_h unreliable); labs{p} = {xlabel,
+% ylabel}; nonneg(p) starts both axes at 0. Legend goes on the last panel.
+np  = numel(X);
+fig = figure('Color', 'w', 'Position', [100, 100, 450 * np, 520]);
+tl  = tiledlayout(1, np, 'TileSpacing', 'compact', 'Padding', 'compact');
+for p = 1:np
+    ax = nexttile(tl); hold(ax, 'on');
+    x = X{p}; y = Y{p};
+    for i = 1:numel(x)
+        st = sty(i);
+        fc = 'none'; if st.filled, fc = st.c; end
+        scatter(ax, x(i), y(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
+        if F{p}(i)
+            scatter(ax, x(i), y(i), st.sz * 1.8, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2);
+        end
     end
-end
-
-v1 = [xa(:); ya(:)];
-mx1 = max(v1, [], 'omitnan') * 1.15;
-if ~(mx1 > 0), mx1 = 1; end
-plot(ax1, [0, mx1], [0, mx1], 'k--', 'LineWidth', 1.2);
-xlim(ax1, [0, mx1]); ylim(ax1, [0, mx1]);
-xlabel(ax1, 'Theory $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 16);
-ylabel(ax1, 'Simulation $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 16);
-title(ax1, ttl{1}, 'Interpreter', 'latex', 'FontSize', 14);
-
-v2 = [xb(:); yb(:)];
-lo = min(0, min(v2, [], 'omitnan') * 1.15);
-hi = max(v2, [], 'omitnan') * 1.15;
-if ~(hi > lo), hi = lo + 1; end
-plot(ax2, [lo, hi], [lo, hi], 'k--', 'LineWidth', 1.2);
-xlim(ax2, [lo, hi]); ylim(ax2, [lo, hi]);
-xlabel(ax2, 'Theory $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 16);
-ylabel(ax2, 'Simulation $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 16);
-title(ax2, ttl{2}, 'Interpreter', 'latex', 'FontSize', 14);
-
-for ax = [ax1, ax2]
+    v  = [x(:); y(:)];
+    hi = max(v, [], 'omitnan') * 1.15;
+    if nonneg(p), lo = 0; else, lo = min(0, min(v, [], 'omitnan') * 1.15); end
+    if ~(hi > lo), hi = lo + 1; end
+    plot(ax, [lo, hi], [lo, hi], 'k--', 'LineWidth', 1.2);
+    xlim(ax, [lo, hi]); ylim(ax, [lo, hi]);
+    xlabel(ax, labs{p}{1}, 'Interpreter', 'latex', 'FontSize', 15);
+    ylabel(ax, labs{p}{2}, 'Interpreter', 'latex', 'FontSize', 15);
+    title(ax, ttl{p}, 'Interpreter', 'latex', 'FontSize', 14);
     pbaspect(ax, [1 1 1]);
     set(ax, 'FontSize', 13, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', ...
         'LineWidth', 1, 'TickDir', 'out', 'XColor', 'k', 'YColor', 'k');
 end
-
 hl = gobjects(0); tx = {};
 for e = leg
     fc = 'none'; if e.filled, fc = e.c; end
-    hl(end+1) = plot(ax2, NaN, NaN, e.m, 'MarkerEdgeColor', e.c, 'MarkerFaceColor', fc, 'LineWidth', 1.5, 'MarkerSize', 8); %#ok<AGROW>
+    hl(end+1) = plot(ax, NaN, NaN, e.m, 'MarkerEdgeColor', e.c, 'MarkerFaceColor', fc, 'LineWidth', 1.5, 'MarkerSize', 8); %#ok<AGROW>
     tx{end+1} = e.txt; %#ok<AGROW>
 end
-if any(flag)
-    hl(end+1) = plot(ax2, NaN, NaN, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2, 'MarkerSize', 12);
+if any(cellfun(@any, F))
+    hl(end+1) = plot(ax, NaN, NaN, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2, 'MarkerSize', 12);
     tx{end+1} = '$g''_h$ unreliable, not in fit';
 end
 if ~isempty(hl)
-    legend(ax2, hl, tx, 'Location', 'northwest', 'FontSize', 11, 'Interpreter', 'latex');
+    legend(ax, hl, tx, 'Location', 'northwest', 'FontSize', 11, 'Interpreter', 'latex');
 end
 title(tl, suptl, 'FontWeight', 'bold', 'FontSize', 12);
 drawnow;
