@@ -47,18 +47,27 @@ end
 sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
-% Define Sweep Groups
+% Sweep groups. These set MARKER STYLE only, for the Annie-Fnnie clusters
+% whose labels they hold. Which runs are processed comes from the disk
+% (discover_sweeps), so a cluster with other labels -- Zs05_edge,
+% wind_m0p020 -- is no longer silently empty; such runs are styled by
+% their label prefix instead (see the plotting loop).
 group_Zs     = { 'Zs15_Ls40k', 'Zs10_Ls40k', 'Zs5_Ls40k' };
 group_Ls     = { 'Zs5_Ls20k', 'Zs5_Ls30k', 'Zs5_Ls40k' };
 group_ShelfH = { 'Zsh_m10', 'Zsh_m50' };
 group_v0     = { 'v0_0p10', 'v0_0p15', 'Zs5_Ls40k' };
-group_wind   = { 'wind_m0p15', 'wind_m0p10', 'wind_m0p08', 'wind_m0p05', 'wind_m0p03', ...
-                 'wind_0p03', 'wind_0p05', 'wind_0p08', 'wind_0p10', 'wind_0p15' };
 
-if include_wind
-    all_sweeps = unique([group_Zs, group_Ls, group_ShelfH, group_v0, group_wind], 'stable');
-else
-    all_sweeps = unique([group_Zs, group_Ls, group_ShelfH, group_v0], 'stable');
+% Every run on disk; scatter order carries no meaning, so discovery is safe.
+[all_sweeps, ~] = discover_sweeps(cluster_dir);
+is_wind = startsWith(all_sweeps, 'wind_');
+if ~include_wind && any(is_wind)
+    if all(is_wind)
+        error('plot_theory_vs_model:onlyWind', ...
+              ['Every run in %s is a wind run, and include_wind is false.\n' ...
+               'Call plot_theory_vs_model(''%s'', mode, C_geom, true).'], cluster_name, cluster_name);
+    end
+    fprintf('  include_wind = false: leaving out %d wind run(s).\n', sum(is_wind));
+    all_sweeps = all_sweeps(~is_wind);
 end
 
 % Constants
@@ -111,9 +120,11 @@ fprintf('=== Extracting data from %d sweeps ===\n', num_sw);
 for idx = 1:num_sw
     sw = all_sweeps{idx};
     sw_core = strrep(sw, 'sweep_', '');
-    d = dir(fullfile(cluster_dir, ['*' sw_core '*']));
+    % Exact match on the label: a '*label*' wildcard picks whichever of
+    % two runs sorts first when one label is a substring of another.
+    d = dir(fullfile(cluster_dir, 'sweep_*'));
     d = d([d.isdir]);
-    d = d(~ismember({d.name}, {'.', '..'}));
+    d = d(~cellfun(@isempty, regexp({d.name}, ['^sweep_(\d+_)?' regexptranslate('escape', sw_core) '$'], 'once')));
     if isempty(d)
         warning('Folder not found for %s', sw);
         continue;
@@ -471,10 +482,21 @@ for i = 1:num_valid
         if contains(sw_i, 'v0_0p10'), sz = sz_small;
         elseif contains(sw_i, 'v0_0p15'), sz = sz_mid;
         else, sz = sz_large; end
+    elseif startsWith(sw_i, 'wind_')
+        % Up- and downwelling are different regimes in the theory, so keep
+        % them apart; size grows with |tau| within the cluster.
+        c = col_wind;
+        if tau_val(i) > 0, m = '^'; elseif tau_val(i) < 0, m = 'v'; else, m = mk_wind; end
+        sz = rank_size(abs(tau_val(i)), abs(tau_val(startsWith(sweeps_valid, 'wind_'))), sz_small, sz_large);
+    elseif startsWith(sw_i, 'Zs')
+        % Z_s runs outside the Annie-Fnnie labels (e.g. depthaxis Zs05_edge):
+        % same colour as the Z_s group, size grows as the crest shoals.
+        c = col_Zs; m = mk_Zs;
+        sz = rank_size(-abs(Zs_val(i)), -abs(Zs_val(startsWith(sweeps_valid, 'Zs'))), sz_small, sz_large);
     else
-        c = col_wind; m = mk_wind; sz = 80;
+        c = [0.4, 0.4, 0.4]; m = '*'; sz = 80;      % unrecognised label
     end
-    
+
     if strcmp(sw_i, 'Zs5_Ls40k')
         scatter(ax1, sqrt_EKE_theory(i), sqrt_EKE_diag(i), sz, m, 'MarkerEdgeColor', c, 'MarkerFaceColor', c, 'LineWidth', lw);
         scatter(ax2, Q_tot_theory_mSv(i), Q_diag_mSv(i), sz, m, 'MarkerEdgeColor', c, 'MarkerFaceColor', c, 'LineWidth', lw);
@@ -509,17 +531,41 @@ pbaspect(ax2, [1 1 1]);
 set(ax2, 'FontSize', 14, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', ...
     'LineWidth', 1, 'TickDir', 'out', 'XColor', 'k', 'YColor', 'k');
 
-% Legend (same parameter symbols as the other figures: Z_s, L_s, Z_sh, v_0)
-h_ref   = plot(ax2, NaN, NaN, 'p', 'MarkerEdgeColor', 'k', 'MarkerFaceColor', 'k', 'LineWidth', 2, 'MarkerSize', 10);
-h_zs    = plot(ax2, NaN, NaN, mk_Zs,  'MarkerEdgeColor', col_Zs,  'LineWidth', 1.5, 'MarkerSize', 8);
-h_ls    = plot(ax2, NaN, NaN, mk_Ls,  'MarkerEdgeColor', col_Ls,  'LineWidth', 1.5, 'MarkerSize', 8);
-h_shelf = plot(ax2, NaN, NaN, mk_Zsh, 'MarkerEdgeColor', col_Zsh, 'LineWidth', 1.5, 'MarkerSize', 8);
-h_v0    = plot(ax2, NaN, NaN, mk_v0,  'MarkerEdgeColor', col_v0,  'LineWidth', 1.5, 'MarkerSize', 8);
-leg_h = [h_ref, h_zs, h_ls, h_shelf, h_v0];
-leg_s = {'Reference', '$Z_s$', '$L_s$', '$Z_{sh}$', '$v_0$'};
-if include_wind
-    leg_h(end+1) = plot(ax2, NaN, NaN, mk_wind, 'MarkerEdgeColor', col_wind, 'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$\tau$';
+% Legend (same parameter symbols as the other figures: Z_s, L_s, Z_sh, v_0).
+% Only groups actually plotted get an entry, so a wind-only or Z_s-only
+% cluster does not advertise four empty categories.
+has    = @(pred) any(cellfun(pred, sweeps_valid));
+is_ref = @(s) strcmp(s, 'Zs5_Ls40k');
+in_grp = @(G) @(s) ismember(s, G) && ~is_ref(s);
+leg_h = gobjects(0); leg_s = {};
+if has(is_ref)
+    leg_h(end+1) = plot(ax2, NaN, NaN, 'p', 'MarkerEdgeColor', 'k', 'MarkerFaceColor', 'k', 'LineWidth', 2, 'MarkerSize', 10);
+    leg_s{end+1} = 'Reference';
+end
+if has(@(s) (ismember(s, group_Zs) || (startsWith(s, 'Zs') && ~ismember(s, [group_Ls, group_v0, group_ShelfH]) && ~startsWith(s, 'Zsh'))) && ~is_ref(s))
+    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Zs,  'MarkerEdgeColor', col_Zs,  'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$Z_s$';
+end
+if has(in_grp(group_Ls))
+    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Ls,  'MarkerEdgeColor', col_Ls,  'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$L_s$';
+end
+if has(in_grp(group_ShelfH))
+    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Zsh, 'MarkerEdgeColor', col_Zsh, 'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$Z_{sh}$';
+end
+if has(in_grp(group_v0))
+    leg_h(end+1) = plot(ax2, NaN, NaN, mk_v0,  'MarkerEdgeColor', col_v0,  'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$v_0$';
+end
+iw = startsWith(sweeps_valid, 'wind_');
+if any(iw & tau_val(:)' > 0)
+    leg_h(end+1) = plot(ax2, NaN, NaN, '^', 'MarkerEdgeColor', col_wind, 'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$\tau > 0$ (upwelling)';
+end
+if any(iw & tau_val(:)' < 0)
+    leg_h(end+1) = plot(ax2, NaN, NaN, 'v', 'MarkerEdgeColor', col_wind, 'LineWidth', 1.5, 'MarkerSize', 8);
+    leg_s{end+1} = '$\tau < 0$ (downwelling)';
 end
 legend(ax2, leg_h, leg_s, 'Location', 'northwest', 'FontSize', 12, 'Interpreter', 'latex');
 
@@ -530,6 +576,14 @@ outfile = fullfile(outdir, sprintf('%s_theory_vs_model.png', cluster_name));
 exportgraphics(fig, outfile, 'Resolution', 300);
 fprintf('Saved theory vs model plot: %s\n', outfile);
 
+end
+
+function sz = rank_size(v, all_v, sz_lo, sz_hi)
+% Marker size from v's position within all_v: smallest value -> sz_lo,
+% largest -> sz_hi, linear in rank so uneven spacing does not crowd sizes.
+u = unique(all_v(isfinite(all_v)));
+if numel(u) <= 1, sz = (sz_lo + sz_hi) / 2; return; end
+sz = sz_lo + (sz_hi - sz_lo) * (find(u == v, 1) - 1) / (numel(u) - 1);
 end
 
 function ib = shelf_break_index(depth_x, H0)

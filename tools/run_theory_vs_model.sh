@@ -4,9 +4,19 @@
 # Generates the theory vs model comparison (sqrt(EKE) and offshore Q) on Casper.
 #
 # Usage:
-#   ./run_theory_vs_model.sh [cluster_name]
+#   ./run_theory_vs_model.sh [cluster_name] [coeff_mode] [C_geom] [include_wind]
+#
+#   ./run_theory_vs_model.sh cluster_depthaxis_120 regime 1/6
+#   ./run_theory_vs_model.sh cluster_weakwind250_120 regime 1/6 true
+#
+# Defaults reproduce the old fixed call: fit, 1/2, false. C_geom is a MATLAB
+# expression, so 1/6 works. A cluster holding only wind runs needs
+# include_wind = true, or the script stops and says so.
 
 CLUSTER_NAME="${1:-cluster_Fnnie_1_19}"
+COEFF_MODE="${2:-fit}"
+C_GEOM="${3:-1/2}"
+INCLUDE_WIND="${4:-false}"
 
 # Load NCAR Casper environment
 module purge
@@ -16,6 +26,7 @@ module load matlab/R2024a
 
 echo "=== Running Theory vs Model Comparison ==="
 echo "    Cluster:          ${CLUSTER_NAME}"
+echo "    coeff_mode:       ${COEFF_MODE}   C_geom: ${C_GEOM}   include_wind: ${INCLUDE_WIND}"
 echo "    Output Directory: /glade/work/nguyen/unc-shoals/animations/"
 
 # Run from the tools directory so the toolbox paths resolve
@@ -30,9 +41,10 @@ matlab -nodisplay -nosplash -r "\
     addpath(genpath('gsw_matlab_v3_06_16')); \
     try, \
         fprintf('--- Generating theory vs model for ${CLUSTER_NAME} ---\n'); \
-        plot_theory_vs_model('${CLUSTER_NAME}', 'fit', 1/2, false); \
+        plot_theory_vs_model('${CLUSTER_NAME}', '${COEFF_MODE}', ${C_GEOM}, ${INCLUDE_WIND}); \
     catch ME, \
         fprintf('Error: %s\n', ME.message); \
+        fprintf('%s\n', getReport(ME, 'extended')); \
     end; \
     exit"
 
