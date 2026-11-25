@@ -1,22 +1,56 @@
-function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind)
-% plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind)
+function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, refresh_ape)
+% plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, refresh_ape)
 %
-% Replicates the theory vs model framework for offshore transport and EKE.
-% Computes g', N, H0, Ld dynamically per simulation, using the model's linear
-% equation of state (b = g(alpha T - beta S)):
-%   g' = b(surface) - b(bottom) across the shelf water column (median over
-%        shelf columns); the density structure here is vertical, so Zhao et
-%        al.'s plume-vs-ambient contrast (g alpha_S (S_ref - S_0)) is too small
-%   N  = bulk background stratification of the ambient offshore column
-% Uses theoretical / empirical coefficients from offshore_fwf_EKE_sim_vs_theory.m:
-%   - Regime-dependent coefficients (default: coeff_mode = 'regime'):
-%       no wind (tau = 0):       a = 0.086, n =  1, c = 8, b = 0.0
-%       upwelling (tau > 0):      a = 0.490, n = -1, c = 2, b = 0.0
-%       downwelling (tau < 0):    a = 0.110, n =  1, c = 2, b = 0.2
-%   - Geometry factor C_geom for APE:
-%       C_geom = 1/2 (default for rectangular shelf / layer geometry)
-%       C_geom = 1/6 (for triangular wedge geometry)
-%   - include_wind: also plot the wind-stress sweep (default: false)
+% Theory against model for shelf EKE and offshore transport Q (Zhao et al.
+% Eqs. 5, 7, 8). Two figures, because the chain APE -> EKE -> Q can be
+% tested two different ways and they answer different questions:
+%
+%   <cluster>_theory_vs_model_stepwise.png
+%     Each step fed the MEASURED input it needs, so a miss is attributable:
+%       (a) Eq. 7:  EKE = a(1+cs)^n (APE/A_box) / (1+bR), with APE the sorted
+%           (Lorenz) APE from ape_wedge.m and A_box the shelf box's wet
+%           cross-section, i.e. APE per unit volume -- the same average as the
+%           diagnosed shelf-mean EKE. Tests the conversion only.
+%       (b) Eq. 5:  Q = Q_Ek + c f L Ld_h EKE / g'_h, with the MEASURED EKE and
+%           the horizontal g'_h (rms of b - b_init(z) over the shelf
+%           columns), Ld_h = sqrt(g'_h H0)/f. Tests the transport only.
+%           Runs whose offshore water has drifted from the initial profile by
+%           more than g'_h (downwelling) are circled and left out of the fit
+%           for c: g'_h does not mean shelf-against-ocean there.
+%
+%   <cluster>_theory_vs_model_predictive.png
+%     Only what is known before the run: g'_0 = surface-minus-bottom contrast
+%     of the INITIAL profile over the shelf depth, Ld_0 = sqrt(g'_0 H0)/f,
+%     APE = C_geom g'_0 H0^2 Ld_0 (Eq. 8), divided by the same A_box (fixed by
+%     the bathymetry), then Eqs. 7 and 5 with the constants calibrated in the
+%     stepwise figure. Nothing is refitted, so the EKE panel differs from the
+%     stepwise one only through the Eq. 8 error.
+%     Expected to hold for unforced runs and to miss under wind, because the
+%     background stratification does not set the APE once wind acts.
+%
+% The old g' (surface-minus-bottom on the EVOLVING shelf columns) is still
+% computed and printed for comparison, and saved to theory_inputs for
+% check_eke_theory.m, but no figure uses it: it is diagnosed, so it cannot
+% predict, and it collapses to zero when wind mixes the column while the APE
+% grows. See the vault note "Why switch to a horizontal g' (g'_h)".
+%
+% Arguments:
+%   coeff_mode    Eq. 7 coefficients (Zhao et al. / Brink 2024 eq. 4.1a)
+%                   'regime' (default)  by sign of tau:
+%                       no wind (tau = 0):      a = 0.086, n =  1, c = 8, b = 0.0
+%                       upwelling (tau > 0):    a = 0.490, n = -1, c = 2, b = 0.0
+%                       downwelling (tau < 0):  a = 0.110, n =  1, c = 2, b = 0.2
+%                   'baseline'  the no-wind set everywhere
+%                   'fit'       one set fitted to the diagnosed EKE (4 parameters:
+%                               do not trust it on a handful of runs)
+%   C_geom        Eq. 8 shape factor, predictive figure only. 1/2 (default,
+%                 anomaly fills H0 x Ld) or 1/6 (triangular wedge). The script
+%                 prints the value the unforced runs would need.
+%   include_wind  also plot the wind-stress sweep (default: false)
+%   refresh_ape   rerun ape_wedge even if <cluster>_ape_wedge.mat is current
+%                 (default: false). It is rerun anyway when the file is
+%                 missing, older than these fields, made with a different box,
+%                 or lacks a run now on disk.
 %
 % Diagnosed quantities (following Zhao et al. Sec. 3c-d as closely as our
 % closed, alongshore-integrated geometry allows):
@@ -43,9 +77,14 @@ end
 if nargin < 4 || isempty(include_wind)
     include_wind = false;
 end
+if nargin < 5 || isempty(refresh_ape)
+    refresh_ape = false;
+end
 
 sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
+outdir            = '/glade/work/nguyen/unc-shoals/animations';
+if ~exist(outdir, 'dir'), outdir = pwd; end
 
 % Sweep groups. These set MARKER STYLE only, for the Annie-Fnnie clusters
 % whose labels they hold. Which runs are processed comes from the disk
@@ -174,11 +213,10 @@ for idx = 1:num_sw
         % Ambient (offshore) water: outermost x_ambient_width km of the domain
         ix_amb = find(xc_km >= max(xc_km) - x_ambient_width);
         
-        % g': buoyancy contrast across the shelf water column (surface minus
-        % bottom), median over shelf columns (x_g_range). In these runs the
-        % density structure is set by vertical stratification; the horizontal
-        % plume-vs-ambient contrast used by Zhao et al. is ~10x smaller and noisy.
-        % Then Ld = sqrt(g' H0)/f ~ N H0 / f (first baroclinic deformation radius).
+        % Old g': buoyancy contrast across the EVOLVING shelf water column
+        % (surface minus bottom), median over shelf columns (x_g_range).
+        % Kept for the log and for check_eke_theory.m only; the figures use
+        % g'_h and g'_0 from ape_wedge.m (see the header).
         ix_g = find(xc_km >= x_g_range(1) & xc_km <= x_g_range(2));
         Tg = ncread(fname, 'T', [ix_g(1) iyP(1) 1 t_idx], [numel(ix_g) numel(iyP) Inf 1]);
         Sg = ncread(fname, 'S', [ix_g(1) iyP(1) 1 t_idx], [numel(ix_g) numel(iyP) Inf 1]);
@@ -323,14 +361,30 @@ for idx = 1:num_sw
     end
 end
 
-% Filter out invalid points
-valid = ~isnan(EKE_diag) & ~isnan(Q_diag) & (APE_val > 0);
+%% Measured APE, g'_h and the initial-profile g'_0, from ape_wedge.m
+% Same shelf box (coast to the break, y_range_Q), same shelf columns for g'
+% (x_g_range), same averaging window (the last), so the numbers line up with
+% the EKE and Q diagnosed above.
+A = load_ape_(cluster_name, sweep_output_root, outdir, y_range_Q, x_g_range, all_sweeps, refresh_ape);
+lab_ape = strrep(A.labels, 'sweep_', '');
+[APEm_val, Abox_val, gph_val, drift_val, gp0_val] = deal(nan(num_sw, 1));
+for idx = 1:num_sw
+    j = find(strcmp(lab_ape, strrep(all_sweeps{idx}, 'sweep_', '')), 1);
+    if isempty(j), continue; end
+    APEm_val(idx)  = A.APE_sorted(j);
+    Abox_val(idx)  = A.A_box(j);
+    gph_val(idx)   = A.g_prime_h(j);
+    drift_val(idx) = A.ref_drift(j);
+    gp0_val(idx)   = A.g_prime_0(j);
+end
+
+% Filter out runs without a diagnosed EKE and Q
+valid = isfinite(EKE_diag) & isfinite(Q_diag);
 EKE_diag     = EKE_diag(valid);
 Q_diag       = Q_diag(valid);
 R_val        = R_val(valid);
 s_val        = s_val(valid);
 APE_val      = APE_val(valid);
-QEk_val      = QEk_val(valid);
 Ld_val       = Ld_val(valid);
 g_prime_val  = g_prime_val(valid);
 H0_val       = H0_val(valid);
@@ -341,127 +395,105 @@ v0_val       = v0_val(valid);
 N_val        = N_val(valid);
 L_val        = L_val(valid);
 xb_val       = xb_val(valid);
+APEm_val     = APEm_val(valid);
+Abox_val     = Abox_val(valid);
+gph_val      = gph_val(valid);
+drift_val    = drift_val(valid);
+gp0_val      = gp0_val(valid);
 sweeps_valid = all_sweeps(valid);
 num_valid    = numel(sweeps_valid);
 
-%% Compute Theoretical EKE based on offshore_fwf_EKE_sim_vs_theory.m
-% EKE_integrated (EKE_Delta): cross-section integrated EKE (m^4/s^2)
-% EKE_spec_theory: specific EKE (m^2/s^2) = EKE_Delta / (H0 * Ld), since
-%   EKE_Delta ~ EKE * H0 * Ld  (Zhao et al., Sec. 3d)
-EKE_integrated  = zeros(num_valid, 1);
-EKE_spec_theory = zeros(num_valid, 1);
-
-for i = 1:num_valid
-    t_i = tau_val(i);
-    if strcmpi(coeff_mode, 'baseline')
-        % Baseline no-wind parameters everywhere
-        a_i = 0.086; n_i = 1; c_i = 8; b_i = 0.0;
-    elseif strcmpi(coeff_mode, 'fit')
-        % Default fallback if fitting requested
-        a_i = 0.086; n_i = 1; c_i = 8; b_i = 0.0;
-    else
-        % Regime-dependent coefficients from offshore_fwf_EKE_sim_vs_theory.m
-        if t_i == 0
-            a_i = 0.086; n_i =  1; c_i = 8; b_i = 0.0; % no wind
-        elseif t_i > 0
-            a_i = 0.490; n_i = -1; c_i = 2; b_i = 0.0; % upwelling (+tau)
-        else
-            a_i = 0.110; n_i =  1; c_i = 2; b_i = 0.2; % downwelling (-tau)
-        end
-    end
-    
-    EKE_integrated(i)  = APE_val(i) * a_i * (1 + c_i * s_val(i))^n_i / (1 + b_i * R_val(i));
-    EKE_spec_theory(i) = EKE_integrated(i) / (H0_val(i) * Ld_val(i));
-end
-
-if strcmpi(coeff_mode, 'fit')
-    % Attempt empirical fit if explicitly requested
-    % Fit a, b, c, n to the diagnosed SPECIFIC EKE (m^2/s^2), in log space
-    try
-        base = APE_val ./ (H0_val .* Ld_val);                      % APE per unit area (m^2/s^2)
-        pred = @(p) exp(p(1)) .* (1 + exp(p(3)) .* s_val).^p(4) .* base ./ (1 + exp(p(2)) .* R_val);
-        cost = @(p) sum((log(pred(p)) - log(EKE_diag)).^2);
-        p = fminsearch(cost, [log(0.1), log(0.1), log(2), 1], optimset('Display','off','MaxIter',5e3,'MaxFunEvals',1e4));
-        EKE_spec_theory = pred(p);
-        EKE_integrated  = EKE_spec_theory .* H0_val .* Ld_val;
-        a_f = exp(p(1)); b_f = exp(p(2)); c_f = exp(p(3)); n_f = p(4);
-        fprintf('Fitted empirical coefficients: a=%.3g, b=%.3g, c=%.3g, n=%.3g\n', a_f, b_f, c_f, n_f);
-        % Limits: b*R >> 1  ->  1/(1+bR) ~ 1/(bR) = f H0 / (b r)
-        %         c*s << 1 with |n| large  ->  (1+cs)^n ~ exp(n c s)
-        if min(b_f .* R_val) > 100 && max(c_f .* s_val) < 0.01
-            A_eff = a_f / b_f * f / r_drag;            % EKE ~ A_eff * (APE/(H0 Ld)) * H0 * exp(k s)
-            k_eff = n_f * c_f;
-            fprintf(['  -> fit reached its limits; effective law:\n' ...
-                     '     EKE = %.3g * C_geom g'' H0^2 * exp(%.3g s)   [i.e. a/(bR) * exp(nc s)]\n'], A_eff, k_eff);
-        end
-    catch ME
-        fprintf('  [Fallback Activated] Empirical fit failed (%s). Falling back to regime-dependent coefficients.\n', ME.message);
-    end
-end
-
-%% Compute Theoretical Offshore Volume Transport (Q_tot)
-% L = alongshore length of the diagnostic section (y_range_Q), per run.
-% Ekman transport is signed (Zhao et al. Eq. 5b): onshore for downwelling winds.
+% Ekman transport, signed (Zhao et al. Eq. 5b): onshore for downwelling winds
 QEk_val = (tau_val .* L_val) ./ (rho0 * f);
 
-% Q_eddy = C_eddy * f * L * Ld * EKE / g'   (Zhao et al. Eq. 5a)
-Q_eddy_basis = (f * L_val .* Ld_val .* EKE_spec_theory) ./ g_prime_val;
+% g'_h is measured against the INITIAL profile. Where the offshore water has
+% itself drifted from that profile by more than g'_h (downwelling), g'_h no
+% longer means "shelf against the ocean" and Eq. 5 is not tested there.
+h_unreliable = ~(drift_val < gph_val);
 
-% Fit C_eddy (or default to 1.1 from offshore_fwf_EKE_sim_vs_theory.m)
-Q_diff = Q_diag - QEk_val;
-C_eddy = Q_eddy_basis \ Q_diff;
-if isnan(C_eddy) || C_eddy <= 0
-    C_eddy = 1.1;
-    fprintf('  [Fallback Activated] Fitted C_eddy invalid or <= 0. Using default C_eddy = 1.1.\n');
+%% ===== Figure 1: STEPWISE -- each step tested with measured inputs =====
+% Eq. 7 with MEASURED (sorted) APE. APE per unit volume of the shelf box,
+%   APE_sorted / A_box   [m^2/s^2],
+% is the same average as the diagnosed shelf-mean EKE, so the conversion
+% factor a(1+cs)^n/(1+bR) is compared directly, with no assumed L_d or shape.
+base_step = APEm_val ./ Abox_val;
+[EKE_step, coef] = eke_theory_(base_step, s_val, R_val, tau_val, coeff_mode, EKE_diag);
+
+% Eq. 5 with MEASURED EKE and the horizontal g'_h:
+%   Q_eddy = c f L Ld_h EKE / g'_h,   Ld_h = sqrt(g'_h H0)/f
+%          = c L EKE sqrt(H0 / g'_h)
+Ldh_val    = sqrt(gph_val .* H0_val) / f;
+basis_step = f * L_val .* Ldh_val .* EKE_diag ./ gph_val;
+fit_ok     = isfinite(basis_step) & isfinite(Q_diag) & ~h_unreliable;
+c_eddy     = fit_through_origin_(basis_step(fit_ok), Q_diag(fit_ok) - QEk_val(fit_ok));
+Q_step     = QEk_val + c_eddy * basis_step;
+
+%% ===== Figure 2: PREDICTIVE -- only what is known before the run =====
+% g'_0 = surface-minus-bottom contrast of the INITIAL profile over the shelf
+% depth: the stratification the wind and the jet have to work with. Eq. 8,
+% Eq. 7 and Eq. 5 chained, with the constants calibrated in figure 1 (c_eddy,
+% and a, b, c, n if coeff_mode = 'fit'). Nothing is refitted here.
+Ld0_val   = sqrt(gp0_val .* H0_val) / f;
+APE_pred  = C_geom * gp0_val .* H0_val.^2 .* Ld0_val;         % Eq. 8 [m^4/s^2]
+% Per unit volume over the SAME shelf box as figure 1 and as the diagnosed
+% EKE. (Zhao et al. divide by H0 Ld instead -- the anomaly's assumed area --
+% but our EKE is a shelf-box mean, so that would slip in a factor W/Ld.)
+% A_box is set by the bathymetry alone, so this is still a prediction, and
+% predictive/stepwise differ ONLY by APE_pred vs APE_sorted: the Eq. 8 error.
+base_pred = APE_pred ./ Abox_val;
+EKE_pred  = eke_from_coef_(base_pred, s_val, R_val, coef);
+Q_pred    = QEk_val + c_eddy * (f * L_val .* Ld0_val .* EKE_pred ./ gp0_val);
+C_meas_0  = APEm_val ./ (gp0_val .* H0_val.^2 .* Ld0_val);    % what C_geom would have to be
+
+%% Report
+fprintf('\n=== Theory vs model, per run ===\n');
+fprintf(['  %-14s %9s %9s %9s %6s %9s | %9s %9s %9s | %9s %9s %9s\n'], 'run', ...
+        'APE_srt', 'g''_h', 'g''_0', 'drift', 'C(g''_0)', ...
+        'EKE_mod', 'EKE_step', 'EKE_pred', 'Q_mod', 'Q_step', 'Q_pred');
+for i = 1:num_valid
+    flag = ''; if h_unreliable(i), flag = '  * g''_h unreliable'; end
+    fprintf(['  %-14s %9.3e %9.3e %9.3e %5.0f%% %9.4f | %9.3e %9.3e %9.3e | %9.3e %9.3e %9.3e%s\n'], ...
+            sweeps_valid{i}, APEm_val(i), gph_val(i), gp0_val(i), 100*drift_val(i)/gph_val(i), C_meas_0(i), ...
+            EKE_diag(i), EKE_step(i), EKE_pred(i), Q_diag(i), Q_step(i), Q_pred(i), flag);
 end
-
-fprintf('Fitted eddy transport coefficient C_eddy: %.3f\n', C_eddy);
-
-Q_eddy_theory = C_eddy .* Q_eddy_basis;
-Q_tot_theory  = QEk_val + Q_eddy_theory;
+fprintf('  (EKE in m^2/s^2, Q in m^3/s; drift = offshore-strip drift from the initial profile, as %% of g''_h)\n');
+fprintf('  Eq. 5 constant c (fitted in the stepwise test on %d of %d runs): %.3f\n', ...
+        sum(fit_ok), num_valid, c_eddy);
+if sum(fit_ok) < 3
+    fprintf(['  ** c rests on %d run(s): the stepwise Q panel then sits on the 1:1 line\n' ...
+             '     by construction and tests nothing. Pool clusters before reading it.\n'], sum(fit_ok));
+end
+fprintf('  C_geom used in the predictive figure: %.4f. Measured APE / (g''_0 H0^2 Ld_0), unforced runs: %s\n', ...
+        C_geom, sprintf('%.3f ', C_meas_0(tau_val == 0)));
+report_skill_('stepwise   EKE', EKE_step, EKE_diag);
+report_skill_('stepwise   Q  ', Q_step(~h_unreliable), Q_diag(~h_unreliable));
+report_skill_('predictive EKE', EKE_pred, EKE_diag);
+report_skill_('predictive Q  ', Q_pred, Q_diag);
 
 % Save the per-run inputs so check_eke_theory.m can test / refit the scaling
-outdir = '/glade/work/nguyen/unc-shoals/animations';
-if ~exist(outdir, 'dir'), outdir = pwd; end
 theory_inputs = struct('sweeps', {sweeps_valid}, 'EKE_diag', EKE_diag, 'Q_diag', Q_diag, ...
     'R', R_val, 's', s_val, 'APE', APE_val, 'C_geom', C_geom, 'Ld', Ld_val, 'g_prime', g_prime_val, ...
     'H0', H0_val, 'N', N_val, 'tau', tau_val, 'Zs', Zs_val, 'Ls', Ls_val, 'v0', v0_val, ...
-    'f', f, 'L', L_val, 'x_break', xb_val, 'cluster', cluster_name);
+    'f', f, 'L', L_val, 'x_break', xb_val, 'cluster', cluster_name, ...
+    'APE_sorted', APEm_val, 'A_box', Abox_val, 'g_prime_h', gph_val, 'Ld_h', Ldh_val, ...
+    'ref_drift', drift_val, 'g_prime_0', gp0_val, 'Ld_0', Ld0_val, 'c_eddy', c_eddy, ...
+    'EKE_step', EKE_step, 'Q_step', Q_step, 'EKE_pred', EKE_pred, 'Q_pred', Q_pred);
 save(fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)), 'theory_inputs');
 fprintf('Saved theory inputs: %s\n', fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)));
 
-% Convert Q to mSv (1 mSv = 10^3 m^3/s) for plotting
-Q_diag_mSv       = Q_diag / 1e3;
-Q_tot_theory_mSv = Q_tot_theory / 1e3;
-
-% Specific EKE (m/s) for Panel (a)
-sqrt_EKE_theory = sqrt(EKE_spec_theory);
-sqrt_EKE_diag   = sqrt(EKE_diag);
-
-%% Plotting (Theory vs Model)
-% Same width / compact spacing as the 4-column figures (1350 * 4/6 = 900 px),
-% same fonts as the other figures.
-fig = figure('Color','w', 'Position', [100, 100, 1350 * 4/6, 480]);
-tl = tiledlayout(1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
-
-% Group colors / markers (blue / red / green as in the other sweep plots)
+%% Marker styles, shared by both figures
 col_Zs   = [0.0, 0.0, 0.7];     mk_Zs   = 'o';
 col_Ls   = [0.7, 0.0, 0.0];     mk_Ls   = 'd';
 col_Zsh  = [0.0, 0.5, 0.2];     mk_Zsh  = '^';
 col_v0   = [0.49, 0.18, 0.56];  mk_v0   = 's';
 col_wind = [0.4, 0.4, 0.4];     mk_wind = 'x';
 sz_small = 40; sz_mid = 85; sz_large = 140;
-
-% Panel (a): sqrt(EKE)
-ax1 = nexttile(tl); hold(ax1, 'on');
-% Panel (b): Q_tot
-ax2 = nexttile(tl); hold(ax2, 'on');
-
+sty = repmat(struct('c', [0 0 0], 'm', 'o', 'sz', 80, 'lw', 1.5, 'filled', false), num_valid, 1);
 for i = 1:num_valid
     sw_i = sweeps_valid{i};
-    lw = 1.5;
+    lw = 1.5; filled = false;
     if strcmp(sw_i, 'Zs5_Ls40k')
-        c = [0, 0, 0]; m = 'p'; sz = 160; lw = 2;   % Pentagram for reference
+        c = [0, 0, 0]; m = 'p'; sz = 160; lw = 2; filled = true;   % reference
     elseif ismember(sw_i, group_Zs)
         c = col_Zs; m = mk_Zs;                      % marker size grows with Z_s (shallower crest)
         if contains(sw_i, 'Zs15'), sz = sz_small;
@@ -496,86 +528,190 @@ for i = 1:num_valid
     else
         c = [0.4, 0.4, 0.4]; m = '*'; sz = 80;      % unrecognised label
     end
-
-    if strcmp(sw_i, 'Zs5_Ls40k')
-        scatter(ax1, sqrt_EKE_theory(i), sqrt_EKE_diag(i), sz, m, 'MarkerEdgeColor', c, 'MarkerFaceColor', c, 'LineWidth', lw);
-        scatter(ax2, Q_tot_theory_mSv(i), Q_diag_mSv(i), sz, m, 'MarkerEdgeColor', c, 'MarkerFaceColor', c, 'LineWidth', lw);
-    else
-        scatter(ax1, sqrt_EKE_theory(i), sqrt_EKE_diag(i), sz, m, 'MarkerEdgeColor', c, 'LineWidth', lw);
-        scatter(ax2, Q_tot_theory_mSv(i), Q_diag_mSv(i), sz, m, 'MarkerEdgeColor', c, 'LineWidth', lw);
-    end
+    sty(i) = struct('c', c, 'm', m, 'sz', sz, 'lw', lw, 'filled', filled);
 end
 
-% Panel (a) 1:1 line & styling
-max_val1 = max([sqrt_EKE_theory; sqrt_EKE_diag], [], 'omitnan') * 1.15;
-plot(ax1, [0, max_val1], [0, max_val1], 'k--', 'LineWidth', 1.2);
-xlabel(ax1, 'Theory $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 18);
-ylabel(ax1, 'Simulation $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 18);
-title(ax1, '(a) Eddy Kinetic Energy', 'FontSize', 18, 'FontWeight', 'bold');
-xlim(ax1, [0, max_val1]); ylim(ax1, [0, max_val1]);
-pbaspect(ax1, [1 1 1]);
-set(ax1, 'FontSize', 14, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', ...
-    'LineWidth', 1, 'TickDir', 'out', 'XColor', 'k', 'YColor', 'k');
-
-% Panel (b) 1:1 line & styling
-min_val2 = min([Q_tot_theory_mSv; Q_diag_mSv], [], 'omitnan');
-max_val2 = max([Q_tot_theory_mSv; Q_diag_mSv], [], 'omitnan');
-min_val2 = min(0, min_val2 * 1.15);
-max_val2 = max_val2 * 1.15;
-plot(ax2, [min_val2, max_val2], [min_val2, max_val2], 'k--', 'LineWidth', 1.2);
-xlabel(ax2, 'Theory $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 18);
-ylabel(ax2, 'Simulation $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 18);
-title(ax2, '(b) Offshore Volume Transport', 'FontSize', 18, 'FontWeight', 'bold');
-xlim(ax2, [min_val2, max_val2]); ylim(ax2, [min_val2, max_val2]);
-pbaspect(ax2, [1 1 1]);
-set(ax2, 'FontSize', 14, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', ...
-    'LineWidth', 1, 'TickDir', 'out', 'XColor', 'k', 'YColor', 'k');
-
-% Legend (same parameter symbols as the other figures: Z_s, L_s, Z_sh, v_0).
-% Only groups actually plotted get an entry, so a wind-only or Z_s-only
+% Legend entries: only groups actually plotted, so a wind-only or Z_s-only
 % cluster does not advertise four empty categories.
 has    = @(pred) any(cellfun(pred, sweeps_valid));
 is_ref = @(s) strcmp(s, 'Zs5_Ls40k');
 in_grp = @(G) @(s) ismember(s, G) && ~is_ref(s);
-leg_h = gobjects(0); leg_s = {};
-if has(is_ref)
-    leg_h(end+1) = plot(ax2, NaN, NaN, 'p', 'MarkerEdgeColor', 'k', 'MarkerFaceColor', 'k', 'LineWidth', 2, 'MarkerSize', 10);
-    leg_s{end+1} = 'Reference';
-end
+iw     = startsWith(sweeps_valid, 'wind_');
+leg = struct('m', {}, 'c', {}, 'filled', {}, 'txt', {});
+if has(is_ref), leg(end+1) = struct('m', 'p', 'c', [0 0 0], 'filled', true, 'txt', 'Reference'); end
 if has(@(s) (ismember(s, group_Zs) || (startsWith(s, 'Zs') && ~ismember(s, [group_Ls, group_v0, group_ShelfH]) && ~startsWith(s, 'Zsh'))) && ~is_ref(s))
-    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Zs,  'MarkerEdgeColor', col_Zs,  'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$Z_s$';
+    leg(end+1) = struct('m', mk_Zs, 'c', col_Zs, 'filled', false, 'txt', '$Z_s$');
 end
-if has(in_grp(group_Ls))
-    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Ls,  'MarkerEdgeColor', col_Ls,  'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$L_s$';
-end
-if has(in_grp(group_ShelfH))
-    leg_h(end+1) = plot(ax2, NaN, NaN, mk_Zsh, 'MarkerEdgeColor', col_Zsh, 'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$Z_{sh}$';
-end
-if has(in_grp(group_v0))
-    leg_h(end+1) = plot(ax2, NaN, NaN, mk_v0,  'MarkerEdgeColor', col_v0,  'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$v_0$';
-end
-iw = startsWith(sweeps_valid, 'wind_');
-if any(iw & tau_val(:)' > 0)
-    leg_h(end+1) = plot(ax2, NaN, NaN, '^', 'MarkerEdgeColor', col_wind, 'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$\tau > 0$ (upwelling)';
-end
-if any(iw & tau_val(:)' < 0)
-    leg_h(end+1) = plot(ax2, NaN, NaN, 'v', 'MarkerEdgeColor', col_wind, 'LineWidth', 1.5, 'MarkerSize', 8);
-    leg_s{end+1} = '$\tau < 0$ (downwelling)';
-end
-legend(ax2, leg_h, leg_s, 'Location', 'northwest', 'FontSize', 12, 'Interpreter', 'latex');
+if has(in_grp(group_Ls)),     leg(end+1) = struct('m', mk_Ls,  'c', col_Ls,  'filled', false, 'txt', '$L_s$');    end
+if has(in_grp(group_ShelfH)), leg(end+1) = struct('m', mk_Zsh, 'c', col_Zsh, 'filled', false, 'txt', '$Z_{sh}$'); end
+if has(in_grp(group_v0)),     leg(end+1) = struct('m', mk_v0,  'c', col_v0,  'filled', false, 'txt', '$v_0$');    end
+if any(iw & tau_val(:)' > 0), leg(end+1) = struct('m', '^', 'c', col_wind, 'filled', false, 'txt', '$\tau > 0$ (upwelling)');   end
+if any(iw & tau_val(:)' < 0), leg(end+1) = struct('m', 'v', 'c', col_wind, 'filled', false, 'txt', '$\tau < 0$ (downwelling)'); end
 
+%% Plotting
+lbl = strrep(cluster_name, '_', '\_');
+draw_theory_fig_(sqrt(EKE_step), sqrt(EKE_diag), Q_step / 1e3, Q_diag / 1e3, sty, leg, h_unreliable, ...
+    {'(a) EKE: Eq. 7 with measured APE', ...
+     sprintf('(b) $Q$: Eq. 5 with measured EKE, $g''_h$ ($c = %.2f$)', c_eddy)}, ...
+    sprintf('%s  --  stepwise: each step fed measured inputs (coeff\\_mode = %s)', lbl, coeff_mode), ...
+    fullfile(outdir, sprintf('%s_theory_vs_model_stepwise.png', cluster_name)));
+draw_theory_fig_(sqrt(EKE_pred), sqrt(EKE_diag), Q_pred / 1e3, Q_diag / 1e3, sty, leg, false(num_valid, 1), ...
+    {sprintf('(a) EKE: Eqs. 8 + 7, $C_{geom} = %.3g$', C_geom), ...
+     '(b) $Q$: Eqs. 8 + 7 + 5, initial $g''_0$'}, ...
+    sprintf('%s  --  predictive: initial stratification only, constants from the stepwise test', lbl), ...
+    fullfile(outdir, sprintf('%s_theory_vs_model_predictive.png', cluster_name)));
+
+end
+
+function A = load_ape_(cluster_name, sweep_root, outdir, y_box, x_g_range, runs, refresh)
+% ape_wedge results for this cluster: from <cluster>_ape_wedge.mat when it
+% matches this script's box and holds every run, otherwise by running
+% ape_wedge (which writes that file).
+fmat = fullfile(outdir, sprintf('%s_ape_wedge.mat', cluster_name));
+A = [];
+if ~refresh && isfile(fmat)
+    S = load(fmat);  A = S.R;
+    need = {'APE_sorted', 'A_box', 'g_prime_h', 'ref_drift', 'g_prime_0', 'y_box', 'x_g_range', 'window'};
+    why = '';
+    if ~all(isfield(A, need))
+        why = 'written by an older ape_wedge';
+    elseif ~isequal(A.y_box(:)', y_box(:)') || ~isequal(A.x_g_range(:)', x_g_range(:)') || ~isempty(A.window)
+        why = 'made with a different box or window';
+    elseif ~all(ismember(strrep(runs, 'sweep_', ''), strrep(A.labels, 'sweep_', '')))
+        why = 'missing some of the runs now on disk';
+    end
+    if isempty(why)
+        fprintf('Using measured APE from %s (made %s)\n', fmat, A.created);
+    else
+        fprintf('  %s is %s: rerunning ape_wedge.\n', fmat, why);
+        A = [];
+    end
+end
+if isempty(A)
+    A = ape_wedge(cluster_name, 'sweep_root', sweep_root, 'y_box', y_box, ...
+                  'x_g_range', x_g_range, 'outdir', outdir);
+end
+end
+
+function [EKE, coef] = eke_theory_(base, s, R, tau, coeff_mode, EKE_diag)
+% Eq. 7 per unit volume: EKE = a (1 + c s)^n base / (1 + b R), base = APE per
+% unit volume. coef is [a n c b] per run, so the predictive figure can reuse
+% exactly the coefficients chosen (or fitted) here.
+n = numel(base);
+coef = zeros(n, 4);
+for i = 1:n
+    if strcmpi(coeff_mode, 'baseline') || strcmpi(coeff_mode, 'fit')
+        coef(i, :) = [0.086, 1, 8, 0.0];                 % no-wind (also the fit's fallback)
+    elseif tau(i) == 0
+        coef(i, :) = [0.086, 1, 8, 0.0];                 % no wind
+    elseif tau(i) > 0
+        coef(i, :) = [0.490, -1, 2, 0.0];                % upwelling
+    else
+        coef(i, :) = [0.110, 1, 2, 0.2];                 % downwelling
+    end
+end
+if strcmpi(coeff_mode, 'fit')
+    % One set of a, b, c, n for every run, fitted in log space to the
+    % diagnosed EKE. Four parameters: do not trust it on a handful of runs.
+    ok = isfinite(base) & base > 0 & isfinite(EKE_diag) & EKE_diag > 0;
+    try
+        pred = @(p, k) exp(p(1)) .* (1 + exp(p(3)) .* s(k)).^p(4) .* base(k) ./ (1 + exp(p(2)) .* R(k));
+        cost = @(p) sum((log(pred(p, ok)) - log(EKE_diag(ok))).^2);
+        p = fminsearch(cost, [log(0.1), log(0.1), log(2), 1], ...
+                       optimset('Display', 'off', 'MaxIter', 5e3, 'MaxFunEvals', 1e4));
+        coef = repmat([exp(p(1)), p(4), exp(p(3)), exp(p(2))], n, 1);
+        fprintf('Fitted Eq. 7 coefficients (on %d runs): a=%.3g, n=%.3g, c=%.3g, b=%.3g\n', ...
+                sum(ok), coef(1,1), coef(1,2), coef(1,3), coef(1,4));
+    catch ME
+        fprintf('  [Fallback Activated] Eq. 7 fit failed (%s). Using the no-wind coefficients.\n', ME.message);
+    end
+end
+EKE = eke_from_coef_(base, s, R, coef);
+end
+
+function EKE = eke_from_coef_(base, s, R, coef)
+EKE = coef(:,1) .* (1 + coef(:,3) .* s).^coef(:,2) .* base ./ (1 + coef(:,4) .* R);
+end
+
+function c = fit_through_origin_(x, y)
+% Least-squares constant in y = c x; Zhao et al.'s O(1) default when the
+% fit is impossible or non-positive.
+ok = isfinite(x) & isfinite(y);
+c = NaN;
+if any(ok), c = x(ok) \ y(ok); end
+if ~(c > 0)
+    c = 1.1;
+    fprintf('  [Fallback Activated] Eq. 5 constant could not be fitted. Using c = 1.1.\n');
+end
+end
+
+function report_skill_(what, th, md)
+ok = isfinite(th) & isfinite(md) & th > 0 & md > 0;
+if sum(ok) < 2, return; end
+r = log10(th(ok) ./ md(ok));
+fprintf('  %s: theory/model median %.2f, rms log10 error %.2f (factor %.1f), %d runs\n', ...
+        what, 10^median(r), sqrt(mean(r.^2)), 10^sqrt(mean(r.^2)), sum(ok));
+end
+
+function draw_theory_fig_(xa, ya, xb, yb, sty, leg, flag, ttl, suptl, outfile)
+% Two panels, theory (x) against model (y): sqrt(EKE) and Q in mSv.
+% flag marks runs whose Q panel is not a test (g'_h unreliable).
+fig = figure('Color', 'w', 'Position', [100, 100, 900, 520]);
+tl  = tiledlayout(1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+ax1 = nexttile(tl); hold(ax1, 'on');
+ax2 = nexttile(tl); hold(ax2, 'on');
+for i = 1:numel(xa)
+    st = sty(i);
+    fc = 'none'; if st.filled, fc = st.c; end
+    scatter(ax1, xa(i), ya(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
+    scatter(ax2, xb(i), yb(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
+    if flag(i)
+        scatter(ax2, xb(i), yb(i), st.sz * 1.8, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2, 'LineStyle', ':');
+    end
+end
+
+v1 = [xa(:); ya(:)];
+mx1 = max(v1, [], 'omitnan') * 1.15;
+if ~(mx1 > 0), mx1 = 1; end
+plot(ax1, [0, mx1], [0, mx1], 'k--', 'LineWidth', 1.2);
+xlim(ax1, [0, mx1]); ylim(ax1, [0, mx1]);
+xlabel(ax1, 'Theory $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 16);
+ylabel(ax1, 'Simulation $\sqrt{EKE}$ (m s$^{-1}$)', 'Interpreter', 'latex', 'FontSize', 16);
+title(ax1, ttl{1}, 'Interpreter', 'latex', 'FontSize', 14);
+
+v2 = [xb(:); yb(:)];
+lo = min(0, min(v2, [], 'omitnan') * 1.15);
+hi = max(v2, [], 'omitnan') * 1.15;
+if ~(hi > lo), hi = lo + 1; end
+plot(ax2, [lo, hi], [lo, hi], 'k--', 'LineWidth', 1.2);
+xlim(ax2, [lo, hi]); ylim(ax2, [lo, hi]);
+xlabel(ax2, 'Theory $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 16);
+ylabel(ax2, 'Simulation $Q$ (mSv)', 'Interpreter', 'latex', 'FontSize', 16);
+title(ax2, ttl{2}, 'Interpreter', 'latex', 'FontSize', 14);
+
+for ax = [ax1, ax2]
+    pbaspect(ax, [1 1 1]);
+    set(ax, 'FontSize', 13, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', ...
+        'LineWidth', 1, 'TickDir', 'out', 'XColor', 'k', 'YColor', 'k');
+end
+
+hl = gobjects(0); tx = {};
+for e = leg
+    fc = 'none'; if e.filled, fc = e.c; end
+    hl(end+1) = plot(ax2, NaN, NaN, e.m, 'MarkerEdgeColor', e.c, 'MarkerFaceColor', fc, 'LineWidth', 1.5, 'MarkerSize', 8); %#ok<AGROW>
+    tx{end+1} = e.txt; %#ok<AGROW>
+end
+if any(flag)
+    hl(end+1) = plot(ax2, NaN, NaN, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2, 'MarkerSize', 12);
+    tx{end+1} = '$g''_h$ unreliable, not in fit';
+end
+if ~isempty(hl)
+    legend(ax2, hl, tx, 'Location', 'northwest', 'FontSize', 11, 'Interpreter', 'latex');
+end
+title(tl, suptl, 'FontWeight', 'bold', 'FontSize', 12);
 drawnow;
-
-% Save Output Figure
-outfile = fullfile(outdir, sprintf('%s_theory_vs_model.png', cluster_name));
 exportgraphics(fig, outfile, 'Resolution', 300);
-fprintf('Saved theory vs model plot: %s\n', outfile);
-
+fprintf('Saved: %s\n', outfile);
 end
 
 function sz = rank_size(v, all_v, sz_lo, sz_hi)

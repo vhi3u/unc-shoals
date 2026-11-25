@@ -66,6 +66,15 @@ function R = ape_wedge(cluster_name, varargin)
 %               lighter (the downwelling sense). Independent of the offshore
 %               reference, which wind distorts. Plotted as <cluster>_ape_tilt.png.
 %
+% ALSO RECORDED (for plot_theory_vs_model.m, which loads <cluster>_ape_wedge.mat):
+%
+%   g_prime_0   surface-minus-bottom contrast of the INITIAL profile over the
+%               shelf depth H0: the vertical g' as it was before the run.
+%               Unlike g', it is known in advance, so it can predict.
+%   A_box       wet cross-sectional area of the shelf box [m^2], so that
+%               APE_sorted / A_box is APE per unit volume, the same average
+%               as the shelf-mean EKE in plot_theory_vs_model.m.
+%
 % Options:
 %   'sweep_root'      default /glade/work/nguyen/unc-shoals/sweep_output
 %   'window'          which 10-day average; [] = last (default)
@@ -103,7 +112,7 @@ fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n')
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
 [APE_qg, APE_srt, gp, N2bar, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max, etaH_frac] = deal(nan(1, n));
-[gph, Ldh, tilt, drift] = deal(nan(1, n));
+[gph, Ldh, tilt, drift, gp0, Abox] = deal(nan(1, n));
 mixed   = repmat({''}, 1, n);
 nobreak = repmat({''}, 1, n);
 BP = cell(1, n); BPP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
@@ -183,6 +192,7 @@ for k = 1:n
 
     V = reshape(dx(ix), [], 1) .* reshape(dy(iy), 1, []) .* reshape(dz, 1, 1, []);
     V = V .* wet(ix,:,:);
+    Abox(k) = sum(V, 'all') / Ly;                       % wet cross-section of the box [m^2]
     bpx = bp(ix,:,:);  bx = b(ix,:,:);  wx = wet(ix,:,:);
 
     % ── APE, estimate 1: quasi-geostrophic ───────────────────────────────
@@ -295,6 +305,13 @@ for k = 1:n
     dsf    = meta_att_(cluster_dir, labels{k}, tags{k}, 'deep_strat_frac', 0);
     [Ti, Si] = initial_profile_(zc, dsf);
     b_init = g * (a_T * Ti - b_S * Si);
+    % The same surface-minus-bottom contrast as g', but of the INITIAL
+    % profile over the shelf depth: known before the run, so it can predict.
+    lev = find(zc >= -H0(k));
+    if numel(lev) >= 2
+        [~, itop] = max(zc(lev));  [~, ibot] = min(zc(lev));
+        gp0(k) = b_init(lev(itop)) - b_init(lev(ibot));
+    end
     okr    = isfinite(b_ref);
     if any(okr)
         drift(k) = sqrt(mean((b_ref(okr) - b_init(okr)).^2));
@@ -580,7 +597,15 @@ R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
            'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt, ...
            'eta_over_H', etaH, 'eta_over_H_p90', etaH_max, ...
            'eta_frac_used', etaH_frac, 'no_break', {nobreak}, ...
-           'g_prime_h', gph, 'Ld_h', Ldh, 'C_h_sorted', C_h_srt, 'tilt', tilt, 'ref_drift', drift);
+           'g_prime_h', gph, 'Ld_h', Ldh, 'C_h_sorted', C_h_srt, 'tilt', tilt, 'ref_drift', drift, ...
+           'g_prime_0', gp0, 'A_box', Abox, ...
+           'cluster', cluster_name, 'window', o.window, 'y_box', o.y_box, 'x_g_range', o.x_g_range, ...
+           'created', char(datetime('now')));
+
+% plot_theory_vs_model.m reads this rather than re-sorting every run.
+outm = fullfile(o.outdir, sprintf('%s_ape_wedge.mat', cluster_name));
+save(outm, 'R');
+fprintf('Saved: %s\n', outm);
 end
 
 % ================== helpers ==================
