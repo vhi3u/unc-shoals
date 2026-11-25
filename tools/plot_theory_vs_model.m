@@ -26,6 +26,11 @@ function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, re
 %           Runs whose offshore water has drifted from the initial profile by
 %           more than g'_h (downwelling) are circled in (b) and (c) and left
 %           out of the fit for c: g'_h does not mean shelf-against-ocean there.
+%   <cluster>_flux_vs_x.png
+%     Where the exchange happens: eddy, standing-meander and mean-overturning
+%     transport against x for every run, with the shoal crest, its flanks and
+%     the shelf break marked.
+%
 %     Also printed: the STANDING-eddy flux (u - [u])(b - [b]) of the time-
 %     mean fields -- steady meanders around the shoal -- which carries
 %     buoyancy without appearing in <u'b'>.
@@ -166,6 +171,8 @@ L_val       = nan(num_sw, 1);
 xb_val      = nan(num_sw, 1);
 Qnet_val    = nan(num_sw, 1);
 [Ft_val, Fs_val, xFt_val, xFs_val] = deal(nan(num_sw, 1));   % eddy buoyancy fluxes (see section 4)
+[XP, FTX, FSX, QXP] = deal(cell(num_sw, 1));                 % their cross-shelf profiles
+[sst_val, siw_val] = deal(zeros(num_sw, 1));                 % shoal_start, shoal_inner_width (m)
 
 fprintf('=== Extracting data from %d sweeps ===\n', num_sw);
 
@@ -200,6 +207,8 @@ for idx = 1:num_sw
     if ~isempty(meta_fname)
         Zs  = read_att(meta_fname, 'Zs',           Zs);
         Ls  = read_att(meta_fname, 'shoal_length', Ls);
+        sst_val(idx) = read_att(meta_fname, 'shoal_start', 0);
+        siw_val(idx) = read_att(meta_fname, 'shoal_inner_width', 0);
         tau = read_att(meta_fname, 'wind_stress',  tau);
         v0  = read_att(meta_fname, 'v0',           v0);
         Zsh = read_att(meta_fname, 'Zsh',          Zsh);
@@ -353,6 +362,7 @@ for idx = 1:num_sw
             ush(~isfinite(ush)) = 0;
             U_y = squeeze(sum(ush .* reshape(dy(iyQ), 1, []), 2));                     % (Nx, Nz)
             Qx  = sum(max(U_y, 0) .* dz(:)', 2);                                      % (Nx, 1)
+            QXP{idx} = Qx;
             [Qmax, ixm] = max(Qx);
             Q_diag(idx)   = Qmax;
             Qnet_val(idx) = sum(U_y(ixm, :) .* dz(:)');       % full-depth net at that x
@@ -400,6 +410,7 @@ for idx = 1:num_sw
             [~, it_] = max(abs(Ftx));  [~, is_] = max(abs(Fsx));
             Ft_val(idx) = Ftx(it_);  xFt_val(idx) = xc_km(it_);
             Fs_val(idx) = Fsx(is_);  xFs_val(idx) = xc_km(is_);
+            XP{idx} = xc_km(1:ix_b);  FTX{idx} = Ftx;  FSX{idx} = Fsx;
             clear um Tm Sm wq ubp wdy ust bst sfl bm;
         catch ME
             fprintf('  [Fallback Activated] Eddy flux calculation failed for %s (%s).\n', sw, ME.message);
@@ -458,6 +469,9 @@ gph_val      = gph_val(valid);
 drift_val    = drift_val(valid);
 gp0_val      = gp0_val(valid);
 tilt_val     = tilt_val(valid);
+XP = XP(valid);  FTX = FTX(valid);  FSX = FSX(valid);  QXP = QXP(valid);
+sst_val      = sst_val(valid);
+siw_val      = siw_val(valid);
 Ft_val       = Ft_val(valid);
 Fs_val       = Fs_val(valid);
 xFt_val      = xFt_val(valid);
@@ -679,6 +693,14 @@ draw_theory_fig_({sqrt(EKE_pred), Q_pred / 1e3}, {sqrt(EKE_diag), Q_diag / 1e3},
     sprintf('%s  --  predictive: initial stratification only, constants from the stepwise test', lbl), ...
     fullfile(outdir, sprintf('%s_theory_vs_model_predictive.png', cluster_name)));
 
+%% Where on the shelf does the exchange happen?
+% The table above compares each pathway at its own peak x, i.e. across
+% different sections. This plots all three against x, with the shoal marked,
+% so they can be compared at the same section and placed relative to the
+% topography that drives them.
+plot_flux_profiles_(XP, FTX, FSX, QXP, gph_val, tilt_val, tilt_amb, QEk_val, Ls_val, sst_val, siw_val, ...
+    xb_val, sweeps_valid, cluster_name, fullfile(outdir, sprintf('%s_flux_vs_x.png', cluster_name)));
+
 end
 
 function A = load_ape_(cluster_name, sweep_root, outdir, y_box, x_g_range, runs, refresh)
@@ -807,6 +829,69 @@ title(tl, suptl, 'FontWeight', 'bold', 'FontSize', 12);
 drawnow;
 exportgraphics(fig, outfile, 'Resolution', 300);
 fprintf('Saved: %s\n', outfile);
+end
+
+function plot_flux_profiles_(XP, FTX, FSX, QXP, gph, tilt, amb, QEk, Ls, sst, siw, xb, runs, cluster_name, outfile)
+% One panel per run: cross-shelf profiles (alongshore + depth integrated) of
+%   eddy     transient <u'b'> / g'_h
+%   standing (u-[u])(b-[b]) / g'_h     (steady meanders)
+%   mean     offshore branch of the alongshore-integrated time-mean u
+% in mSv, with Q_Ek for reference. Both buoyancy fluxes are multiplied by
+% sign(tilt), so > 0 is DOWN-gradient exchange of shelf water (the sense Eq. 5
+% predicts) whichever side of the shelf is dense; where the tilt is too weak
+% to give a sign, they are plotted raw (> 0 = light water offshore).
+% Shading: the shoal crest (dark) and its inshore flank / 15 km offshore
+% taper (light), from sweep_metadata; dotted line: shelf break.
+n  = numel(runs);
+nc = min(3, n);  nr = ceil(n / nc);
+fig = figure('Color', 'w', 'Position', [60, 60, 560 * nc, 380 * nr]);
+tl  = tiledlayout(fig, nr, nc, 'TileSpacing', 'compact', 'Padding', 'compact');
+for i = 1:n
+    ax = nexttile(tl); hold(ax, 'on'); grid(ax, 'on');
+    if isempty(XP{i}) || ~isfinite(gph(i)) || ~(gph(i) > 0)
+        title(ax, sprintf('%s: no flux profile', strrep(runs{i}, '_', '\_')));
+        continue;
+    end
+    x = XP{i};
+    sg = sign(tilt(i));  if amb(i) || sg == 0, sg = 1; end
+    ft = sg * FTX{i} / gph(i) / 1e3;
+    fs = sg * FSX{i} / gph(i) / 1e3;
+    qm = QXP{i} / 1e3;
+    yl = [min([ft; fs; 0]), max([ft; fs; qm; QEk(i)/1e3; 0])];
+    yl = yl + [-0.08 0.08] * max(diff(yl), eps);
+    % shoal: crest [crest_in, Ls], flank [crest_in - inner_width, crest_in] if
+    % the shoal sits on the shelf, taper [Ls, Ls + 15 km]
+    crest_in = max(sst(i), 0) / 1e3;
+    patch(ax, [crest_in Ls(i)/1e3 Ls(i)/1e3 crest_in], yl([1 1 2 2]), [0.75 0.75 0.75], ...
+          'EdgeColor', 'none', 'FaceAlpha', 0.45, 'HandleVisibility', 'off');
+    if sst(i) > 0 && siw(i) > 0
+        patch(ax, [crest_in - siw(i)/1e3, crest_in, crest_in, crest_in - siw(i)/1e3], yl([1 1 2 2]), ...
+              [0.88 0.88 0.88], 'EdgeColor', 'none', 'FaceAlpha', 0.45, 'HandleVisibility', 'off');
+    end
+    patch(ax, [Ls(i)/1e3, Ls(i)/1e3 + 15, Ls(i)/1e3 + 15, Ls(i)/1e3], yl([1 1 2 2]), ...
+          [0.88 0.88 0.88], 'EdgeColor', 'none', 'FaceAlpha', 0.45, 'HandleVisibility', 'off');
+    xline(ax, xb(i), 'k:', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+    yline(ax, 0, 'k-', 'LineWidth', 0.6, 'HandleVisibility', 'off');
+    plot(ax, x, ft, '-', 'Color', [0.80 0.20 0.10], 'LineWidth', 1.8, 'DisplayName', 'eddy (transient)');
+    plot(ax, x, fs, '-', 'Color', [0.10 0.35 0.75], 'LineWidth', 1.8, 'DisplayName', 'standing meanders');
+    plot(ax, x, qm, '-', 'Color', [0.35 0.35 0.35], 'LineWidth', 1.2, 'DisplayName', 'mean overturning (offshore)');
+    if QEk(i) ~= 0
+        yline(ax, QEk(i)/1e3, '--', 'Color', [0.35 0.35 0.35], 'LineWidth', 1.0, 'DisplayName', 'Q_{Ek}');
+    end
+    xlim(ax, [0, max(x)]);  ylim(ax, yl);
+    if amb(i), sgn_txt = 'raw sign: tilt too weak'; elseif tilt(i) < 0, sgn_txt = 'dense inshore'; else, sgn_txt = 'light inshore'; end
+    title(ax, sprintf('%s   (%s)', strrep(runs{i}, '_', '\_'), sgn_txt), 'FontWeight', 'bold');
+    xlabel(ax, 'x (km from coast)');  ylabel(ax, 'transport (mSv)');
+    set(ax, 'FontSize', 10);
+    if i == 1, legend(ax, 'Location', 'best', 'FontSize', 8); end
+end
+title(tl, sprintf(['%s  --  cross-shelf exchange by pathway (> 0 = down-gradient for the eddy and standing ' ...
+      'curves). Dark: shoal crest; light: flank / taper; dotted: shelf break'], strrep(cluster_name, '_', '\_')), ...
+      'FontWeight', 'bold', 'FontSize', 11);
+drawnow;
+exportgraphics(fig, outfile, 'Resolution', 200);
+fprintf('Saved: %s\n', outfile);
+close(fig);
 end
 
 function sz = rank_size(v, all_v, sz_lo, sz_hi)
