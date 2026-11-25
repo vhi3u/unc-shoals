@@ -447,24 +447,28 @@ C_meas_0  = APEm_val ./ (gp0_val .* H0_val.^2 .* Ld0_val);    % what C_geom woul
 
 %% Report
 fprintf('\n=== Theory vs model, per run ===\n');
-fprintf(['  %-14s %9s %9s %9s %6s %9s | %9s %9s %9s | %9s %9s %9s\n'], 'run', ...
+fprintf(['  %-14s %9s %9s %9s %6s %9s | %9s %9s %9s | %9s %9s %9s %9s\n'], 'run', ...
         'APE_srt', 'g''_h', 'g''_0', 'drift', 'C(g''_0)', ...
-        'EKE_mod', 'EKE_step', 'EKE_pred', 'Q_mod', 'Q_step', 'Q_pred');
+        'EKE_mod', 'EKE_step', 'EKE_pred', 'Q_mod', 'Q_Ek', 'Q_step', 'Q_pred');
 for i = 1:num_valid
     flag = ''; if h_unreliable(i), flag = '  * g''_h unreliable'; end
-    fprintf(['  %-14s %9.3e %9.3e %9.3e %5.0f%% %9.4f | %9.3e %9.3e %9.3e | %9.3e %9.3e %9.3e%s\n'], ...
+    fprintf(['  %-14s %9.3e %9.3e %9.3e %5.0f%% %9.4f | %9.3e %9.3e %9.3e | %9.3e %9.3e %9.3e %9.3e%s\n'], ...
             sweeps_valid{i}, APEm_val(i), gph_val(i), gp0_val(i), 100*drift_val(i)/gph_val(i), C_meas_0(i), ...
-            EKE_diag(i), EKE_step(i), EKE_pred(i), Q_diag(i), Q_step(i), Q_pred(i), flag);
+            EKE_diag(i), EKE_step(i), EKE_pred(i), Q_diag(i), QEk_val(i), Q_step(i), Q_pred(i), flag);
 end
-fprintf('  (EKE in m^2/s^2, Q in m^3/s; drift = offshore-strip drift from the initial profile, as %% of g''_h)\n');
+fprintf(['  (EKE in m^2/s^2, Q in m^3/s; drift = offshore-strip drift from the initial profile, as %% of g''_h)\n' ...
+         '  Q_Ek is the Ekman part of both theory columns; Q_step - Q_Ek is the eddy term. Q_mod counts\n' ...
+         '  offshore flow only, so it cannot go negative, while theory Q is signed: for downwelling\n' ...
+         '  (tau < 0) the two are not the same quantity.\n']);
 fprintf('  Eq. 5 constant c (fitted in the stepwise test on %d of %d runs): %.3f\n', ...
         sum(fit_ok), num_valid, c_eddy);
 if sum(fit_ok) < 3
     fprintf(['  ** c rests on %d run(s): the stepwise Q panel then sits on the 1:1 line\n' ...
              '     by construction and tests nothing. Pool clusters before reading it.\n'], sum(fit_ok));
 end
+cu = sprintf('%.3f ', C_meas_0(tau_val == 0));  if isempty(cu), cu = 'none in this cluster'; end
 fprintf('  C_geom used in the predictive figure: %.4f. Measured APE / (g''_0 H0^2 Ld_0), unforced runs: %s\n', ...
-        C_geom, sprintf('%.3f ', C_meas_0(tau_val == 0)));
+        C_geom, cu);
 report_skill_('stepwise   EKE', EKE_step, EKE_diag);
 report_skill_('stepwise   Q  ', Q_step(~h_unreliable), Q_diag(~h_unreliable));
 report_skill_('predictive EKE', EKE_pred, EKE_diag);
@@ -666,7 +670,7 @@ for i = 1:numel(xa)
     scatter(ax1, xa(i), ya(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
     scatter(ax2, xb(i), yb(i), st.sz, st.m, 'MarkerEdgeColor', st.c, 'MarkerFaceColor', fc, 'LineWidth', st.lw);
     if flag(i)
-        scatter(ax2, xb(i), yb(i), st.sz * 1.8, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2, 'LineStyle', ':');
+        scatter(ax2, xb(i), yb(i), st.sz * 1.8, 'o', 'MarkerEdgeColor', [0.85 0.4 0], 'LineWidth', 1.2);
     end
 end
 
