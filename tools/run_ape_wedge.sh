@@ -18,10 +18,17 @@
 #
 # Reads only T and S, so it needs no rerun.
 #
-# Prints a table and writes two figures to animations/:
+# Also reports a HORIZONTAL g'_h (shelf vs ambient, as Zhao et al. define it,
+# defined even when wind has mixed the column) and a signed cross-shelf tilt
+# measured against the shelf box's own mean profile.
+#
+# Prints a table and writes three figures to animations/:
 #   <cluster>_ape_wedge.png     the b' cross-section, i.e. the actual shape
 #   <cluster>_ape_scaling.png   APE vs g' H0^2 L, where a constant C_geom
-#                               shows up as one line through the origin
+#                               shows up as one line through the origin;
+#                               third panel uses g'_h
+#   <cluster>_ape_tilt.png      b - <b>_box(z): the tilt with the offshore
+#                               column taken out of the picture
 
 set -u
 

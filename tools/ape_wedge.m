@@ -43,6 +43,29 @@ function R = ape_wedge(cluster_name, varargin)
 % g', H0 and Ld use the SAME definitions as plot_theory_vs_model.m, so the
 % diagnosed C_geom drops straight into that script.
 %
+% TWO FURTHER DIAGNOSTICS, for the forced runs, where the vertical g' fails:
+%
+%   g'_h        HORIZONTAL contrast: rms of b - b_init(z) over the same
+%               shelf columns as g', where b_init is the model's INITIAL
+%               profile (T_south_pwl / S_south_pwl in flow_over_shoals_sweep.jl,
+%               which is also the inflow nudging target and the open east
+%               boundary's exterior state). Shelf water against the original
+%               ocean: Zhao et al.'s plume-vs-ambient contrast, and Brink
+%               (2016)'s drho ~ rho_z H. A fixed reference, NOT the offshore
+%               strip, because wind changes that strip too (its contrast falls
+%               from 6.4e-3 to 2.7e-3 under weak downwelling). Survives
+%               vertical mixing, where the surface-minus-bottom g' goes to
+%               zero. Ld_h = sqrt(g'_h H0)/f and C_h = APE/(g'_h H0^2 Ld_h)
+%               follow. Mixed runs stay IN the C_h statistics. Also reported:
+%               the rms drift of the offshore strip from b_init, which says
+%               how far b' (used everywhere else) has moved its own baseline.
+%   tilt        b relative to the shelf box's OWN mean profile, volume-mean
+%               over the inshore half of the box. Signed: < 0 means inshore
+%               water is denser than the box at the same depth (isopycnals
+%               rising shoreward, the unforced and upwelling sense), > 0 means
+%               lighter (the downwelling sense). Independent of the offshore
+%               reference, which wind distorts. Plotted as <cluster>_ape_tilt.png.
+%
 % Options:
 %   'sweep_root'      default /glade/work/nguyen/unc-shoals/sweep_output
 %   'window'          which 10-day average; [] = last (default)
@@ -80,9 +103,10 @@ fprintf('  APE measured per unit alongshore length (m^4/s^2), over the shelf\n')
 fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n', o.y_box(1));
 
 [APE_qg, APE_srt, gp, N2bar, H0, Ld, Wmeas, WE, dxv, nfloor, etaH, etaH_max, etaH_frac] = deal(nan(1, n));
+[gph, Ldh, tilt, drift] = deal(nan(1, n));
 mixed   = repmat({''}, 1, n);
 nobreak = repmat({''}, 1, n);
-BP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
+BP = cell(1, n); BPP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
 
 for k = 1:n
     fn = find_tavg_(cluster_dir, labels{k}, tags{k});
@@ -264,6 +288,41 @@ for k = 1:n
         WE(k) = sum(P2 .* dx(ix)) / max(P2);
     end
 
+    % ── horizontal g': shelf water against the ORIGINAL ocean ────────────
+    % rms of b - b_init(z) over the shelf columns used for the vertical g'.
+    % An rms and not a signed mean: the unforced section has a light upper
+    % layer over a dense lower one, and a signed mean would cancel them.
+    dsf    = meta_att_(cluster_dir, labels{k}, tags{k}, 'deep_strat_frac', 0);
+    [Ti, Si] = initial_profile_(zc, dsf);
+    b_init = g * (a_T * Ti - b_S * Si);
+    okr    = isfinite(b_ref);
+    if any(okr)
+        drift(k) = sqrt(mean((b_ref(okr) - b_init(okr)).^2));
+    end
+    Vg  = reshape(dx(ixg), [], 1) .* reshape(dy(iy), 1, []) .* reshape(dz, 1, 1, []) .* wet(ixg,:,:);
+    bpg = b(ixg,:,:) - reshape(b_init, 1, 1, []);
+    bpg(~wet(ixg,:,:) | ~isfinite(bpg)) = 0;
+    if sum(Vg, 'all') > 0
+        gph(k) = sqrt(sum(bpg.^2 .* Vg, 'all') / sum(Vg, 'all'));
+    end
+    Ldh(k) = sqrt(gph(k) * H0(k)) / f;
+    clear Vg bpg;
+
+    % ── internal tilt: b against the shelf box's own mean profile ─────────
+    % b'' = b - <b>_box(z) averages to zero on every level, so its mean over
+    % the inshore half is minus its mean over the offshore half: a signed
+    % cross-shelf contrast at matched depths, blind to the offshore column.
+    b0    = bx;  b0(~wx | ~isfinite(b0)) = 0;
+    b_box = squeeze(sum(sum(b0 .* V, 1), 2)) ./ squeeze(sum(sum(V, 1), 2));
+    bpp   = bx - reshape(b_box, 1, 1, []);  bpp(~wx) = NaN;
+    inner = x_km(ix) <= x_km(ib) / 2;
+    Vi    = V(inner,:,:);  bi = bpp(inner,:,:);  bi(~isfinite(bi)) = 0;
+    if sum(Vi, 'all') > 0
+        tilt(k) = sum(bi .* Vi, 'all') / sum(Vi, 'all');
+    end
+    BPP{k} = squeeze(mean(bpp, 2, 'omitnan'))';         % (Nz x Nx)
+    clear b0 bpp Vi bi;
+
     % Keep the alongshore-mean cross-section for the wedge figure.
     bpm = bpx; bpm(~wx) = NaN;
     BP{k} = squeeze(mean(bpm, 2, 'omitnan'))';          % (Nz x Nx)
@@ -284,6 +343,12 @@ for k = 1:n
         fprintf('                   (%d of %d reference levels floored -- APE_qg is soft here)\n', ...
                 nfloor(k), numel(N2_ref));
     end
+    if tilt(k) < 0, tw = 'inshore denser'; else, tw = 'inshore lighter'; end
+    if isfinite(gp(k)), rw = sprintf('%5.2fx vertical g''', gph(k)/gp(k)); else, rw = 'vertical g'' undefined'; end
+    fprintf('                   horizontal: g''_h = %.3e (%s)  Ld_h = %6.0f m   tilt = %+.2e (%s)\n', ...
+            gph(k), rw, Ldh(k), tilt(k), tw);
+    fprintf('                   offshore strip has drifted %.2e rms from the initial profile (%.0f%% of g''_h)\n', ...
+            drift(k), 100*drift(k)/gph(k));
 end
 
 % ── the number this script exists to produce ─────────────────────────────
@@ -294,12 +359,14 @@ C_Ld_qg  = APE_qg  ./ base_Ld;
 C_Ld_srt = APE_srt ./ base_Ld;
 C_W_srt  = APE_srt ./ base_W;
 C_WE_srt = APE_srt ./ base_WE;
+base_h   = gph .* H0.^2 .* Ldh;
+C_h_srt  = APE_srt ./ base_h;
 
 fprintf('\n── C_geom = APE_sorted / (g'' H0^2 L) ────────────────────────────\n');
-fprintf('  %-16s %12s %12s %12s   %s\n', 'run', 'L = Ld', 'L = W', 'L = W_E', '');
+fprintf('  %-16s %12s %12s %12s %12s   %s\n', 'run', 'L = Ld', 'L = W', 'L = W_E', 'g''_h, Ld_h', '');
 for k = 1:n
-    fprintf('  %-16s %12.4f %12.4f %12.4f   %s\n', labels{k}, ...
-            C_Ld_srt(k), C_W_srt(k), C_WE_srt(k), mixed{k});
+    fprintf('  %-16s %12.4f %12.4f %12.4f %12.4f   %s\n', labels{k}, ...
+            C_Ld_srt(k), C_W_srt(k), C_WE_srt(k), C_h_srt(k), mixed{k});
 end
 
 % A run whose column is mixed has no usable g', whether that shows up as a
@@ -320,6 +387,10 @@ end
 report_spread_('with L = Ld  (as the theory assumes)', C_Ld_srt, usable);
 report_spread_('with L = measured width W',            C_W_srt,  usable);
 report_spread_('with L = energy-weighted width W_E',   C_WE_srt, usable);
+% g'_h does not collapse under mixing, so the mixed runs count here.
+usable_h = cellfun(@isempty, nobreak) & isfinite(gph) & gph > 0;
+report_spread_(sprintf(['with horizontal g''_h and Ld_h  (%d runs: mixed ones included,\n' ...
+               '   since g''_h is defined for them)'], sum(usable_h & isfinite(C_h_srt))), C_h_srt, usable_h);
 
 % ── and the same thing grouped by shelf depth ────────────────────────────
 % Eq. 8 puts the entire depth dependence in H0^2, so whether C_geom survives
@@ -443,8 +514,8 @@ if ~isempty(ok)
 end
 
 % ── figure 2: does APE scale with g' H0^2 L? ─────────────────────────────
-f2 = figure('Color','w','Position',[60 60 1250 470]);
-t2 = tiledlayout(f2, 1, 2, 'TileSpacing','compact','Padding','compact');
+f2 = figure('Color','w','Position',[60 60 1850 470]);
+t2 = tiledlayout(f2, 1, 3, 'TileSpacing','compact','Padding','compact');
 
 APE_fit = APE_srt; APE_fit(~usable) = NaN;    % mixed columns do not constrain C
 scatter_panel_(nexttile(t2), base_Ld, APE_fit, labels, ...
@@ -453,6 +524,10 @@ scatter_panel_(nexttile(t2), base_Ld, APE_fit, labels, ...
 scatter_panel_(nexttile(t2), base_WE, APE_fit, labels, ...
     'g'' H_0^2 W_E   (m^4 s^{-2})', '', ...
     'L = energy-weighted width  (APE \propto b''^2)');
+APE_h = APE_srt; APE_h(~usable_h) = NaN;      % mixed runs DO constrain this one
+scatter_panel_(nexttile(t2), base_h, APE_h, labels, ...
+    'g''_h H_0^2 L_{d,h}   (m^4 s^{-2})', '', ...
+    'horizontal g''_h  (shelf vs ambient, as Zhao)');
 
 title(t2, sprintf(['%s  —  a constant C_{geom} means the points sit on one line ' ...
       'through the origin'], strrep(cluster_name,'_','\_')), 'FontWeight','bold', 'FontSize', 12);
@@ -461,12 +536,51 @@ exportgraphics(f2, out2, 'Resolution', 200);
 fprintf('Saved: %s\n', out2);
 close(f2);
 
+% ── figure 3: the tilt, against the shelf box's own mean profile ─────────
+% Same layout as figure 1, but b'' = b - <b>_box(z) instead of b - b_ref(z).
+% Removes the offshore column from the picture, so a downwelling run whose
+% whole shelf is lighter than offshore shows only its internal structure.
+ok = find(~cellfun(@isempty, BPP));
+if ~isempty(ok)
+    nc  = min(3, numel(ok));
+    nr  = ceil(numel(ok)/nc);
+    f3  = figure('Color','w','Position',[60 60 min(1700, 520*nc) 340*nr]);
+    t3  = tiledlayout(f3, nr, nc, 'TileSpacing','compact','Padding','compact');
+    lim = max(cellfun(@(c) max(abs(c(:))), BPP(ok)));
+    if ~(lim > 0), lim = 1e-6; end
+    for q = ok
+        ax = nexttile(t3);
+        set(ax, 'Color', [0.65 0.65 0.65]);
+        h = imagesc(ax, XK{q}, ZK{q}, BPP{q});
+        set(h, 'AlphaData', ~isnan(BPP{q}));
+        set(ax, 'YDir', 'normal');
+        xlim(ax, [min(XK{q}) max(XK{q})]);  ylim(ax, [min(ZK{q}) 0]);
+        clim(ax, [-lim lim]);
+        colormap(ax, redblue_());
+        hold(ax, 'on');
+        xline(ax, max(XK{q})/2, 'k:', 'LineWidth', 1.2);   % inner-half boundary
+        title(ax, sprintf('%s   tilt = %+.2e', strrep(labels{q},'_','\_'), tilt(q)), 'FontWeight','bold');
+        xlabel(ax, 'x (km)');  ylabel(ax, 'z (m)');
+        set(ax, 'FontSize', 10);
+    end
+    cb = colorbar(nexttile(t3, numel(ok)));
+    cb.Label.String = 'b'''' = b - <b>_{box}(z)   (m s^{-2})';
+    title(t3, sprintf(['%s  —  tilt within the shelf box (blue inshore = dense at the coast, ' ...
+          'red = light; dotted = inner-half edge)'], strrep(cluster_name,'_','\_')), ...
+          'FontWeight','bold', 'FontSize', 12);
+    out3 = fullfile(o.outdir, sprintf('%s_ape_tilt.png', cluster_name));
+    exportgraphics(f3, out3, 'Resolution', 200);
+    fprintf('Saved: %s\n', out3);
+    close(f3);
+end
+
 R = struct('labels', {labels}, 'APE_qg', APE_qg, 'APE_sorted', APE_srt, ...
            'g_prime', gp, 'N2bar', N2bar, 'H0', H0, 'Ld', Ld, 'W', Wmeas, 'W_E', WE, 'dx', dxv, ...
            'mixed', {mixed}, 'C_Ld_qg', C_Ld_qg, 'C_Ld_sorted', C_Ld_srt, ...
            'C_W_sorted', C_W_srt, 'C_WE_sorted', C_WE_srt, ...
            'eta_over_H', etaH, 'eta_over_H_p90', etaH_max, ...
-           'eta_frac_used', etaH_frac, 'no_break', {nobreak});
+           'eta_frac_used', etaH_frac, 'no_break', {nobreak}, ...
+           'g_prime_h', gph, 'Ld_h', Ldh, 'C_h_sorted', C_h_srt, 'tilt', tilt, 'ref_drift', drift);
 end
 
 % ================== helpers ==================
@@ -534,6 +648,47 @@ dbc = b(sub2ind(size(b), ii(okc), jj(okc), k_top(okc))) ...
 gpr = median(dbc, 'omitnan');
 Hcol  = sum(wet .* reshape(dzs, 1, 1, []), 3);
 n2bar = median(dbc ./ max(Hcol(okc), eps), 'omitnan');
+end
+
+function [T, S] = initial_profile_(z, dsf)
+% The model's initial (and nudging / east-exterior) profile: T_south_pwl and
+% S_south_pwl in flow_over_shoals_sweep.jl, smoothed piecewise linear with
+% tanh steps of width 2.5 m. Must be kept in step with that file. dsf is
+% DEEP_STRAT_FRAC: the gradient below the last breakpoint, as a fraction of
+% the segment above (0 = constant tail, as in every run before 2026-11-13).
+T = pwl_(z, [-5 -15 -30], [24.5378 24.3073 23.4116], dsf);
+S = pwl_(z, [-5 -15 -30], [35.5830 35.9986 36.1776], dsf);
+end
+
+function val = pwl_(z, zb, vb, dsf)
+st  = @(z0) 0.5 * (1 - tanh((z - z0) / 2.5));
+m12 = (vb(2) - vb(1)) / (zb(2) - zb(1));
+m23 = (vb(3) - vb(2)) / (zb(3) - zb(2));
+v1 = vb(1);
+v2 = vb(1) + m12 * (z - zb(1));
+v3 = vb(2) + m23 * (z - zb(2));
+v4 = vb(3) + dsf * m23 * (z - zb(3));
+w1 = st(zb(1));  w2 = st(zb(2));  w3 = st(zb(3));
+val = v1 .* (1 - w1) + v2 .* (w1 - w2) + v3 .* (w2 - w3) + v4 .* w3;
+end
+
+function v = meta_att_(cluster_dir, label, tag, att, default)
+% A global attribute from this run's sweep_metadata file, or default if the
+% file or the attribute is missing.
+v = default;
+d = dir(fullfile(cluster_dir, 'sweep_*'));
+d = d([d.isdir]);
+for k = 1:numel(d)
+    if ~isempty(regexp(d(k).name, [regexptranslate('escape', label) '$'], 'once'))
+        for cand = {fullfile(cluster_dir, d(k).name, ['sweep_metadata_' tag '.nc']), ...
+                    fullfile(cluster_dir, d(k).name, ['sweep_metadata_sweep_' tag '.nc'])}
+            if isfile(cand{1})
+                try, v = double(ncreadatt(cand{1}, '/', att)); catch, end
+                return;
+            end
+        end
+    end
+end
 end
 
 function zsh = zsh_for_(cluster_dir, label, tag)

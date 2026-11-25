@@ -769,6 +769,10 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["dx"] = sweep_dx
     ds.attrib["wind_stress"] = sweep_wind_stress
     ds.attrib["v0"] = sweep_v0
+    # ape_wedge.m rebuilds the initial T/S profile (T_south_pwl/S_south_pwl)
+    # as a fixed reference for g'_h, and the tail below the last breakpoint
+    # depends on this. Absent in older files, which all ran with 0.
+    ds.attrib["deep_strat_frac"] = DEEP_STRAT_FRAC
 end
 
 # initial conditions
