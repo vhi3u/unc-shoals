@@ -8,6 +8,9 @@
 # Examples:
 #   ./create_pbs_job.sh 100d500m_sponge 12 v100 100gb
 #   ./create_pbs_job.sh test_run 6 a100 120gb flow_over_shoals_turb.jl
+#   tools/create_pbs_job.sh ob_test 2 v100 64gb src/test_open_boundaries.jl
+# Generate and submit from the repository root. Pass environment knobs at
+# submission: qsub -v OB_DX=500,OB_DAYS=30 pbs_ob_test.sh
 # ═══════════════════════════════════════════════════════════════════════════
 
 set -e
@@ -73,6 +76,10 @@ module li
 
 #/glade/u/apps/ch/opt/usr/bin/dumpenv # Dumps environment (for debugging with CISL support)
 
+# PBS starts the job in \$HOME; run from the directory qsub was called in
+# (the repository root), so --project finds Project.toml and the relative
+# script path resolves.
+cd "\${PBS_O_WORKDIR}"
 
 mkdir -p logs out
 
