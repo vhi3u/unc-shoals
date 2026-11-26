@@ -171,6 +171,9 @@ end
 # Bathymetry (shared with flow_over_shoals.jl)
 # ═══════════════════════════════════════════════════════════════════════════
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+# Oceanostics' progress messengers, copied into the repo (see the file header)
+include(joinpath(@__DIR__, "ProgressMessengers.jl"))
+using .ProgressMessengers: TimedMessenger
 
 # ═══════════════════════════════════════════════════════════════════════════
 # simulation knobs
@@ -804,15 +807,10 @@ conjure_time_step_wizard!(simulation, IterationInterval(5),
 @info @sprintf("Time step: initial 60 s, max %.0f s  (Δh = %.0f m -> CFL = %.2f at |u| = 0.3 m/s)",
     max_Δt, Δh, 0.3 * max_Δt / Δh)
 
-# Progress line (replaces Oceanostics' TimedMessenger): model time, Δt and
-# wall time per simulated day.
-const wall_start = Ref(time_ns())
-function progress(sim)
-    elapsed = (time_ns() - wall_start[]) / 1e9
-    t_days = time(sim) / 86400
-    @info @sprintf("progress: t = %.2f d of %.0f | iter %d | Δt = %.0f s | wall %.1f min (%.2f min per simulated day)",
-        t_days, sweep_sim_days, iteration(sim), sim.Δt, elapsed / 60, elapsed / 60 / max(t_days, 1e-9))
-end
+# Progress line: Oceanostics' TimedMessenger (iteration, % done, model time, Δt,
+# wall time, wall time per step, max |u|,|v|,|w|, advective and diffusive CFL,
+# max viscosity), from the vendored src/ProgressMessengers.jl.
+progress = TimedMessenger()
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 # ═══════════════════════════════════════════════════════════════════════════
