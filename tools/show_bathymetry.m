@@ -87,3 +87,46 @@ for c = 1:2
                 g.crest_depth, g.crest_start/1e3, g.crest_end/1e3, g.crest_length/1e3, g.trench);
     end
 end
+
+%% PROPOSAL, part 2: changing shelf depth, crest_length = 40 km, shelf_gap = 10 km
+% The deep_geom setup (100 m basin, break slopes held fixed per shelf depth),
+% with BOTH proposed parameters: the crest is 40 km long and there is exactly
+% 10 km of flat shelf between the end of the shoal's taper and the break.
+% Two ways to hold "the same shoal" while the shelf deepens:
+%   left:  same crest DEPTH              Zs = -5 m on every shelf
+%   right: same HEIGHT above the shelf   Hs = Zsh - Zs = 10 m
+% Bars = measured crest; open circles = end of the offshore taper; triangles
+% = start of the shelf break. Set use_gap = false to see it without shelf_gap.
+use_gap = true;
+close all
+shelf = struct('Zsh', {-15, -25, -40, -50}, 'shelf_break_end', {8100, 12000, 17800, 21700}, ...
+               'rise_width', {17000, 15000, 12000, 10000});
+cc = lines(numel(shelf));  xs = 0:50:140e3;
+fig = figure('Color', 'w', 'Name', 'Proposal: shelf depth', 'NumberTitle', 'off', 'Position', [60 60 1400 600]);
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+titles = {'same crest DEPTH: Zs = -5 m', 'same HEIGHT above the shelf: Hs = 10 m'};
+fprintf('\n%-8s %-18s %8s %9s %9s %9s %9s %8s %9s  %s\n', 'Zsh', 'held fixed', 'Zs', 'start km', 'length km', ...
+        'taper km', 'break km', 'gap km', 'rise_mid', 'problems');
+for c = 1:2
+    ax = nexttile(tl);  hold(ax, 'on');  grid(ax, 'on');
+    for k = 1:numel(shelf)
+        p = shelf(k);  p.h_deep = -100;  p.rise_mid = 90e3;  p.crest_length = 40e3;
+        if use_gap, p.shelf_gap = 10e3; end
+        if c == 1, p.Zs = -5; how = 'crest depth -5 m'; else, p.Zs = p.Zsh + 10; how = 'height 10 m'; end
+        [h, g] = shoal_bathymetry(xs, 100e3, p);
+        plot(ax, xs/1e3, h, 'Color', cc(k,:), 'LineWidth', 2, ...
+             'DisplayName', sprintf('shelf %d m: crest %.1f km at %g m, gap %.1f km', p.Zsh, g.crest_length/1e3, p.Zs, g.shelf_gap/1e3));
+        plot(ax, [g.crest_start g.crest_end]/1e3, g.crest_depth*[1 1] + 1.5, '|-', 'Color', cc(k,:), ...
+             'LineWidth', 1.5, 'MarkerSize', 8, 'HandleVisibility', 'off');
+        plot(ax, g.taper_end/1e3, p.Zsh, 'o', 'Color', cc(k,:), 'MarkerSize', 8, 'LineWidth', 1.5, 'HandleVisibility', 'off');
+        plot(ax, g.break_start/1e3, p.Zsh - 1, 'v', 'Color', cc(k,:), 'MarkerFaceColor', cc(k,:), 'HandleVisibility', 'off');
+        rm = p.rise_mid;  if use_gap, rm = g.break_start + p.rise_width * atanh(1 - 2 / (p.Zsh - p.h_deep)); end
+        fprintf('%-8d %-18s %8.1f %9.2f %9.2f %9.1f %9.1f %8.1f %9.1f  %s\n', p.Zsh, how, p.Zs, g.crest_start/1e3, ...
+                g.crest_length/1e3, g.taper_end/1e3, g.break_start/1e3, g.shelf_gap/1e3, rm/1e3, g.note);
+    end
+    xlim(ax, [0 140]);  ylim(ax, [-102 2]);
+    xlabel(ax, 'x (km from coast)');  ylabel(ax, 'depth (m)');  title(ax, titles{c});
+    legend(ax, 'Location', 'southwest');
+end
+title(tl, sprintf('Shelf depth sweep: crest\\_length = 40 km%s  (o = taper end, \\nabla = shelf break start)', ...
+      repmat(', shelf\_gap = 10 km', 1, use_gap)), 'FontWeight', 'bold');

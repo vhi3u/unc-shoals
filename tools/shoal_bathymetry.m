@@ -31,6 +31,16 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 %                    attached to the coast, so no trench is possible. Use this
 %                    for any sweep that varies Zs and claims a fixed length.
 %
+%   p.shelf_gap      (new, optional) the flat shelf between the end of the
+%                    shoal's 15 km offshore taper and the start of the shelf
+%                    break [m]. When given, rise_mid is DERIVED so the break
+%                    starts (background 1 m below Zsh) exactly shelf_gap
+%                    beyond the taper. Without it, a shelf-depth sweep leaves
+%                    the shoal's flank anywhere from 5 km INTO the break to
+%                    16 km clear of it, because the break moves with shelf
+%                    depth and deeper crests start further offshore. Holding
+%                    it fixed moves the whole shelf width instead.
+%
 % Second output, `geom`, MEASURES the shoal from the bottom itself and checks
 % it against what was declared (computed only when asked for):
 %   crest_depth      shallowest depth on the shoal centreline, y = Ly/2   [m]
@@ -39,6 +49,11 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 %   height           crest_depth - Zsh: height above the shelf            [m]
 %   width_y          alongshore full width at half height, mid-crest      [m]
 %   trench           dip below both sides between coast and crest end     [m]
+%   taper_end        where the 15 km offshore taper reaches the shelf      [m]
+%   break_start      where the shelf break begins (background 1 m below Zsh) [m]
+%   shelf_gap        break_start - taper_end: flat shelf left offshore of
+%                    the shoal. Negative = the taper runs into the break,
+%                    so the shoal's offshore flank and the break merge.    [m]
 %   declared_depth / declared_length   what the parameters claim
 %   depth_ok / length_ok / trench_ok   pass/fail (tolerances below)
 %   note             why a check failed, in words
@@ -58,6 +73,13 @@ if isfield(p, 'crest_length') && ~isempty(p.crest_length)
               'crest_length is for shoals attached to the coast (shoal_start = 0).');
     end
     p.shoal_length = crest_start_(p) + p.crest_length;
+end
+% Flat shelf offshore of the shoal declared directly: derive where the break
+% sits. The break's tanh reaches 1 m below the shelf at
+% rise_mid + rise_width * atanh(2/(Zsh - h_deep) - 1).
+if isfield(p, 'shelf_gap') && ~isempty(p.shelf_gap)
+    drop = p.Zsh - p.h_deep;
+    p.rise_mid = p.shoal_length + 15e3 + p.shelf_gap - p.rise_width * atanh(2 / drop - 1);
 end
 
 hw = background_(x, p);
@@ -128,7 +150,8 @@ eta = hc - background_(x, p);
 [eta_max, imax] = max(eta);
 if eta_max < 0.5                                 % Zs at or below the shelf: nothing built
     g = struct('crest_depth', NaN, 'crest_start', NaN, 'crest_end', NaN, 'crest_length', 0, ...
-               'height', 0, 'width_y', 0, 'trench', 0, 'declared_depth', p.Zs, ...
+               'height', 0, 'width_y', 0, 'trench', 0, 'taper_end', NaN, 'break_start', NaN, ...
+               'shelf_gap', NaN, 'declared_depth', p.Zs, ...
                'declared_length', p.shoal_length, 'depth_ok', true, 'length_ok', true, ...
                'trench_ok', true, 'note', '(no shoal: Zs is at or below the shelf)');
     return;
@@ -151,6 +174,13 @@ g.width_y = (find(half, 1, 'last') - find(half, 1, 'first')) * 50;
 % trench between the coast and the end of the crest
 zt = hc(x <= g.crest_end);
 g.trench = max(min(cummax(zt), flip(cummax(flip(zt)))) - zt);
+
+% room between the shoal and the shelf break
+g.taper_end = p.shoal_length + 15e3;
+xb = g.crest_end:50:(p.rise_mid + 4 * p.rise_width);
+ib = find(background_(xb, p) < p.Zsh - 1, 1);
+if isempty(ib), g.break_start = NaN; else, g.break_start = xb(ib); end
+g.shelf_gap = g.break_start - g.taper_end;
 
 % declared vs measured
 g.declared_depth = p.Zs;
@@ -175,6 +205,11 @@ if ~g.length_ok
                            g.crest_length / 1e3, g.declared_length / 1e3, g.crest_start / 1e3);
 end
 if ~g.trench_ok, notes{end+1} = sprintf('%.1f m trench between coast and shoal', g.trench); end
+if isnan(g.break_start)
+    notes{end+1} = 'no shelf break (h_deep = Zsh)';
+elseif g.shelf_gap < 0
+    notes{end+1} = sprintf('offshore taper runs %.1f km into the shelf break', -g.shelf_gap / 1e3);
+end
 g.note = strjoin(notes, '; ');
 end
 
