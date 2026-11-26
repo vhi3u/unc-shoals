@@ -173,3 +173,47 @@ for c = 1:2
 end
 title(tl, 'Shelf-depth sweep, proposed geometry (crest\_length = 40 km, one fixed break per row). Top: same crest depth (-5 m). Bottom: same height above the shelf (10 m).', ...
       'FontWeight', 'bold');
+
+%% The reference run: Zs = -5 m, Ls = 40 km (sweep defaults, 25 m shelf)
+% Left / top: the reference run as it has always been built.
+% Right / bottom: the same shoal with the shelf break moved just far enough
+% offshore to leave the minimum 10 km of flat shelf (fixed_break_rise_mid).
+close all
+ref = struct('Zs', -5, 'crest_length', 40e3);          % everything else: sweep defaults
+fixed = ref;  fixed.rise_mid = fixed_break_rise_mid(ref, 10e3);
+cases = {ref, fixed};
+names = {'reference run as built (rise\_mid = 63.5 km)', ...
+         sprintf('with >= 10 km flat shelf (rise\\_mid = %.1f km)', fixed.rise_mid/1e3)};
+xs = 0:50:150e3;  [X, Y] = ndgrid(0:1000:150e3, 0:1000:200e3);
+fig = figure('Color', 'w', 'Name', 'Reference run', 'NumberTitle', 'off', 'Position', [40 40 1500 850]);
+tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+fprintf('\n%-50s %9s %9s %9s %9s %9s %9s %9s  %s\n', 'case', 'crest m', 'start km', 'length km', ...
+        'width km', 'taper km', 'break km', 'gap km', 'problems');
+for c = 1:2
+    p = cases{c};
+    [h, g] = shoal_bathymetry(xs, 100e3, p);
+    ax = nexttile(tl, c);  hold(ax, 'on');  grid(ax, 'on');
+    plot(ax, xs/1e3, h, 'k', 'LineWidth', 2);
+    plot(ax, [g.crest_start g.crest_end]/1e3, g.crest_depth*[1 1] + 1.5, '|-', 'Color', [0 0.45 0.75], 'LineWidth', 1.5, 'MarkerSize', 10);
+    text(ax, (g.crest_start + g.crest_end)/2e3, g.crest_depth + 3.5, sprintf('crest %.1f km at %.1f m', g.crest_length/1e3, g.crest_depth), ...
+         'HorizontalAlignment', 'center', 'Color', [0 0.45 0.75], 'FontWeight', 'bold');
+    plot(ax, g.taper_end/1e3, -25, 'o', 'Color', [0.85 0.33 0.1], 'MarkerSize', 9, 'LineWidth', 1.5);
+    plot(ax, g.break_start/1e3, -26, 'v', 'Color', [0.47 0.67 0.19], 'MarkerFaceColor', [0.47 0.67 0.19], 'MarkerSize', 8);
+    plot(ax, [g.taper_end g.break_start]/1e3, [-29 -29], '-', 'Color', [0.47 0.67 0.19], 'LineWidth', 3);
+    text(ax, (g.taper_end + g.break_start)/2e3, -32, sprintf('flat shelf %.1f km', g.shelf_gap/1e3), ...
+         'HorizontalAlignment', 'center', 'Color', [0.47 0.67 0.19], 'FontWeight', 'bold');
+    xline(ax, 65, 'k--', 'jet offshore edge', 'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
+    xlim(ax, [0 150]);  ylim(ax, [-52 2]);  xlabel(ax, 'x (km from coast)');  ylabel(ax, 'depth (m)');
+    title(ax, [names{c} '  --  o taper end, \nabla break start']);
+    if isempty(g.note), status = 'ok'; else, status = g.note; end
+    fprintf('%-50s %9.2f %9.2f %9.2f %9.1f %9.1f %9.1f %9.1f  %s\n', strrep(strrep(names{c}, '\_', '_'), '\\', ''), g.crest_depth, ...
+            g.crest_start/1e3, g.crest_length/1e3, g.width_y/1e3, g.taper_end/1e3, g.break_start/1e3, g.shelf_gap/1e3, status);
+
+    ax = nexttile(tl, c + 2);
+    surf(ax, X/1e3, Y/1e3, shoal_bathymetry(X, Y, p), 'EdgeColor', 'none');
+    colormap(ax, flipud(parula));  clim(ax, [-50 0]);  zlim(ax, [-50 0]);
+    view(ax, -35, 35);  axis(ax, 'tight');  daspect(ax, [1 1 1.25]);
+    lighting(ax, 'gouraud');  camlight(ax, 'headlight');  material(ax, 'dull');
+    xlabel(ax, 'x (km)');  ylabel(ax, 'y (km)');  zlabel(ax, 'z (m)');  title(ax, names{c});
+end
+title(tl, 'Reference run, Zs = -5 m, Ls = 40 km: profile through the shoal centre (top) and 3-D (bottom)', 'FontWeight', 'bold');
