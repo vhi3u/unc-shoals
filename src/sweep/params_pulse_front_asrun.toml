@@ -1,0 +1,203 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# AS RUN: params_pulse_front.toml at 27a9080, the table cluster_pulsefront_120
+# was run from. Kept as a record: its Zs05_edge geometry has an 18.6 m trench
+# between coast and shoal, which dshoal_param_bottom now refuses, so this
+# table cannot be rerun. The live table is params_pulse_front.toml.
+# ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# PULSED WIND AND A CROSS-SHELF FRONT, at 500 m
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# WHY. In every steady run so far, the steady meanders around the shoal carry
+# 4-20x the buoyancy flux of the transient eddies, and that flux is
+# UP-gradient: the shoal builds the cross-shelf density contrast, and the
+# eddies release little of it (model notes, "flux against x"). Two things in
+# the setup favour that:
+#   1. the forcing is steady (constant jet, constant wind), so the shoal's
+#      response settles into standing meanders;
+#   2. nothing supplies a cross-shelf front. The interior starts horizontally
+#      uniform, and the inflow strip is nudged back to that one profile.
+# These runs change one of those at a time.
+#
+# GEOMETRY. Zs05_edge from params_depthaxis.toml (shoal on the shelf, crest
+# 20-52 km, inshore flank 0.0036), the case with the strongest eddy flux.
+# dx = 500 m: Ld/dx ~ 8 on the shelf. The 250 m depthaxis runs are the
+# resolution check for ref_tau0.
+#
+# THE RUNS
+#   1      ref_tau0              no wind, no front (500 m version of Zs05_edge)
+#   2-3    wind_0p010/0p020      steady upwelling, mean = peak of the pulsed run
+#   4      wind_pulse_0p020      5 d on / 5 d off at 0.020 -> mean 0.010 (= run 2)
+#   5      wind_m0p010           steady downwelling
+#   6      wind_pulse_m0p020     pulsed downwelling, mean -0.010 (= run 5)
+#   7      wind_rev_0p020        +0.020 / -0.020 alternating every 5 d, mean 0
+#   8-11   front_*               the same forcing with a front: shelf water
+#                                0.5 psu fresher inshore of x = 20 km (width 4 km)
+#
+# Read: 2 vs 4 and 5 vs 6 (same mean stress, steady vs pulsed: does the
+# standing flux turn into eddy flux?); 1 vs 8 (does a supplied front make
+# eddies matter?); 9 and 10 vs 2 and 4 (wind acting on a front, as in Zhao).
+#
+# FRONT STRENGTH. 0.5 psu -> g' = g beta dS = 3.8e-3 m/s^2, comparable to the
+# vertical g'_0 = 5.4e-3 and about 0.15 m/s of thermal-wind shear over the
+# 25 m shelf. Zhao et al.'s plume is 0.017 (about 2.2 psu here). Raise
+# front_ds for a stronger case.
+#
+# Cost: 500 m is ~1/8 of 250 m per simulated day, so ~25-40 min per run.
+# 11 runs ~ 6-7 GPU-h. walltime 02:00:00 is generous.
+#
+# Submit:  qsub src/sweep/submit_pulse_front.pbs.template
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label         = "ref_tau0"
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_0p010"
+wind_stress       = 0.010
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_0p020"
+wind_stress       = 0.020
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_pulse_0p020"
+wind_stress       = 0.020
+wind_mode         = "pulsed"
+wind_period_days  = 10.0
+wind_duty         = 0.5
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_m0p010"
+wind_stress       = -0.010
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_pulse_m0p020"
+wind_stress       = -0.020
+wind_mode         = "pulsed"
+wind_period_days  = 10.0
+wind_duty         = 0.5
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "wind_rev_0p020"
+wind_stress       = 0.020
+wind_mode         = "reversing"
+wind_period_days  = 10.0
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "front_tau0"
+front_ds          = 0.5
+front_x           = 20000.0
+front_width       = 4000.0
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "front_wind_0p010"
+wind_stress       = 0.010
+front_ds          = 0.5
+front_x           = 20000.0
+front_width       = 4000.0
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "front_wind_pulse_0p020"
+wind_stress       = 0.020
+wind_mode         = "pulsed"
+wind_period_days  = 10.0
+wind_duty         = 0.5
+front_ds          = 0.5
+front_x           = 20000.0
+front_width       = 4000.0
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
+
+[[runs]]
+run_label         = "front_wind_m0p010"
+wind_stress       = -0.010
+front_ds          = 0.5
+front_x           = 20000.0
+front_width       = 4000.0
+Zs                = -5.0
+shoal_start       = 20000.0
+shoal_inner_width = 8700.0
+shoal_length      = 52000.0
+shelf_break_end   = 12000.0
+rise_mid          = 76000.0
+dx                = 500.0
+sim_days          = 120.0
