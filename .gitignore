@@ -22,8 +22,10 @@
 /output/
 /logs/
 /checkpoints/
-/sweep_output/
+/sweep_output
 /archive/
+# No trailing slash on sweep_output: on Casper it is a symlink to scratch, and
+# git applies a "dir/" pattern only to real directories.
 /figures/
 # /pbs/ holds PBS run artifacts on Casper, and is the natural home for
 # personal qsub wrappers now that *.pbs is ignored everywhere.
