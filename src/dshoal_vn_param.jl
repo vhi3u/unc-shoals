@@ -195,5 +195,34 @@ function dshoal_param_bottom(Ly;
     bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
                                        shelf_break_end, rise_mid, rise_width,
                                        shoal_start, shoal_inner_width, h_deep)
+    check_no_trench(bottom, y0, shoal_length)
     return bottom
+end
+
+"""
+    check_no_trench(bottom, y0, shoal_length; tolerance=1.0)
+
+Error if the cross-shore profile through the shoal's centre (y = y0) has a
+trench between the coast and the end of the crest: a point deeper, by more
+than `tolerance` metres, than the shallowest points on BOTH sides of it.
+A shoal placed on the shelf with `shoal_start > 0` makes exactly that: the
+background drops to the shelf depth by `shelf_break_end` and the shoal's
+inshore ramp then climbs back up, leaving a channel (25 m deep and ~10 km
+wide for the Zs05_edge geometry of params_depthaxis.toml). There should be
+no channels between the coast and the shoal in any run.
+"""
+function check_no_trench(bottom, y0, shoal_length; tolerance=1.0)
+    xs = 0.0:100.0:shoal_length
+    d = [bottom(x, y0) for x in xs]                       # negative: depth below 0
+    left = accumulate(max, d)                             # shallowest from the coast to here
+    right = reverse(accumulate(max, reverse(d)))          # shallowest from here to the crest end
+    dip = min.(left, right) .- d                          # how far below both sides
+    k = argmax(dip)
+    if dip[k] > tolerance
+        error("bathymetry has a $(round(dip[k], digits=1)) m deep trench at x = $(round(xs[k] / 1e3, digits=1)) km " *
+              "between the coast and the shoal (depth $(round(d[k], digits=1)) m, with " *
+              "$(round(left[k], digits=1)) m inshore and $(round(right[k], digits=1)) m offshore of it). " *
+              "Channels between the coast and the shoal are not allowed: attach the shoal to the coast (shoal_start = 0).")
+    end
+    return nothing
 end

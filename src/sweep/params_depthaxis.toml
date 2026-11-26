@@ -2,6 +2,13 @@
 # THE DEPTH AXIS, WITH THE OTHER TWO PROPERTIES ACTUALLY HELD FIXED
 # ═══════════════════════════════════════════════════════════════════════════
 #
+# !! NOT RUNNABLE AS WRITTEN (2026-11-25). shoal_start = 20 km leaves a
+# trench between the coast and the shoal (25 m deep, ~10 km wide, at x ~ 12
+# km), and dshoal_param_bottom now refuses any geometry with a trench.
+# cluster_depthaxis_120 and cluster_pulsefront_120 were run on it; their
+# results include that channel.
+#
+#
 # Fig. 4b varies Z_S and reads off EKE. But the sweep bathymetry builds the
 # shoal as "fill the background up to Z_S", at full amplitude from x = 0
 # (src/dshoal_vn_param.jl), so the shoal is welded to the coast and has no

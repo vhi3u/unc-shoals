@@ -89,13 +89,14 @@ grid = RectilinearGrid(arch; size=(Nx, Ny, Nz), halo=(4, 4, 4),
                        x=(0, Lx), y=(0, Ly), z=(-Lz, 0),
                        topology=((Closed, Open), periodic_control ? Periodic : Open, Bounded))
 
-# Bathymetry: the sweep's own, at the Zs05_edge geometry (shoal on the shelf,
-# crest 20-52 km). The shoal is centred at Ly/2 with a Gaussian of sigma = 8 km
-# alongshore, so both open boundaries see the plain shelf.
+# Bathymetry: the sweep's reference shoal, attached to the coast (crest at
+# -5 m out to 40 km, then a 15 km taper; shelf -25 m; break at 63.5 km). The
+# shoal is centred at Ly/2 with a Gaussian of sigma = 8 km alongshore, so both
+# open boundaries see the plain shelf. No trench between coast and shoal:
+# dshoal_param_bottom refuses any geometry that has one.
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
-bottom = dshoal_param_bottom(Ly; Zs=-5.0, shoal_length=52e3, sigma=8e3, Zsh=-25.0,
-                             shelf_break_end=12e3, rise_mid=76e3, rise_width=5e3,
-                             shoal_start=20e3, shoal_inner_width=8700.0, h_deep=-50.0)
+bottom = dshoal_param_bottom(Ly; Zs=-5.0, shoal_length=40e3, sigma=8e3, Zsh=-25.0,
+                             shelf_break_end=12e3, rise_mid=63.5e3, rise_width=5e3, h_deep=-50.0)
 ib_grid = ImmersedBoundaryGrid(grid, GridFittedBottom(bottom))
 
 # ── water masses: the sweep's south profile, plus an optional front ────────
