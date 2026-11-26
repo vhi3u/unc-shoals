@@ -1,0 +1,82 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SHOAL WIDTH AND LENGTH, on open boundaries, in a shorter domain
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# WHY. The reference shoal is a broad bank (alongshore Gaussian sigma = 8 km,
+# 19 km wide at half height, 40 km long): shoal Rossby number Ro = v0/(fW)
+# = 0.13 and delta/Ro = 6.3, so rotation steers the jet steadily around it.
+# That matches what every cluster showed (steady circulation around the
+# shoal carrying 4-20x the eddy flux), and it is not what a cape shoal looks
+# like: Diamond Shoals' main body runs ~13 km out and is a few km wide. A
+# narrow shoal (sigma = 2.5 km, W = 5.8 km) has Ro = 0.41 and delta/Ro = 2.0,
+# near the transition where flow separates and sheds eddies.
+#
+# THE RUNS (all attached to the coast, crest at -5 m, no wind)
+#   1  A_wide_open          sigma 8 km,   crest 40 km   } width: only sigma differs
+#   2  B_narrow_open        sigma 2.5 km, crest 40 km   }
+#   3  C_narrow_short_open  sigma 2.5 km, crest 20 km     length: vs B, only the crest differs
+#   4  B_narrow_periodic    as B, periodic y              open vs periodic: vs B
+# crest_length declares the crest's length directly (tools/shoal_bathymetry.m).
+#
+# DOMAIN. Open y boundaries, so the domain does not have to let the wake
+# recirculate: Ly = 120 km (was 200) with the shoal at y = 45 km. That leaves
+# 25 km between the 20 km inflow sponge and the shoal (the wide shoal's
+# Gaussian is 0.7% of its height at the sponge edge) and 55 km of wake before
+# the 20 km outflow sponge, about two eddy-shedding wavelengths for the narrow
+# shoal (eddies ~30 km apart at v0 = 0.2 m/s). The analysis window is
+# y = 20-100 km: transports integrated alongshore are over 80 km, against
+# ~160 km in the 200 km clusters, so compare them per unit length.
+#
+# RESOLUTION. 250 m: the narrow shoal is 23 cells wide, and EKE at Zs = -5 is
+# not converged at 500 m (x3.46 from 500 to 250 m).
+#
+# Shelf break at 63.5 km as in the reference; A and B leave 0.6 km of flat
+# shelf before it (accepted, a warning is logged); C leaves 20.6 km.
+#
+# Check the geometry first: tools/show_bathymetry.m.
+# Submit:  qsub src/sweep/submit_width_obc.pbs.template
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label    = "A_wide_open"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 8000.0
+open_y       = true
+Ly           = 120000.0
+shoal_y0     = 45000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_open"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = true
+Ly           = 120000.0
+shoal_y0     = 45000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "C_narrow_short_open"
+Zs           = -5.0
+crest_length = 20000.0
+sigma        = 2500.0
+open_y       = true
+Ly           = 120000.0
+shoal_y0     = 45000.0
+dx           = 250.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_periodic"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = false
+Ly           = 120000.0
+shoal_y0     = 45000.0
+dx           = 250.0
+sim_days     = 120.0

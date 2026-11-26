@@ -10,7 +10,7 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 % p is a struct of run parameters; missing fields take the sweep defaults:
 %   Zs (-5)  shoal_length (40e3)  sigma (8e3)  Zsh (-25)  shelf_break_end (12e3)
 %   rise_mid (63.5e3)  rise_width (5e3)  shoal_start (0)  shoal_inner_width (0)
-%   h_deep (-50)  Ly (200e3)
+%   h_deep (-50)  Ly (200e3)  shoal_y0 (Ly/2): the shoal's alongshore centre
 % Hs (shoal height above the shelf) is accepted instead of Zs, as in
 % sweep_driver.jl; so is shelf_depth instead of Zsh.
 %
@@ -74,7 +74,7 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 % Keep in step with src/dshoal_vn_param.jl if that file changes.
 
 p = defaults_(p);
-y0 = p.Ly / 2;  half_extent = p.Ly / 2;
+y0 = p.shoal_y0;  half_extent = p.Ly / 2;
 
 % Crest length declared directly: derive where the crest has to end.
 if isfield(p, 'crest_length') && ~isempty(p.crest_length)
@@ -157,7 +157,7 @@ end
 
 function g = measure_(p)
 % Measure the shoal from the bottom itself, along the centreline y = Ly/2.
-tol = 0.01;  y0 = p.Ly / 2;
+tol = 0.01;  y0 = p.shoal_y0;
 pc = rmfield_(p, 'crest_length');                % p.shoal_length is already final
 x = 0:10:(p.shoal_length + 25e3);
 hc = shoal_bathymetry(x, y0, pc);
@@ -261,6 +261,7 @@ if isfield(p, 'shelf_depth') && ~isfield(p, 'Zsh'), p.Zsh = p.shelf_depth; end
 for f = fieldnames(d)'
     if ~isfield(p, f{1}), p.(f{1}) = d.(f{1}); end
 end
+if ~isfield(p, 'shoal_y0') || isempty(p.shoal_y0), p.shoal_y0 = p.Ly / 2; end
 if isnan(p.Zs)
     if isfield(p, 'Hs'), p.Zs = p.Zsh + p.Hs; else, p.Zs = -5; end
 end

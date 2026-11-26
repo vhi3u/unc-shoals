@@ -187,16 +187,65 @@ function dshoal_param_bottom(Ly;
     rise_width=5.0e3,
     shoal_start=0.0,
     shoal_inner_width=0.0,
-    h_deep=-50.0)
+    h_deep=-50.0,
+    crest_length=nothing,
+    shoal_y0=nothing)
 
-    y0 = Ly / 2.0
+    # Alongshore centre of the shoal: the middle of the domain unless placed.
+    y0 = isnothing(shoal_y0) ? Ly / 2.0 : Float64(shoal_y0)
     half_extent = Ly_shoal / 2.0
+
+    # crest_length: the crest is THIS long. An attached shoal's flat crest
+    # starts where the coastal slope first reaches Zs, which moves with Zs, so
+    # shoal_length (where the crest ENDS) is derived from it. Without this, a
+    # sweep "holding Ls = 40 km" had crests of 40 / 33.8 / 32.1 km at
+    # Zs = -5 / -10 / -15. Mirrors tools/shoal_bathymetry.m.
+    if !isnothing(crest_length)
+        shoal_start > 0 && error("crest_length is for shoals attached to the coast (shoal_start = 0)")
+        shoal_length = shoal_crest_start(Zs, Zsh, shelf_break_end, rise_mid, rise_width, h_deep) + crest_length
+    end
 
     bottom(x, y) = _param_shoal_bottom(x, y, y0, sigma, Zs, half_extent, shoal_length, Zsh,
                                        shelf_break_end, rise_mid, rise_width,
                                        shoal_start, shoal_inner_width, h_deep)
     check_no_trench(bottom, y0, shoal_length)
+    check_shelf_gap(Zsh, shoal_length, shelf_break_end, rise_mid, rise_width, h_deep)
     return bottom
+end
+
+"""
+    shoal_crest_start(Zs, Zsh, shelf_break_end, rise_mid, rise_width, h_deep)
+
+Where an attached shoal's flat crest begins: the first x at which the
+background is as deep as Zs (0 if the coast already is). Bisection on the
+background, which deepens monotonically from the coast to the shelf.
+"""
+function shoal_crest_start(Zs, Zsh, shelf_break_end, rise_mid, rise_width, h_deep)
+    f(x) = param_background_depth(x, Zsh, shelf_break_end, rise_mid, rise_width, h_deep) - Zs
+    f(0.0) <= 0 && return 0.0
+    a, b = 0.0, rise_mid
+    for _ in 1:60
+        m = (a + b) / 2
+        f(m) > 0 ? (a = m) : (b = m)
+    end
+    return (a + b) / 2
+end
+
+"""
+    check_shelf_gap(Zsh, shoal_length, ...; min_gap=10e3)
+
+WARN (not error) if there is less than `min_gap` of flat shelf between the end
+of the shoal's 15 km offshore taper and the start of the shelf break (the
+background 1 m below Zsh). The reference shoal (Ls = 40 km, break at
+63.5 km) has 0.6 km and is accepted as it is; the warning records it.
+"""
+function check_shelf_gap(Zsh, shoal_length, shelf_break_end, rise_mid, rise_width, h_deep; min_gap=10e3)
+    drop = Zsh - h_deep
+    drop <= 1 && return nothing                       # no shelf break at all
+    break_start = rise_mid + rise_width * atanh(2 / drop - 1)
+    gap = break_start - (shoal_length + 15e3)
+    gap < min_gap && @warn "only $(round(gap / 1e3, digits=1)) km of flat shelf between the shoal's taper and the shelf break (minimum $(min_gap / 1e3) km)"
+    return nothing
 end
 
 """

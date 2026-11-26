@@ -38,15 +38,20 @@ else
 end
 if o.save && ~exist(o.outdir, 'dir'), mkdir(o.outdir); end
 
-Lx = 150e3;  Ly = 200e3;
-x = (o.dx/2 : o.dx : Lx)';  y = (o.dx/2 : o.dx : Ly)';
-[X, Y] = ndgrid(x, y);
-[~, jc] = min(abs(y - Ly/2));
+Lx = 150e3;
 
 for t = 1:numel(tables)
     [~, name] = fileparts(tables{t});
     runs = read_sweep_table(tables{t});
     nr = numel(runs);
+    % Domain and shoal position from the table (Ly and shoal_y0 are per run;
+    % defaults 200 km and Ly/2, as in every earlier sweep).
+    p1 = run_params_(runs(1));
+    Ly = 200e3;  if isfield(p1, 'Ly'), Ly = p1.Ly; end
+    y0 = Ly / 2;  if isfield(p1, 'shoal_y0'), y0 = p1.shoal_y0; end
+    x = (o.dx/2 : o.dx : Lx)';  y = (o.dx/2 : o.dx : Ly)';
+    [X, Y] = ndgrid(x, y);
+    [~, jc] = min(abs(y - y0));
     G = zeros(numel(x), numel(y), nr);  D = G;  trench = zeros(1, nr);  labels = cell(1, nr);
     for k = 1:nr
         p = run_params_(runs(k));
@@ -79,7 +84,7 @@ for t = 1:numel(tables)
         set(ax, 'FontSize', 9);
     end
     title(tl, sprintf('%s: grid-fitted bottom (coast at x = 0, shoal centred at y = %g km)', ...
-          strrep(name, '_', '\_'), Ly/2e3), 'FontWeight', 'bold');
+          strrep(name, '_', '\_'), y0/1e3), 'FontWeight', 'bold');
 
     % ── profile figure ───────────────────────────────────────────────────
     fp = figure('Color', 'w', 'Name', [name ' (profiles)'], 'NumberTitle', 'off', ...
@@ -131,9 +136,11 @@ function d = trench_depth_(p)
 % How far the centre-line profile dips below the shallowest points on both
 % sides of it, between the coast and the end of the crest.
 if ~isfield(p, 'shoal_length'), p.shoal_length = 40e3; end
+[~, g] = shoal_bathymetry(0, 0, p);              % crest end, with crest_length if declared
 Ly = 200e3;  if isfield(p, 'Ly'), Ly = p.Ly; end
-xs = 0:100:p.shoal_length;
-z = shoal_bathymetry(xs, Ly/2, p);
+y0 = Ly / 2;  if isfield(p, 'shoal_y0'), y0 = p.shoal_y0; end
+xs = 0:100:max(g.crest_end, 1);
+z = shoal_bathymetry(xs, y0, p);
 left = cummax(z);  right = flip(cummax(flip(z)));
 d = max(min(left, right) - z);
 end

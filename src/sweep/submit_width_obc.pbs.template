@@ -1,0 +1,74 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Shoal width and length on open boundaries, 250 m, Ly = 120 km
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/sweep/submit_width_obc.pbs.template
+#
+# Everything is set. Nothing in this file needs editing before submission.
+#
+# WHY THE .template SUFFIX: .gitignore ignores *.pbs on purpose, because the
+# live job scripts carry machine-local edits that a git pull would clobber.
+# That also means a new .pbs cannot reach Casper through git at all. This is
+# the escape hatch .gitignore itself names -- a tracked template that travels.
+# qsub does not care about the extension, so submit it directly. Copy it to
+# src/sweep/submit_width_obc.pbs only if you want to make local edits.
+#
+# Runs params_width_obc.toml: the wide, narrow and narrow+short shoals on open
+# boundaries plus one periodic control, 250 m, Ly = 120 km, 120 days. See that
+# file for the design.
+#
+# Cost: not measured yet. A 250 m / 200 km / 120-day run took ~3.2 h; this
+# domain is 60% of that, so ~2 h expected; 06:00:00 is generous.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N widthobc
+#PBS -k eod
+#PBS -o logs/widthobc.out
+#PBS -e logs/widthobc.err
+#PBS -l walltime=06:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-4
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+# No `cuda` module: CUDA.jl ships its own CUDA libraries, and the module puts
+# a second copy on LD_LIBRARY_PATH ("loaded from a system path ... may cause
+# errors"). The GPU driver comes from the system, not that module.
+module load julia/1.11.2
+module load peak-memusage
+module li
+
+export SWEEP_PARAMS="params_width_obc.toml"
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep sweep_output
+
+# Guard against the array range and the table disagreeing. Submitting a copied
+# script whose -J still matched the sweep it was copied FROM is how two
+# finished sweeps got re-run; the driver errors on an out-of-range index, but
+# only after paying for a GPU allocation and a Julia startup.
+NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
+if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+    echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
+    exit 1
+fi
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/widthobc_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

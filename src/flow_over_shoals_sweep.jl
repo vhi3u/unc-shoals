@@ -61,6 +61,16 @@ sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
 sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
 sweep_dx = parse(Float64, get(ENV, "SWEEP_DX", "500.0"))
 sweep_sim_days = parse(Float64, get(ENV, "SWEEP_SIM_DAYS", "50.0"))
+# Alongshore domain length and the shoal's alongshore centre. 200 km with the
+# shoal in the middle reproduces every earlier run. With open y boundaries the
+# domain no longer has to be long enough for the wake to recirculate, so it can
+# be shorter, with the shoal placed upstream to leave room for its wake.
+const sweep_Ly = parse(Float64, get(ENV, "SWEEP_LY", "200000.0"))
+const sweep_shoal_y0 = parse(Float64, get(ENV, "SWEEP_SHOAL_Y0", string(sweep_Ly / 2)))
+# crest_length > 0: the flat crest is this long, starting where the coastal
+# slope reaches Zs; shoal_length is then derived (see dshoal_param_bottom).
+# 0 (the default) keeps shoal_length as given, as in every earlier run.
+const sweep_crest_length = parse(Float64, get(ENV, "SWEEP_CREST_LENGTH", "0.0"))
 
 # ── Time-varying wind ─────────────────────────────────────────────────────
 # A constant wind and a constant jet settle into STEADY meanders around the
@@ -179,9 +189,9 @@ run_tag = "sweep_$(sweep_run_label)"
 # parameter moves it, so 150 km leaves 87 km of offshore room — more than the
 # 37 km the sponged 250 km domain actually left usable.
 if LES
-    params = (; Lx=150e3, Ly=200e3, Lz=sweep_Lz)
+    params = (; Lx=150e3, Ly=sweep_Ly, Lz=sweep_Lz)
 else
-    params = (; Lx=150000, Ly=200000, Lz=sweep_Lz)
+    params = (; Lx=150000, Ly=sweep_Ly, Lz=sweep_Lz)
 end
 
 # Horizontal grid spacing is the knob, not Nx/Ny, so changing Lx can never
@@ -221,7 +231,9 @@ if shoal_bath
         rise_width=sweep_rise_width,
         shoal_start=sweep_shoal_start,
         shoal_inner_width=sweep_shoal_inner_width,
-        h_deep=sweep_h_deep)
+        h_deep=sweep_h_deep,
+        crest_length=(sweep_crest_length > 0 ? sweep_crest_length : nothing),
+        shoal_y0=sweep_shoal_y0)
     GFB = GridFittedBottom(slope_bottom)
     ib_grid = ImmersedBoundaryGrid(grid, GFB)
 else
@@ -928,7 +940,14 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["run_label"] = sweep_run_label
     ds.attrib["run_index"] = sweep_run_index
     ds.attrib["Zs"] = sweep_Zs
-    ds.attrib["shoal_length"] = sweep_shoal_length
+    ds.attrib["shoal_length"] = sweep_crest_length > 0 ?
+        shoal_crest_start(sweep_Zs, sweep_Zsh, sweep_shelf_break_end, sweep_rise_mid, sweep_rise_width, sweep_h_deep) + sweep_crest_length :
+        sweep_shoal_length                                # where the crest ENDS (derived if crest_length set)
+    ds.attrib["crest_length"] = sweep_crest_length        # 0 = not declared; length = shoal_length - crest_start
+    ds.attrib["crest_start"] = shoal_crest_start(sweep_Zs, sweep_Zsh, sweep_shelf_break_end, sweep_rise_mid, sweep_rise_width, sweep_h_deep)
+    ds.attrib["Ly"] = sweep_Ly
+    ds.attrib["shoal_y0"] = sweep_shoal_y0
+    ds.attrib["sigma"] = sweep_sigma
     ds.attrib["shoal_start"] = sweep_shoal_start
     ds.attrib["shoal_inner_width"] = sweep_shoal_inner_width
     ds.attrib["Zsh"] = sweep_Zsh
