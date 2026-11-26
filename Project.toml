@@ -9,3 +9,9 @@ Oceanostics = "d0ccf422-c8fb-49b5-a76d-74acdde946ac"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 SeawaterPolynomials = "d496a93d-167e-4197-9f49-d3af4ff8fe40"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[compat]
+# The sweep uses the open-boundary API of 0.118 (per-side topology,
+# ObliqueRadiation, TracerReservoir, Flather with target_transport).
+Oceananigans = "0.118"
+Oceanostics = "0.21.7"

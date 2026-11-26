@@ -233,7 +233,13 @@ for idx = 1:num_sw
         % ---- Buoyancy from the model's linear equation of state ----
         %   b = g (alpha T - beta S)   (consistent with the simulations)
         buoy = @(T, S) g * (eos_alpha * T - eos_beta * S);
-        iyP  = find(yc_km >= y_range_Q(1) & yc_km <= y_range_Q(2));
+        % Open-y runs (SWEEP_OPEN_Y) carry a 20 km tracer sponge at the
+        % outflow (north) end, so stop the window short of it.
+        yr = y_range_Q;
+        if ~isempty(meta_fname) && read_att(meta_fname, 'open_y', 0)
+            yr(2) = min(yr(2), max(yc_km) - 20);
+        end
+        iyP  = find(yc_km >= yr(1) & yc_km <= yr(2));
         
         % Ambient (offshore) water: outermost x_ambient_width km of the domain
         ix_amb = find(xc_km >= max(xc_km) - x_ambient_width);
@@ -301,7 +307,7 @@ for idx = 1:num_sw
         % ---- Diagnostic section: alongshore range and shelf break ----
         dx  = cell_width(fname, xc(:), {'xF','x_faa','xf'});
         dy  = cell_width(fname, yc(:), {'yF','y_afa','yf'});
-        iyQ = find(yc_km >= y_range_Q(1) & yc_km <= y_range_Q(2));
+        iyQ = find(yc_km >= yr(1) & yc_km <= yr(2));
         L_Q = sum(dy(iyQ));                                   % alongshore length (m)
         
         % Local water depth from wet cells, median over (every few) y rows

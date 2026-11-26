@@ -8,7 +8,8 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 using Oceananigans
-using Oceananigans.Grids: Periodic, Bounded, znode
+using Oceananigans.Grids: Periodic, Bounded, Closed, Open, znode, xnode, static_column_depthᶜᶜᵃ
+using Oceananigans.BoundaryConditions: ObliqueRadiation, TracerReservoir
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using Oceananigans.Fields: interior
@@ -121,7 +122,14 @@ FRONT_DS != 0 && !(FRONT_W > 0) && error("SWEEP_FRONT_WIDTH must be positive")
 # switches
 LES = true
 mass_flux = true
-periodic_y = true
+# y boundaries. Periodic (the default, every run before 2026-11-25): water
+# leaving the north re-enters the south through the nudging strip. Open
+# (SWEEP_OPEN_Y = true, Oceananigans >= 0.118): the jet enters through the
+# south boundary and leaves through the north one, so the shoal's wake is not
+# recirculated. See the boundary-condition section and src/test_open_boundaries.jl,
+# where this configuration was developed and tested.
+const open_y = get(ENV, "SWEEP_OPEN_Y", "false") == "true"
+periodic_y = !open_y
 gradient_IC = false
 sigmoid_v_bc = true
 sigmoid_ic = true
@@ -194,11 +202,13 @@ end
 x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 
 # grid
-if periodic_y
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Periodic, Bounded))
-else
-    grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z, topology=(Bounded, Bounded, Bounded))
-end
+# Oceananigans >= 0.118 sets topology per SIDE, and an open-boundary scheme is
+# accepted only on an `Open` side: x is a coast wall at x = 0 and, with
+# open_east, open at x = Lx. y is Periodic or Open at both ends.
+x_topology = open_east ? (Closed, Open) : Bounded
+y_topology = open_y ? Open : Periodic
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z,
+                       topology=(x_topology, y_topology, Bounded))
 
 # model parameters
 if shoal_bath
@@ -471,7 +481,12 @@ const inflow_mask = south_mask
 
 # forcing functions — note there is no w sponge: w is diagnosed from continuity
 # in the hydrostatic model and cannot (and should not) be relaxed.
-if periodic_y
+# The south strip is kept with open y boundaries too. An open boundary passes
+# what the interior sends it, but cannot make the interior accept the profile
+# imposed on inflow (a depth-uniform jet that bottom drag shears within a few
+# km): without the strip, test_open_boundaries.jl grew a 0.34 m/s
+# recirculation along the inflow boundary. The analysis excludes the strip.
+if true
     u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
@@ -483,6 +498,17 @@ if periodic_y
 
     S_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=S_target)
     S_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=S_target)
+
+    # Open y: a weak TRACER-only sponge at the outflow end (1 day, 20 km).
+    # Without it the 2.5 km test overshot S by 0.05 psu where the outflow
+    # boundary meets the coast. Velocities are left to the radiation condition,
+    # so eddies and the wake still leave freely. Exclude y > Ly - 20 km in the
+    # analysis.
+    if open_y
+        north_strip = PiecewiseLinearMask{:y}(center=params.Ly, width=params.Ls)
+        T_sponge_inflow = (T_sponge_inflow, Relaxation(; rate=1 / 1day, mask=north_strip, target=T_target))
+        S_sponge_inflow = (S_sponge_inflow, Relaxation(; rate=1 / 1day, mask=north_strip, target=S_target))
+    end
 
     # With open_east the east sponges are NOT applied. A sponge relaxing u -> 0
     # at an open boundary fights the radiation condition directly, and the T/S
@@ -502,7 +528,71 @@ if periodic_y
     end
 end
 
-if periodic_y && open_east
+if open_y
+    # ═══════════════════════════════════════════════════════════════════════
+    # Open south (inflow) and north (outflow) boundaries
+    # ═══════════════════════════════════════════════════════════════════════
+    # Developed in src/test_open_boundaries.jl. Per field:
+    #   v (normal)       ObliqueRadiation, exterior v∞(x): imposed on inflow over
+    #                    1 h at the south; at the north, radiated on outflow
+    #                    (weak 30-day pull) and nudged over 1 day on backflow.
+    #                    Oblique, not Normal, radiation because eddies and the
+    #                    wake reach the boundary at an angle.
+    #   u (tangential)   ObliqueRadiation toward 0
+    #   V (barotropic)   Flather with the transport PINNED to the jet's: in at
+    #                    the south = out at the north, so the mean free surface
+    #                    cannot drift. The exterior η is the GEOSTROPHIC one,
+    #                    g dη/dx = f v∞ (~10 cm across the shelf): with η_ext = 0
+    #                    Flather fights the jet's own balance.
+    #   T, S             TracerReservoir: the exterior water mass (south profile,
+    #                    plus the front if one is set) enters on inflow.
+    @inline v_in(x) = v∞(x, 0.0, 0.0, global_params)
+    @inline v_ext_bc(x, z, t) = v_in(x)
+
+    # Net inflow transport over the wet part of the y = 0 section, computed on
+    # the actual grid so the pinned target is exactly what the interior holds.
+    xc_cpu = Array(xnodes(grid, Center()))
+    zc_cpu = Array(znodes(grid, Center()))
+    Δx_in = params.Lx / params.Nx
+    Δz_in = params.Lz / params.Nz
+    Q_in = sum(v_in(xi) * Δx_in * Δz_in * count(zk -> zk > slope_bottom(xi, 0.0), zc_cpu) for xi in xc_cpu)
+    @info @sprintf("open y: inflow transport pinned at %.3e m^3/s", Q_in)
+
+    # Discrete form (i, k, grid, clock, fields), as Flather's (U, η) tuple
+    # requires; column depth from the immersed grid, which is GPU-safe.
+    @inline V_ext_bc(i, k, grid, clock, fields) = v_in(xnode(i, grid, Center())) * static_column_depthᶜᶜᵃ(i, 1, grid)
+    # ∫ of the sigmoid jet (k1_fixed, k2_fixed, xC = 3 km, xS = 65 km); its clamp
+    # is never active, so the integral is exact.
+    @inline Fjet(x) = log1p(exp(k1_fixed * (x - 3e3))) / k1_fixed - x - log1p(exp(-k2_fixed * (x - 65e3))) / k2_fixed
+    @inline η_geo(x) = f₀ / 9.80665 * global_params.v₀ * (Fjet(x) - Fjet(0.0))
+    @inline η_ext_bc(i, k, grid, clock, fields) = η_geo(xnode(i, grid, Center()))
+
+    @inline T_ext_y(x, z, t) = T_south_pwl(z, 24.5378)
+    @inline S_ext_y(x, z, t) = S_south_pwl(z, 35.5830) + S_front(x, z)
+
+    south_scheme = ObliqueRadiation(inflow_timescale=1hour, outflow_timescale=30days)
+    north_scheme = ObliqueRadiation(inflow_timescale=1day, outflow_timescale=30days)
+    reservoir = TracerReservoir(inflow_length_scale=10e3, outflow_length_scale=10e3)
+
+    # South/north conditions per field, splatted into the constructors below.
+    vy = (south=NormalFlowBoundaryCondition(v_ext_bc; scheme=south_scheme),
+          north=NormalFlowBoundaryCondition(v_ext_bc; scheme=north_scheme))
+    uy = (south=ValueBoundaryCondition(0.0; scheme=south_scheme),
+          north=ValueBoundaryCondition(0.0; scheme=north_scheme))
+    Ty = (south=ValueBoundaryCondition(T_ext_y; scheme=reservoir),
+          north=ValueBoundaryCondition(T_ext_y; scheme=reservoir))
+    Sy = (south=ValueBoundaryCondition(S_ext_y; scheme=reservoir),
+          north=ValueBoundaryCondition(S_ext_y; scheme=reservoir))
+    V_bcs = FieldBoundaryConditions(south=GravityWaveRadiationBoundaryCondition((V_ext_bc, η_ext_bc); target_transport=Q_in),
+                                    north=GravityWaveRadiationBoundaryCondition((V_ext_bc, η_ext_bc); target_transport=Q_in))
+else
+    vy = uy = Ty = Sy = NamedTuple()
+    V_bcs = nothing
+end
+
+
+
+if open_east
     # ═══════════════════════════════════════════════════════════════════════
     # Radiative eastern boundary
     # ═══════════════════════════════════════════════════════════════════════
@@ -546,36 +636,30 @@ if periodic_y && open_east
     @inline T_east_bc(j, k, grid, clock, fields) = T_south_pwl(znode(k, grid, Center()), 24.5378)
     @inline S_east_bc(j, k, grid, clock, fields) = S_south_pwl(znode(k, grid, Center()), 35.5830)
 
-    T_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(T_east_bc; scheme=east_radiation, discrete_form=true))
-    S_bcs = FieldBoundaryConditions(east=ValueBoundaryCondition(S_east_bc; scheme=east_radiation, discrete_form=true))
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u,
-        east=NormalFlowBoundaryCondition(0; scheme=east_radiation))
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
+    T_bcs = FieldBoundaryConditions(; east=ValueBoundaryCondition(T_east_bc; scheme=east_radiation, discrete_form=true), Ty...)
+    S_bcs = FieldBoundaryConditions(; east=ValueBoundaryCondition(S_east_bc; scheme=east_radiation, discrete_form=true), Sy...)
+    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_u,
+        east=NormalFlowBoundaryCondition(0; scheme=east_radiation), uy...)
+    # v is tangential at the east boundary; with open_y it also carries the
+    # south/north conditions.
+    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_v, vy...)
 
     # Barotropic transport: exterior (U, η) = (0, 0). This is what holds the net
     # mass flux at zero. Omit it and the baroclinic mode radiates while the
     # barotropic mode reflects off a closed boundary — worse than either choice.
     U_bcs = FieldBoundaryConditions(ib_grid, (Face(), Center(), nothing);
         east=GravityWaveRadiationBoundaryCondition((0.0, 0.0)))
-elseif periodic_y
-    T_bcs = FieldBoundaryConditions()
-    S_bcs = FieldBoundaryConditions()
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, top=wind_bc_v)
 else
-    northern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
-    southern_bc = NormalFlowBoundaryCondition(v∞; parameters=params, scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=0.0))
-    eastern_bc = NormalFlowBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=0.0, outflow_timescale=Inf))
-
-    T_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(tsbc), north=ValueBoundaryCondition(tnbc))
-    S_bcs = FieldBoundaryConditions(south=ValueBoundaryCondition(ssbc), north=ValueBoundaryCondition(snbc))
-
-    u_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, south=ValueBoundaryCondition(0.0; scheme=PerturbationAdvection(inflow_timescale=Inf, outflow_timescale=0.0)), east=eastern_bc, top=wind_bc_u)
-    v_bcs = FieldBoundaryConditions(immersed=immersed_drag, bottom=drag, north=northern_bc, south=southern_bc, east=ValueBoundaryCondition(0.0), top=wind_bc_v)
+    T_bcs = FieldBoundaryConditions(; Ty...)
+    S_bcs = FieldBoundaryConditions(; Sy...)
+    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_u, uy...)
+    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_v, vy...)
+    U_bcs = nothing
 end
 
-bcs = (periodic_y && open_east) ? (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs, U=U_bcs) :
-      (u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+bcs = (; u=u_bcs, v=v_bcs, T=T_bcs, S=S_bcs)
+isnothing(U_bcs) || (bcs = (; bcs..., U=U_bcs))
+isnothing(V_bcs) || (bcs = (; bcs..., V=V_bcs))
 @info "Boundary Conditions:" bcs
 
 if is_coriolis
@@ -850,6 +934,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["front_width"] = FRONT_W
     ds.attrib["front_depth"] = FRONT_H
     ds.attrib["v0"] = sweep_v0
+    ds.attrib["open_y"] = Int(open_y)
     # ape_wedge.m rebuilds the initial T/S profile (T_south_pwl/S_south_pwl)
     # as a fixed reference for g'_h, and the tail below the last breakpoint
     # depends on this. Absent in older files, which all ran with 0.
@@ -877,8 +962,10 @@ if pickup === false
 
     if closure_choice === :catke
         set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ, e=1e-6)
+        open_y && set!(model, η=(x, y, z) -> η_geo(x))   # start in balance with the boundary η
     else
         set!(model, u=0.0, v=v_init, T=Tᵢ, S=Sᵢ)
+        open_y && set!(model, η=(x, y, z) -> η_geo(x))
     end
 else
     @info "Skipping initial conditions setup — loading fields from checkpoint $(pickup)."
@@ -912,7 +999,7 @@ end
  ── Switches ──
  LES:             $(LES)
  mass_flux:       $(mass_flux)
- periodic_y:      $(periodic_y)
+ periodic_y:      $(periodic_y)   (open_y = $(open_y))
  gradient_IC:     $(gradient_IC)
  sigmoid_v_bc:    $(sigmoid_v_bc)
  sigmoid_ic:      $(sigmoid_ic)

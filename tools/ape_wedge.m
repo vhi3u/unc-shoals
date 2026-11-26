@@ -136,7 +136,12 @@ for k = 1:n
     dz = cell_width_(fn, zc,    {'zF','z_aaf','zf'});
     dxv(k) = median(dx);
 
-    iy = find(y_km >= o.y_box(1) & y_km <= o.y_box(2));
+    % Open-y runs carry a 20 km tracer sponge at the north (outflow) end.
+    yb = o.y_box;
+    if meta_att_(cluster_dir, labels{k}, tags{k}, 'open_y', 0)
+        yb(2) = min(yb(2), max(y_km) - 20);
+    end
+    iy = find(y_km >= yb(1) & y_km <= yb(2));
     Ly = sum(dy(iy));                                   % alongshore length [m]
 
     % ── buoyancy, from the model's linear equation of state ──────────────

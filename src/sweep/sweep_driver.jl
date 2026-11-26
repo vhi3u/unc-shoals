@@ -117,6 +117,8 @@ sweep_front_ds = Float64(get(this_run, "front_ds", 0.0))
 sweep_front_x = Float64(get(this_run, "front_x", 20000.0))
 sweep_front_width = Float64(get(this_run, "front_width", 4000.0))
 sweep_front_depth = Float64(get(this_run, "front_depth", 0.0))
+# Open south/north boundaries instead of a periodic channel (Oceananigans >= 0.118).
+sweep_open_y = Bool(get(this_run, "open_y", false))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -136,6 +138,7 @@ sweep_front_depth = Float64(get(this_run, "front_depth", 0.0))
  rise_mid:        $sweep_rise_mid m  (shelf length $(round((sweep_rise_mid - sweep_shelf_break_end)/1e3, digits=1)) km)
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2  ($sweep_wind_mode, period $sweep_wind_period d, duty $sweep_wind_duty)
+ y boundaries:    $(sweep_open_y ? "open (inflow south, outflow north)" : "periodic")
  Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
@@ -194,6 +197,7 @@ ENV["SWEEP_FRONT_DS"] = string(sweep_front_ds)
 ENV["SWEEP_FRONT_X"] = string(sweep_front_x)
 ENV["SWEEP_FRONT_WIDTH"] = string(sweep_front_width)
 ENV["SWEEP_FRONT_DEPTH"] = string(sweep_front_depth)
+ENV["SWEEP_OPEN_Y"] = string(sweep_open_y)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
