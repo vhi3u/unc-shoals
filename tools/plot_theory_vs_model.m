@@ -1,5 +1,5 @@
-function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, refresh_ape)
-% plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, refresh_ape)
+function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind)
+% plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind)
 %
 % Theory against model for shelf EKE and offshore transport Q (Zhao et al.
 % Eqs. 5, 7, 8). Two figures, because the chain APE -> EKE -> Q can be
@@ -64,10 +64,8 @@ function plot_theory_vs_model(cluster_name, coeff_mode, C_geom, include_wind, re
 %                 anomaly fills H0 x Ld) or 1/6 (triangular wedge). The script
 %                 prints the value the unforced runs would need.
 %   include_wind  also plot the wind-stress sweep (default: false)
-%   refresh_ape   rerun ape_wedge even if <cluster>_ape_wedge.mat is current
-%                 (default: false). It is rerun anyway when the file is
-%                 missing, older than these fields, made with a different box,
-%                 or lacks a run now on disk.
+%
+% Measured APE comes from calling ape_wedge.m on the same box (numbers only).
 %
 % Diagnosed quantities (following Zhao et al. Sec. 3c-d as closely as our
 % closed, alongshore-integrated geometry allows):
@@ -93,9 +91,6 @@ if nargin < 3 || isempty(C_geom)
 end
 if nargin < 4 || isempty(include_wind)
     include_wind = false;
-end
-if nargin < 5 || isempty(refresh_ape)
-    refresh_ape = false;
 end
 
 sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
@@ -441,7 +436,7 @@ end
 % Same shelf box (coast to the break, y_range_Q), same shelf columns for g'
 % (x_g_range), same averaging window (the last), so the numbers line up with
 % the EKE and Q diagnosed above.
-A = load_ape_(cluster_name, sweep_output_root, outdir, y_range_Q, x_g_range, all_sweeps, refresh_ape);
+A = load_ape_(cluster_name, sweep_output_root, outdir, y_range_Q, x_g_range);
 lab_ape = strrep(A.labels, 'sweep_', '');
 [APEm_val, Abox_val, gph_val, drift_val, gp0_val, tilt_val] = deal(nan(num_sw, 1));
 for idx = 1:num_sw
@@ -461,15 +456,10 @@ EKE_diag     = EKE_diag(valid);
 Q_diag       = Q_diag(valid);
 R_val        = R_val(valid);
 s_val        = s_val(valid);
-APE_val      = APE_val(valid);
-Ld_val       = Ld_val(valid);
-g_prime_val  = g_prime_val(valid);
 H0_val       = H0_val(valid);
 tau_val      = tau_val(valid);
 Zs_val       = Zs_val(valid);
 Ls_val       = Ls_val(valid);
-v0_val       = v0_val(valid);
-N_val        = N_val(valid);
 L_val        = L_val(valid);
 xb_val       = xb_val(valid);
 APEm_val     = APEm_val(valid);
@@ -601,18 +591,6 @@ report_skill_('stepwise   Q  ', Q_step(~h_unreliable), Q_diag(~h_unreliable));
 report_skill_('predictive EKE', EKE_pred, EKE_diag);
 report_skill_('predictive Q  ', Q_pred, Q_diag);
 
-% Save the per-run inputs so check_eke_theory.m can test / refit the scaling
-theory_inputs = struct('sweeps', {sweeps_valid}, 'EKE_diag', EKE_diag, 'Q_diag', Q_diag, ...
-    'R', R_val, 's', s_val, 'APE', APE_val, 'C_geom', C_geom, 'Ld', Ld_val, 'g_prime', g_prime_val, ...
-    'H0', H0_val, 'N', N_val, 'tau', tau_val, 'Zs', Zs_val, 'Ls', Ls_val, 'v0', v0_val, ...
-    'f', f, 'L', L_val, 'x_break', xb_val, 'cluster', cluster_name, ...
-    'APE_sorted', APEm_val, 'A_box', Abox_val, 'g_prime_h', gph_val, 'Ld_h', Ldh_val, ...
-    'ref_drift', drift_val, 'g_prime_0', gp0_val, 'Ld_0', Ld0_val, 'c_eddy', c_eddy, ...
-    'EKE_step', EKE_step, 'Q_step', Q_step, 'EKE_pred', EKE_pred, 'Q_pred', Q_pred, ...
-    'Q_eddy_transient', Qe_t, 'Q_eddy_standing', Qe_s, 'x_transient_km', xFt_val, 'x_standing_km', xFs_val, ...
-    'F_transient', Ft_val, 'F_standing', Fs_val, 'tilt', tilt_val, 'tilt_ambiguous', tilt_amb);
-save(fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)), 'theory_inputs');
-fprintf('Saved theory inputs: %s\n', fullfile(outdir, sprintf('%s_theory_inputs.mat', cluster_name)));
 
 %% Marker styles, shared by both figures
 col_Zs   = [0.0, 0.0, 0.7];     mk_Zs   = 'o';
@@ -712,34 +690,11 @@ plot_flux_profiles_(XP, FTX, FSX, QXP, gph_val, tilt_val, tilt_amb, QEk_val, Ls_
 
 end
 
-function A = load_ape_(cluster_name, sweep_root, outdir, y_box, x_g_range, runs, refresh)
-% ape_wedge results for this cluster: from <cluster>_ape_wedge.mat when it
-% matches this script's box and holds every run, otherwise by running
-% ape_wedge (which writes that file).
-fmat = fullfile(outdir, sprintf('%s_ape_wedge.mat', cluster_name));
-A = [];
-if ~refresh && isfile(fmat)
-    S = load(fmat);  A = S.R;
-    need = {'APE_sorted', 'A_box', 'g_prime_h', 'ref_drift', 'g_prime_0', 'tilt', 'y_box', 'x_g_range', 'window'};
-    why = '';
-    if ~all(isfield(A, need))
-        why = 'written by an older ape_wedge';
-    elseif ~isequal(A.y_box(:)', y_box(:)') || ~isequal(A.x_g_range(:)', x_g_range(:)') || ~isempty(A.window)
-        why = 'made with a different box or window';
-    elseif ~all(ismember(strrep(runs, 'sweep_', ''), strrep(A.labels, 'sweep_', '')))
-        why = 'missing some of the runs now on disk';
-    end
-    if isempty(why)
-        fprintf('Using measured APE from %s (made %s)\n', fmat, A.created);
-    else
-        fprintf('  %s is %s: rerunning ape_wedge.\n', fmat, why);
-        A = [];
-    end
-end
-if isempty(A)
-    A = ape_wedge(cluster_name, 'sweep_root', sweep_root, 'y_box', y_box, ...
-                  'x_g_range', x_g_range, 'outdir', outdir);
-end
+function A = load_ape_(cluster_name, sweep_root, outdir, y_box, x_g_range)
+% Measured APE, g'_h, g'_0, A_box and tilt for every run: ape_wedge computed
+% on the same box, numbers only (its figures come from run_ape_wedge.sh).
+A = ape_wedge(cluster_name, 'sweep_root', sweep_root, 'y_box', y_box, ...
+              'x_g_range', x_g_range, 'outdir', outdir, 'figures', false);
 end
 
 function [EKE, coef] = eke_theory_(base, s, R, tau, coeff_mode, EKE_diag)
