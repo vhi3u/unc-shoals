@@ -17,11 +17,10 @@ using Oceananigans.TurbulenceClosures
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
 using Statistics: mean
-# NOTE: YShearProductionRate / ZShearProductionRate are not exported by
-# Oceanostics (verified against both 0.18.0 and 0.21.2), so this `using` was
-# failing at load. Trimmed to the three diagnostics the script actually uses.
-using Oceanostics: RossbyNumber, ErtelPotentialVorticity, KineticEnergy
-using Oceanostics.ProgressMessengers: TimedMessenger
+# No Oceanostics: every release that supports Oceananigans 0.118 requires
+# Julia 1.12, and Casper's module is 1.11. Its three diagnostics (Rossby
+# number, kinetic energy, Ertel PV) and the progress printer are a few lines
+# each with Oceananigans' own operators; see the output section.
 using SeawaterPolynomials.TEOS10
 using Printf: @sprintf
 using NCDatasets
@@ -793,7 +792,15 @@ conjure_time_step_wizard!(simulation, IterationInterval(5),
 @info @sprintf("Time step: initial 60 s, max %.0f s  (Δh = %.0f m -> CFL = %.2f at |u| = 0.3 m/s)",
     max_Δt, Δh, 0.3 * max_Δt / Δh)
 
-progress = TimedMessenger()
+# Progress line (replaces Oceanostics' TimedMessenger): model time, Δt and
+# wall time per simulated day.
+const wall_start = Ref(time_ns())
+function progress(sim)
+    elapsed = (time_ns() - wall_start[]) / 1e9
+    t_days = time(sim) / 86400
+    @info @sprintf("progress: t = %.2f d of %.0f | iter %d | Δt = %.0f s | wall %.1f min (%.2f min per simulated day)",
+        t_days, sweep_sim_days, iteration(sim), sim.Δt, elapsed / 60, elapsed / 60 / max(t_days, 1e-9))
+end
 simulation.callbacks[:progress] = Callback(progress, TimeInterval(callback_interval))
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -855,10 +862,17 @@ simulation.callbacks[:health] = Callback(report_health, IterationInterval(10))
 u, v, w = model.velocities
 T = model.tracers.T
 S = model.tracers.S
-Ro = @at (Center, Center, Center) RossbyNumber(model)
-KE = @at (Center, Center, Center) KineticEnergy(model)
+# Same definitions as Oceanostics' RossbyNumber, KineticEnergy and
+# ErtelPotentialVorticity on an f-plane (Coriolis only in the vertical
+# component), all interpolated to cell centres:
+#   Ro = ζ / f,  ζ = ∂x v - ∂y u
+#   KE = (u² + v² + w²) / 2
+#   PV = (∂y w - ∂z v) ∂x b + (∂z u - ∂x w) ∂y b + (f + ζ) ∂z b
 b_op = Oceananigans.Models.buoyancy_operation(model)
-PV = @at (Center, Center, Center) ErtelPotentialVorticity(model, u, v, w, b_op, model.coriolis)
+Ro = @at (Center, Center, Center) (∂x(v) - ∂y(u)) / f₀
+KE = @at (Center, Center, Center) (u^2 + v^2 + w^2) / 2
+PV = @at (Center, Center, Center) ((∂y(w) - ∂z(v)) * ∂x(b_op) + (∂z(u) - ∂x(w)) * ∂y(b_op) +
+                                   (f₀ + ∂x(v) - ∂y(u)) * ∂z(b_op))
 
 # Centered velocities for consistency
 u_c = @at (Center, Center, Center) u
