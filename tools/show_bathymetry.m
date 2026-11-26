@@ -44,3 +44,46 @@ for t = tables'
                 g.crest_length / 1e3, g.crest_start / 1e3, g.width_y / 1e3, note);
     end
 end
+
+%% PROPOSAL for approval: crest_length (what Ls should mean)
+% Same three crest depths, two ways of setting the length, profiles through
+% the shoal centre (y = 100 km). Each crest is marked with its MEASURED start,
+% end and length (shoal_bathymetry's second output).
+%   left:  today, shoal_length = 40 km  (the crest ENDS at 40 km)
+%   right: proposed, crest_length = 40 km (the crest IS 40 km long)
+close all
+zs_list = [-5 -10 -15];  cc = lines(3);  xs = 0:50:90e3;
+fig = figure('Color', 'w', 'Name', 'Proposal: crest_length', 'NumberTitle', 'off', 'Position', [60 60 1400 560]);
+tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+cases = {struct('shoal_length', 40e3), struct('crest_length', 40e3)};
+names = {'TODAY: shoal\_length = 40 km (where the crest ends)', ...
+         'PROPOSED: crest\_length = 40 km (how long the crest is)'};
+for c = 1:2
+    ax = nexttile(tl);  hold(ax, 'on');  grid(ax, 'on');
+    for k = 1:3
+        p = cases{c};  p.Zs = zs_list(k);
+        [h, g] = shoal_bathymetry(xs, 100e3, p);
+        plot(ax, xs/1e3, h, 'Color', cc(k,:), 'LineWidth', 2, ...
+             'DisplayName', sprintf('Zs = %d m: crest %.1f km long', zs_list(k), g.crest_length/1e3));
+        plot(ax, [g.crest_start g.crest_end]/1e3, g.crest_depth*[1 1] + 1.2, '|-', 'Color', cc(k,:), ...
+             'LineWidth', 1.5, 'MarkerSize', 10, 'HandleVisibility', 'off');
+        text(ax, (g.crest_start + g.crest_end)/2e3, g.crest_depth + 2.6, ...
+             sprintf('%.1f km', g.crest_length/1e3), 'Color', cc(k,:), 'HorizontalAlignment', 'center', ...
+             'FontWeight', 'bold');
+    end
+    xlim(ax, [0 90]);  ylim(ax, [-52 2]);
+    xlabel(ax, 'x (km from coast)');  ylabel(ax, 'depth (m)');
+    title(ax, names{c});  legend(ax, 'Location', 'southwest');
+end
+title(tl, 'Crest depth sweep: does "Ls = 40 km" give a 40 km crest?  (bars = measured crest)', 'FontWeight', 'bold');
+
+fprintf('\n%-10s %-28s %10s %10s %10s %10s %8s\n', 'Zs (m)', 'length set by', 'crest (m)', 'start km', 'end km', 'length km', 'trench');
+for c = 1:2
+    for k = 1:3
+        p = cases{c};  p.Zs = zs_list(k);
+        [~, g] = shoal_bathymetry(0, 0, p);
+        if c == 1, how = 'shoal_length = 40 km'; else, how = 'crest_length = 40 km'; end
+        fprintf('%-10d %-28s %10.2f %10.2f %10.2f %10.2f %8.2f\n', zs_list(k), how, ...
+                g.crest_depth, g.crest_start/1e3, g.crest_end/1e3, g.crest_length/1e3, g.trench);
+    end
+end
