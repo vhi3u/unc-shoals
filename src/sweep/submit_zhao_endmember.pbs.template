@@ -35,7 +35,6 @@
 #PBS -q casper
 #PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
 #PBS -m abe
-#PBS -J 1-1
 
 module purge
 module load ncarenv-basic/24.12
@@ -45,6 +44,10 @@ module load peak-memusage
 module li
 
 export SWEEP_PARAMS="params_zhao_endmember.toml"
+
+# One run, so this is a plain job, not an array: PBS rejects `-J 1-1`.
+# RUN_INDEX is the table entry to run.
+RUN_INDEX=1
 
 PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"
@@ -56,21 +59,21 @@ mkdir -p logs out/sweep sweep_output
 # finished sweeps got re-run; the driver errors on an out-of-range index, but
 # only after paying for a GPU allocation and a Julia startup.
 NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
-if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
-    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+if [ "${RUN_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${RUN_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
     echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
     exit 1
 fi
 
 echo "════════════════════════════════════════════════════════"
 echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
-echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " PBS_ARRAY_INDEX = ${RUN_INDEX}"
 echo " Host:             $(hostname)"
 echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
 echo " Date:             $(date)"
 echo "════════════════════════════════════════════════════════"
 
-peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
-    2>&1 | tee out/sweep/zhao_endmember_${PBS_ARRAY_INDEX}.log
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${RUN_INDEX} \
+    2>&1 | tee out/sweep/zhao_endmember_${RUN_INDEX}.log
 
-echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"
+echo "Job ${RUN_INDEX} finished at $(date)"
