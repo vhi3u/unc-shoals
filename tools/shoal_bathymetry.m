@@ -31,15 +31,16 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 %                    attached to the coast, so no trench is possible. Use this
 %                    for any sweep that varies Zs and claims a fixed length.
 %
-%   p.shelf_gap      (new, optional) the flat shelf between the end of the
-%                    shoal's 15 km offshore taper and the start of the shelf
-%                    break [m]. When given, rise_mid is DERIVED so the break
-%                    starts (background 1 m below Zsh) exactly shelf_gap
-%                    beyond the taper. Without it, a shelf-depth sweep leaves
-%                    the shoal's flank anywhere from 5 km INTO the break to
-%                    16 km clear of it, because the break moves with shelf
-%                    depth and deeper crests start further offshore. Holding
-%                    it fixed moves the whole shelf width instead.
+%   p.min_shelf_gap  (new, optional, default 10e3) a CHECK, not a control:
+%                    the least flat shelf there must be between the end of
+%                    the shoal's 15 km offshore taper and the start of the
+%                    shelf break [m]. geom.shelf_gap is measured and flagged
+%                    if smaller. The break itself stays where rise_mid puts
+%                    it: one fixed break per sweep, because the inflow jet's
+%                    offshore edge (65 km) and the analysis box are fixed in
+%                    x, so moving the break per run would change how the jet
+%                    sits over the topography. Pick that one rise_mid with
+%                    tools/fixed_break_rise_mid.m.
 %
 % Second output, `geom`, MEASURES the shoal from the bottom itself and checks
 % it against what was declared (computed only when asked for):
@@ -73,13 +74,6 @@ if isfield(p, 'crest_length') && ~isempty(p.crest_length)
               'crest_length is for shoals attached to the coast (shoal_start = 0).');
     end
     p.shoal_length = crest_start_(p) + p.crest_length;
-end
-% Flat shelf offshore of the shoal declared directly: derive where the break
-% sits. The break's tanh reaches 1 m below the shelf at
-% rise_mid + rise_width * atanh(2/(Zsh - h_deep) - 1).
-if isfield(p, 'shelf_gap') && ~isempty(p.shelf_gap)
-    drop = p.Zsh - p.h_deep;
-    p.rise_mid = p.shoal_length + 15e3 + p.shelf_gap - p.rise_width * atanh(2 / drop - 1);
 end
 
 hw = background_(x, p);
@@ -151,7 +145,7 @@ eta = hc - background_(x, p);
 if eta_max < 0.5                                 % Zs at or below the shelf: nothing built
     g = struct('crest_depth', NaN, 'crest_start', NaN, 'crest_end', NaN, 'crest_length', 0, ...
                'height', 0, 'width_y', 0, 'trench', 0, 'taper_end', NaN, 'break_start', NaN, ...
-               'shelf_gap', NaN, 'declared_depth', p.Zs, ...
+               'shelf_gap', NaN, 'gap_ok', true, 'declared_depth', p.Zs, ...
                'declared_length', p.shoal_length, 'depth_ok', true, 'length_ok', true, ...
                'trench_ok', true, 'note', '(no shoal: Zs is at or below the shelf)');
     return;
@@ -209,7 +203,11 @@ if isnan(g.break_start)
     notes{end+1} = 'no shelf break (h_deep = Zsh)';
 elseif g.shelf_gap < 0
     notes{end+1} = sprintf('offshore taper runs %.1f km into the shelf break', -g.shelf_gap / 1e3);
+elseif g.shelf_gap < p.min_shelf_gap - 100          % 100 m: the break is located on a 50 m grid
+    notes{end+1} = sprintf('only %.1f km of flat shelf before the break (minimum %.1f km)', ...
+                           g.shelf_gap / 1e3, p.min_shelf_gap / 1e3);
 end
+g.gap_ok = ~isnan(g.shelf_gap) && g.shelf_gap >= p.min_shelf_gap - 100;
 g.note = strjoin(notes, '; ');
 end
 
@@ -220,7 +218,7 @@ end
 function p = defaults_(p)
 d = struct('Zs', NaN, 'shoal_length', 40e3, 'sigma', 8e3, 'Zsh', -25, 'shelf_break_end', 12e3, ...
            'rise_mid', 63.5e3, 'rise_width', 5e3, 'shoal_start', 0, 'shoal_inner_width', 0, ...
-           'h_deep', -50, 'Ly', 200e3);
+           'h_deep', -50, 'Ly', 200e3, 'min_shelf_gap', 10e3);
 if isfield(p, 'shelf_depth') && ~isfield(p, 'Zsh'), p.Zsh = p.shelf_depth; end
 for f = fieldnames(d)'
     if ~isfield(p, f{1}), p.(f{1}) = d.(f{1}); end

@@ -88,31 +88,36 @@ for c = 1:2
     end
 end
 
-%% PROPOSAL, part 2: changing shelf depth, crest_length = 40 km, shelf_gap = 10 km
+%% PROPOSAL, part 2: changing shelf depth, crest_length = 40 km, ONE fixed break
 % The deep_geom setup (100 m basin, break slopes held fixed per shelf depth),
-% with BOTH proposed parameters: the crest is 40 km long and there is exactly
-% 10 km of flat shelf between the end of the shoal's taper and the break.
-% Two ways to hold "the same shoal" while the shelf deepens:
+% crest_length = 40 km. The shelf break is FIXED for the whole sweep, at the
+% smallest rise_mid that leaves every run at least 10 km of flat shelf between
+% the shoal's taper and the break (fixed_break_rise_mid). The measured gap is
+% then a CHECK. Two ways to hold "the same shoal" while the shelf deepens:
 %   left:  same crest DEPTH              Zs = -5 m on every shelf
 %   right: same HEIGHT above the shelf   Hs = Zsh - Zs = 10 m
 % Bars = measured crest; open circles = end of the offshore taper; triangles
-% = start of the shelf break. Set use_gap = false to see it without shelf_gap.
-use_gap = true;
+% = start of the shelf break.
 close all
 shelf = struct('Zsh', {-15, -25, -40, -50}, 'shelf_break_end', {8100, 12000, 17800, 21700}, ...
                'rise_width', {17000, 15000, 12000, 10000});
-cc = lines(numel(shelf));  xs = 0:50:140e3;
+cc = lines(numel(shelf));  xs = 0:50:150e3;
 fig = figure('Color', 'w', 'Name', 'Proposal: shelf depth', 'NumberTitle', 'off', 'Position', [60 60 1400 600]);
 tl = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 titles = {'same crest DEPTH: Zs = -5 m', 'same HEIGHT above the shelf: Hs = 10 m'};
-fprintf('\n%-8s %-18s %8s %9s %9s %9s %9s %8s %9s  %s\n', 'Zsh', 'held fixed', 'Zs', 'start km', 'length km', ...
-        'taper km', 'break km', 'gap km', 'rise_mid', 'problems');
+fprintf('\n%-8s %-18s %8s %9s %9s %9s %9s %8s  %s\n', 'Zsh', 'held fixed', 'Zs', 'start km', 'length km', ...
+        'taper km', 'break km', 'gap km', 'problems');
 for c = 1:2
+    runs = shelf;
+    for k = 1:numel(runs)
+        runs(k).h_deep = -100;  runs(k).crest_length = 40e3;
+        if c == 1, runs(k).Zs = -5; else, runs(k).Zs = runs(k).Zsh + 10; end
+    end
+    rm = fixed_break_rise_mid(runs, 10e3);            % one break for this sweep
+    [runs.rise_mid] = deal(rm);
     ax = nexttile(tl);  hold(ax, 'on');  grid(ax, 'on');
-    for k = 1:numel(shelf)
-        p = shelf(k);  p.h_deep = -100;  p.rise_mid = 90e3;  p.crest_length = 40e3;
-        if use_gap, p.shelf_gap = 10e3; end
-        if c == 1, p.Zs = -5; how = 'crest depth -5 m'; else, p.Zs = p.Zsh + 10; how = 'height 10 m'; end
+    for k = 1:numel(runs)
+        p = runs(k);
         [h, g] = shoal_bathymetry(xs, 100e3, p);
         plot(ax, xs/1e3, h, 'Color', cc(k,:), 'LineWidth', 2, ...
              'DisplayName', sprintf('shelf %d m: crest %.1f km at %g m, gap %.1f km', p.Zsh, g.crest_length/1e3, p.Zs, g.shelf_gap/1e3));
@@ -120,23 +125,24 @@ for c = 1:2
              'LineWidth', 1.5, 'MarkerSize', 8, 'HandleVisibility', 'off');
         plot(ax, g.taper_end/1e3, p.Zsh, 'o', 'Color', cc(k,:), 'MarkerSize', 8, 'LineWidth', 1.5, 'HandleVisibility', 'off');
         plot(ax, g.break_start/1e3, p.Zsh - 1, 'v', 'Color', cc(k,:), 'MarkerFaceColor', cc(k,:), 'HandleVisibility', 'off');
-        rm = p.rise_mid;  if use_gap, rm = g.break_start + p.rise_width * atanh(1 - 2 / (p.Zsh - p.h_deep)); end
-        fprintf('%-8d %-18s %8.1f %9.2f %9.2f %9.1f %9.1f %8.1f %9.1f  %s\n', p.Zsh, how, p.Zs, g.crest_start/1e3, ...
-                g.crest_length/1e3, g.taper_end/1e3, g.break_start/1e3, g.shelf_gap/1e3, rm/1e3, g.note);
+        if c == 1, how = 'crest depth -5 m'; else, how = 'height 10 m'; end
+        fprintf('%-8d %-18s %8.1f %9.2f %9.2f %9.1f %9.1f %8.1f  %s\n', p.Zsh, how, p.Zs, g.crest_start/1e3, ...
+                g.crest_length/1e3, g.taper_end/1e3, g.break_start/1e3, g.shelf_gap/1e3, g.note);
     end
-    xlim(ax, [0 140]);  ylim(ax, [-102 2]);
+    xline(ax, rm/1e3, 'k:', sprintf('rise\\_mid = %.1f km (all runs)', rm/1e3), 'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
+    xline(ax, 65, 'k--', 'jet offshore edge (65 km)', 'LabelVerticalAlignment', 'middle', 'HandleVisibility', 'off');
+    fprintf('   -> one break for this sweep: rise_mid = %.1f km\n', rm/1e3);
+    xlim(ax, [0 150]);  ylim(ax, [-102 2]);
     xlabel(ax, 'x (km from coast)');  ylabel(ax, 'depth (m)');  title(ax, titles{c});
     legend(ax, 'Location', 'southwest');
 end
-title(tl, sprintf('Shelf depth sweep: crest\\_length = 40 km%s  (o = taper end, \\nabla = shelf break start)', ...
-      repmat(', shelf\_gap = 10 km', 1, use_gap)), 'FontWeight', 'bold');
+title(tl, 'Shelf-depth sweep: crest\_length = 40 km, one fixed break per sweep (>= 10 km flat shelf)  (o = taper end, \nabla = break start)', ...
+      'FontWeight', 'bold');
 
 %% PROPOSAL, part 2 in 3-D: the shelf-depth sweep
-% Same runs as part 2 (crest_length = 40 km, shelf_gap = 10 km, 100 m basin):
-% top row same crest DEPTH (Zs = -5 m), bottom row same HEIGHT above the shelf
-% (Hs = 10 m). Rotate any panel. Set use_gap = false to see it without
-% shelf_gap.
-use_gap = true;
+% Same runs as part 2 (crest_length = 40 km, one fixed break per sweep, 100 m
+% basin): top row same crest DEPTH (Zs = -5 m), bottom row same HEIGHT above
+% the shelf (Hs = 10 m). Rotate any panel.
 close all
 shelf = struct('Zsh', {-15, -25, -40, -50}, 'shelf_break_end', {8100, 12000, 17800, 21700}, ...
                'rise_width', {17000, 15000, 12000, 10000});
@@ -144,11 +150,16 @@ shelf = struct('Zsh', {-15, -25, -40, -50}, 'shelf_break_end', {8100, 12000, 178
 fig = figure('Color', 'w', 'Name', 'Proposal: shelf depth (3-D)', 'NumberTitle', 'off', 'Position', [40 40 1700 820]);
 tl = tiledlayout(fig, 2, numel(shelf), 'TileSpacing', 'compact', 'Padding', 'compact');
 for c = 1:2
-    for k = 1:numel(shelf)
-        p = shelf(k);  p.h_deep = -100;  p.rise_mid = 90e3;  p.crest_length = 40e3;
-        if use_gap, p.shelf_gap = 10e3; end
-        if c == 1, p.Zs = -5; else, p.Zs = p.Zsh + 10; end
-        [H, ~] = shoal_bathymetry(X, Y, p);
+    runs = shelf;
+    for k = 1:numel(runs)
+        runs(k).h_deep = -100;  runs(k).crest_length = 40e3;
+        if c == 1, runs(k).Zs = -5; else, runs(k).Zs = runs(k).Zsh + 10; end
+    end
+    rm = fixed_break_rise_mid(runs, 10e3);
+    [runs.rise_mid] = deal(rm);
+    for k = 1:numel(runs)
+        p = runs(k);
+        H = shoal_bathymetry(X, Y, p);
         [~, g] = shoal_bathymetry(0, 0, p);
         ax = nexttile(tl);
         surf(ax, X/1e3, Y/1e3, H, 'EdgeColor', 'none');
@@ -160,5 +171,5 @@ for c = 1:2
               g.crest_length/1e3, g.shelf_gap/1e3), 'FontSize', 9);
     end
 end
-title(tl, sprintf('Shelf-depth sweep, proposed geometry (crest\\_length = 40 km%s). Top: same crest depth (-5 m). Bottom: same height above the shelf (10 m).', ...
-      repmat(', shelf\_gap = 10 km', 1, use_gap)), 'FontWeight', 'bold');
+title(tl, 'Shelf-depth sweep, proposed geometry (crest\_length = 40 km, one fixed break per row). Top: same crest depth (-5 m). Bottom: same height above the shelf (10 m).', ...
+      'FontWeight', 'bold');
