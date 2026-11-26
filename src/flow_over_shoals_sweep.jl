@@ -62,6 +62,57 @@ sweep_v0 = parse(Float64, get(ENV, "SWEEP_V0", "0.2"))
 sweep_dx = parse(Float64, get(ENV, "SWEEP_DX", "500.0"))
 sweep_sim_days = parse(Float64, get(ENV, "SWEEP_SIM_DAYS", "50.0"))
 
+# ── Time-varying wind ─────────────────────────────────────────────────────
+# A constant wind and a constant jet settle into STEADY meanders around the
+# shoal, and in every steady run so far those standing meanders carry 4-20x
+# the buoyancy flux of the transient eddies. Real shelf wind comes in 2-10 day
+# events, and fronts sharpened during an event go unstable when it relaxes.
+#   steady     tau(t) = SWEEP_WIND_STRESS                      (default; as before)
+#   pulsed     on/off events: SWEEP_WIND_STRESS is the PEAK, held for a fraction
+#              SWEEP_WIND_DUTY of each SWEEP_WIND_PERIOD_DAYS, zero otherwise
+#   reversing  +peak for half of each period, -peak for the other half (mean 0)
+# Edges are smoothed over about half an inertial period. Choose a period that
+# divides the 10-day averaging window (5 or 10 d), so every average spans
+# whole cycles. The time-mean stress is written to sweep_metadata as
+# wind_stress_mean; the MATLAB tools use it for the Ekman transport.
+const WIND_MODE_NAME = get(ENV, "SWEEP_WIND_MODE", "steady")
+const WIND_MODE_ID = WIND_MODE_NAME == "steady" ? 0 :
+                     WIND_MODE_NAME == "pulsed" ? 1 :
+                     WIND_MODE_NAME == "reversing" ? 2 :
+                     error("SWEEP_WIND_MODE must be steady, pulsed or reversing, not '$WIND_MODE_NAME'")
+const WIND_PERIOD_DAYS = parse(Float64, get(ENV, "SWEEP_WIND_PERIOD_DAYS", "10.0"))
+const WIND_DUTY = parse(Float64, get(ENV, "SWEEP_WIND_DUTY", "0.5"))
+WIND_MODE_ID == 1 && !(0 < WIND_DUTY < 1) && error("SWEEP_WIND_DUTY must lie in (0, 1), not $WIND_DUTY")
+WIND_MODE_ID > 0 && !(WIND_PERIOD_DAYS > 0) && error("SWEEP_WIND_PERIOD_DAYS must be positive")
+
+# ── Cross-shelf salinity front ────────────────────────────────────────────
+# The interior starts horizontally uniform and the inflow strip is nudged
+# back to that one profile, so nothing maintains a cross-shelf density
+# contrast except what wind and the shoal build. Zhao et al.'s eddies feed on
+# a continuously supplied light coastal water mass. This adds one: shelf water
+# FRESHER by SWEEP_FRONT_DS psu inshore of SWEEP_FRONT_X, with a tanh front of
+# half-width SWEEP_FRONT_WIDTH:
+#   S(x, z) = S_ambient(z) - DS * 1/2 [1 - tanh((x - X) / W)] * G(z)
+#   G(z) = exp(z / SWEEP_FRONT_DEPTH)   (surface-trapped), or 1 if that is 0
+#                                       (full-depth, the default)
+# Applied to the initial condition AND the inflow nudging target, so the
+# inflow keeps resupplying it. Without the second the nudging erases the
+# front within one pass of the periodic channel. The east open boundary is
+# 130 km offshore of any front used here, where the anomaly is < 1e-10 psu,
+# so its exterior state is unchanged. Salinity only, with temperature
+# unchanged, so salinity doubles as Zhao et al.'s freshwater tracer:
+# FWF = int u (S_ref - S)/S_ref. DS = 0 (the default) reproduces every
+# earlier run exactly.
+const FRONT_DS = parse(Float64, get(ENV, "SWEEP_FRONT_DS", "0.0"))
+const FRONT_X = parse(Float64, get(ENV, "SWEEP_FRONT_X", "20000.0"))
+const FRONT_W = parse(Float64, get(ENV, "SWEEP_FRONT_WIDTH", "4000.0"))
+const FRONT_H = parse(Float64, get(ENV, "SWEEP_FRONT_DEPTH", "0.0"))
+FRONT_DS != 0 && !(FRONT_W > 0) && error("SWEEP_FRONT_WIDTH must be positive")
+@inline front_xshape(x) = 0.5 * (1 - tanh((x - FRONT_X) / FRONT_W))
+@inline front_zshape(z) = ifelse(FRONT_H > 0, exp(z / max(FRONT_H, 1e-6)), one(z))
+@inline S_front(x, z) = -FRONT_DS * front_xshape(x) * front_zshape(z)
+
+@info "Wind mode: $WIND_MODE_NAME (period $WIND_PERIOD_DAYS d, duty $WIND_DUTY); front: DS=$FRONT_DS psu at x=$FRONT_X m, width $FRONT_W m, depth scale $FRONT_H m"
 @info "Sweep parameters: Zs=$sweep_Zs, shoal_length=$sweep_shoal_length, shoal_start=$sweep_shoal_start, shoal_inner_width=$sweep_shoal_inner_width, sigma=$sweep_sigma, Zsh=$sweep_Zsh, shelf_break_end=$sweep_shelf_break_end, wind_stress=$sweep_wind_stress, v0=$sweep_v0"
 
 # build
@@ -340,10 +391,30 @@ const Le_c = params.Le
 @inline wind_shape(x) = 0.5 * (1 - tanh((x - (Lx_c - Le_c)) / (0.25 * Le_c)))
 @inline wind_ramp(t) = ifelse(T_ramp > 0, 1 - exp(-t / T_ramp), one(t))
 
+# Time envelope of the stress (SWEEP_WIND_MODE). s = sin(2 pi t / P) is above
+# cos(pi d) for a fraction d of each period, so thresholding it gives duty d;
+# tanh with sharpness P / (2 pi T_edge) makes each edge last about T_edge.
+const WIND_PERIOD = WIND_PERIOD_DAYS * 86400.0
+const WIND_EDGE = inertial_period / 2
+const WIND_THRESH = cospi(WIND_DUTY)
+const WIND_SHARP = WIND_PERIOD / (2π * WIND_EDGE)
+@inline function wind_envelope(t)
+    s = sin(2π * t / WIND_PERIOD)
+    return ifelse(WIND_MODE_ID == 0, one(t),
+           ifelse(WIND_MODE_ID == 1, 0.5 * (1 + tanh((s - WIND_THRESH) * WIND_SHARP)),
+                                     tanh(s * WIND_SHARP)))
+end
+# Time-mean of the envelope over one period, for the metadata (Ekman transport
+# in the MATLAB tools). Exact for steady, ~duty for pulsed, ~0 for reversing.
+const WIND_MEAN_FACTOR = WIND_MODE_ID == 0 ? 1.0 :
+    mean(wind_envelope(t) for t in range(0, WIND_PERIOD, length=20001)[1:end-1])
+@info @sprintf("wind envelope: mode %s, mean factor %.4f -> time-mean stress %.4g N/m^2",
+    WIND_MODE_NAME, WIND_MEAN_FACTOR, sweep_wind_stress * WIND_MEAN_FACTOR)
+
 if sigmoid_wind
-    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t) * wind_shape(x)
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t) * wind_envelope(t) * wind_shape(x)
 else
-    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t)
+    @inline wind_v_flux(x, y, t) = -τ_kinematic * wind_ramp(t) * wind_envelope(t)
 end
 
 wind_bc_u = FluxBoundaryCondition(0.0)
@@ -387,7 +458,9 @@ const global_params = params
 @inline v_target_inflow(x, y, z, t) = v∞(x, z, t, global_params)
 
 @inline T_target_south(x, y, z, t) = T_south_pwl(z, global_params.T_south_v1)
-@inline S_target_south(x, y, z, t) = S_south_pwl(z, global_params.S_south_v1)
+# + S_front: the inflow strip resupplies the cross-shelf front (zero when
+# SWEEP_FRONT_DS = 0).
+@inline S_target_south(x, y, z, t) = S_south_pwl(z, global_params.S_south_v1) + S_front(x, z)
 
 @inline T_target_north(x, y, z, t) = T_north_pwl(z, global_params.T_north_v1)
 @inline S_target_north(x, y, z, t) = S_north_pwl(z, global_params.S_north_v1)
@@ -767,7 +840,15 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["h_deep"] = sweep_h_deep
     ds.attrib["Lz"] = sweep_Lz
     ds.attrib["dx"] = sweep_dx
-    ds.attrib["wind_stress"] = sweep_wind_stress
+    ds.attrib["wind_stress"] = sweep_wind_stress          # peak for pulsed/reversing
+    ds.attrib["wind_mode"] = WIND_MODE_NAME
+    ds.attrib["wind_period_days"] = WIND_PERIOD_DAYS
+    ds.attrib["wind_duty"] = WIND_DUTY
+    ds.attrib["wind_stress_mean"] = sweep_wind_stress * WIND_MEAN_FACTOR
+    ds.attrib["front_ds"] = FRONT_DS
+    ds.attrib["front_x"] = FRONT_X
+    ds.attrib["front_width"] = FRONT_W
+    ds.attrib["front_depth"] = FRONT_H
     ds.attrib["v0"] = sweep_v0
     # ape_wedge.m rebuilds the initial T/S profile (T_south_pwl/S_south_pwl)
     # as a fixed reference for g'_h, and the tail below the last breakpoint
@@ -788,10 +869,10 @@ if pickup === false
         @inline α_lin(y) = clamp(y / global_params.Ly, 0.0, 1.0)
         @inline blend(a, b, α) = (1 - α) * a + α * b
         @inline Tᵢ(x, y, z) = blend(T_south_pwl(z, global_params.T_south_v1), T_north_pwl(z, global_params.T_north_v1), α_lin(y))
-        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y))
+        @inline Sᵢ(x, y, z) = blend(S_south_pwl(z, global_params.S_south_v1), S_north_pwl(z, global_params.S_north_v1), α_lin(y)) + S_front(x, z)
     else
         @inline Tᵢ(x, y, z) = T_south_pwl(z, global_params.T_south_v1)
-        @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1)
+        @inline Sᵢ(x, y, z) = S_south_pwl(z, global_params.S_south_v1) + S_front(x, z)
     end
 
     if closure_choice === :catke

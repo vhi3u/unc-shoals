@@ -210,6 +210,9 @@ for idx = 1:num_sw
         sst_val(idx) = read_att(meta_fname, 'shoal_start', 0);
         siw_val(idx) = read_att(meta_fname, 'shoal_inner_width', 0);
         tau = read_att(meta_fname, 'wind_stress',  tau);
+        % Pulsed / reversing wind: 'wind_stress' is the PEAK. The Ekman
+        % transport and the regime both follow the TIME-MEAN stress.
+        tau = read_att(meta_fname, 'wind_stress_mean', tau);
         v0  = read_att(meta_fname, 'v0',           v0);
         Zsh = read_att(meta_fname, 'Zsh',          Zsh);
     else

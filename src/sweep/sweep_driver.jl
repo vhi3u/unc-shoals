@@ -108,6 +108,16 @@ sweep_v0 = Float64(get(this_run, "v0", 0.2))
 sweep_dx = Float64(get(this_run, "dx", 500.0))
 sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
 
+# Time-varying wind and a cross-shelf salinity front (see the comments at the
+# top of flow_over_shoals_sweep.jl). Defaults reproduce every earlier run.
+sweep_wind_mode = String(get(this_run, "wind_mode", "steady"))
+sweep_wind_period = Float64(get(this_run, "wind_period_days", 10.0))
+sweep_wind_duty = Float64(get(this_run, "wind_duty", 0.5))
+sweep_front_ds = Float64(get(this_run, "front_ds", 0.0))
+sweep_front_x = Float64(get(this_run, "front_x", 20000.0))
+sweep_front_width = Float64(get(this_run, "front_width", 4000.0))
+sweep_front_depth = Float64(get(this_run, "front_depth", 0.0))
+
 @info """
 ════════════════════════════════════════════════════════
  SWEEP PARAMETERS (run $run_index / $(length(runs)))
@@ -125,7 +135,8 @@ sweep_sim_days = Float64(get(this_run, "sim_days", 50.0))
  shelf_break_end: $sweep_shelf_break_end m
  rise_mid:        $sweep_rise_mid m  (shelf length $(round((sweep_rise_mid - sweep_shelf_break_end)/1e3, digits=1)) km)
  Stratification:  $sweep_strat
- Wind Stress:     $sweep_wind_stress N/m^2
+ Wind Stress:     $sweep_wind_stress N/m^2  ($sweep_wind_mode, period $sweep_wind_period d, duty $sweep_wind_duty)
+ Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
  sim_days:        $sweep_sim_days days
@@ -176,6 +187,13 @@ ENV["SWEEP_DEEP_STRAT_FRAC"] = string(sweep_deep_strat)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)
+ENV["SWEEP_WIND_MODE"] = sweep_wind_mode
+ENV["SWEEP_WIND_PERIOD_DAYS"] = string(sweep_wind_period)
+ENV["SWEEP_WIND_DUTY"] = string(sweep_wind_duty)
+ENV["SWEEP_FRONT_DS"] = string(sweep_front_ds)
+ENV["SWEEP_FRONT_X"] = string(sweep_front_x)
+ENV["SWEEP_FRONT_WIDTH"] = string(sweep_front_width)
+ENV["SWEEP_FRONT_DEPTH"] = string(sweep_front_depth)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
