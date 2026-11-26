@@ -40,11 +40,6 @@ module load julia/1.11.2 cuda
 module load peak-memusage
 module li
 
-# Julia depot for the rebuilt 1.11 environment. The TRAILING COLON is
-# required: without it this replaces the depot list instead of prepending,
-# dropping Julia's bundled stdlib depot, which breaks Pkg itself.
-export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia_v111:"
-
 export SWEEP_PARAMS="params_depthaxis.toml"
 
 PROJECT_DIR="/glade/work/nguyen/unc-shoals"

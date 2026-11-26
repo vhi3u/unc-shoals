@@ -73,8 +73,6 @@ module li
 
 #/glade/u/apps/ch/opt/usr/bin/dumpenv # Dumps environment (for debugging with CISL support)
 
-#export JULIA_DEPOT_PATH="/glade/work/tomasc/.julia_bkp"
-export JULIA_DEPOT_PATH="/glade/work/nguyen/.julia"
 
 mkdir -p logs out
 
