@@ -15,6 +15,12 @@ addpath(here);
 close all
 plot_bathymetry_sweeps('sweep_dir', fullfile(here, '..', 'src', 'sweep'));
 
+%% The trench fix: the live pulse/front table (attached shoal, no trench)
+% next to the table cluster_pulsefront_120 was actually run from (trench in red)
+close all
+plot_bathymetry_sweeps('sweep_dir', fullfile(here, '..', 'src', 'sweep'), ...
+                       'tables', {'params_pulse_front', 'params_pulse_front_asrun'});
+
 %% Just some tables (edit the list), e.g. the deep-domain sweeps
 close all
 plot_bathymetry_sweeps('sweep_dir', fullfile(here, '..', 'src', 'sweep'), ...
