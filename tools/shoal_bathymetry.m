@@ -1,5 +1,5 @@
-function h = shoal_bathymetry(x, y, p)
-% h = shoal_bathymetry(x, y, p)
+function [h, geom] = shoal_bathymetry(x, y, p)
+% [h, geom] = shoal_bathymetry(x, y, p)
 %
 % Bottom depth [m, negative down] of the model's shoal bathymetry: a line-by-
 % line MATLAB port of src/dshoal_vn_param.jl (_param_shoal_bottom,
@@ -14,19 +14,53 @@ function h = shoal_bathymetry(x, y, p)
 % Hs (shoal height above the shelf) is accepted instead of Zs, as in
 % sweep_driver.jl; so is shelf_depth instead of Zsh.
 %
+% ── SHOAL DEPTH AND LENGTH: what the parameters actually mean ────────────
+% PROPOSED, not yet in the Julia model: approve before it is ported.
+%
+% The model's `shoal_length` is NOT the shoal's length. It is where the flat
+% crest ENDS, measured from the coast. An attached shoal's crest starts where
+% the coastal slope first reaches Zs, so its real length is
+% shoal_length - x_start(Zs), and x_start moves with Zs (0 km at Zs = -5,
+% 6.5 km at -10, 8.2 km at -15 on the standard background). A sweep that
+% "holds Ls = 40 km" therefore had crests of 40, 33.5 and 31.8 km.
+%
+%   p.crest_length   (new, optional) the length of the flat crest [m]. When
+%                    given, the crest is placed from x_start(Zs) -- solved
+%                    exactly on the background -- to x_start + crest_length,
+%                    i.e. shoal_length is DERIVED, not chosen. The shoal stays
+%                    attached to the coast, so no trench is possible. Use this
+%                    for any sweep that varies Zs and claims a fixed length.
+%
+% Second output, `geom`, MEASURES the shoal from the bottom itself and checks
+% it against what was declared (computed only when asked for):
+%   crest_depth      shallowest depth on the shoal centreline, y = Ly/2   [m]
+%   crest_start/end  where the centreline is within tol of crest_depth  [m]
+%   crest_length     crest_end - crest_start                              [m]
+%   height           crest_depth - Zsh: height above the shelf            [m]
+%   width_y          alongshore full width at half height, mid-crest      [m]
+%   trench           dip below both sides between coast and crest end     [m]
+%   declared_depth / declared_length   what the parameters claim
+%   depth_ok / length_ok / trench_ok   pass/fail (tolerances below)
+%   note             why a check failed, in words
+% The flat crest is "within tol = 0.01 m of crest_depth"; the 15 km cosine
+% taper is flat at its start, so a measured crest runs ~0.2 km past the
+% declared end. length_ok allows 0.5 km.
+%
 % Keep in step with src/dshoal_vn_param.jl if that file changes.
 
 p = defaults_(p);
 y0 = p.Ly / 2;  half_extent = p.Ly / 2;
 
-% 1. background: coastal ramp, shelf break, offshore ramp
-ss = @(x, x0, w) 0.5 * (1 + tanh((x - x0) ./ w));
-h0 = -5.0;  h1 = -7.0;
-hw = h0 + (h1 - h0) * ss(x, 2.5e3, 1.5e3);
-sb_mid = 5.0e3 + (p.shelf_break_end - 5.0e3) / 2;
-sb_width = (p.shelf_break_end - 5.0e3) / 2.8;
-hw = hw + (p.Zsh - h1) * ss(x, sb_mid, sb_width);
-hw = hw + (p.h_deep - p.Zsh) * ss(x, p.rise_mid, p.rise_width);
+% Crest length declared directly: derive where the crest has to end.
+if isfield(p, 'crest_length') && ~isempty(p.crest_length)
+    if p.shoal_start > 0
+        error('shoal_bathymetry:crestLength', ...
+              'crest_length is for shoals attached to the coast (shoal_start = 0).');
+    end
+    p.shoal_length = crest_start_(p) + p.crest_length;
+end
+
+hw = background_(x, p);
 
 % 2. alongshore window (1 everywhere when the shoal spans the domain)
 if half_extent >= y0
@@ -53,6 +87,99 @@ gauss_y = exp(-((y - y0).^2) / (2 * p.sigma^2));
 factor = taper_in .* taper_off .* gauss_y .* window;
 potential_height = max(0, p.Zs - hw);
 h = min(-5.0, hw + potential_height .* factor);
+
+if nargout > 1
+    geom = measure_(p);
+end
+end
+
+% ═══════════════════════════════════════════════════════════════════════════
+
+function hw = background_(x, p)
+% Shelf without the shoal: coastal ramp, shelf break, offshore ramp.
+ss = @(x, x0, w) 0.5 * (1 + tanh((x - x0) ./ w));
+h0 = -5.0;  h1 = -7.0;
+hw = h0 + (h1 - h0) * ss(x, 2.5e3, 1.5e3);
+sb_mid = 5.0e3 + (p.shelf_break_end - 5.0e3) / 2;
+sb_width = (p.shelf_break_end - 5.0e3) / 2.8;
+hw = hw + (p.Zsh - h1) * ss(x, sb_mid, sb_width);
+hw = hw + (p.h_deep - p.Zsh) * ss(x, p.rise_mid, p.rise_width);
+end
+
+function xs = crest_start_(p)
+% Where an attached shoal's flat crest begins: the first x at which the
+% background is as deep as Zs. Zero if the coast is already that deep.
+f = @(x) background_(x, p) - p.Zs;
+if f(0) <= 0, xs = 0; return; end
+xs = fzero(f, [0, p.rise_mid]);
+end
+
+function g = measure_(p)
+% Measure the shoal from the bottom itself, along the centreline y = Ly/2.
+tol = 0.01;  y0 = p.Ly / 2;
+pc = rmfield_(p, 'crest_length');                % p.shoal_length is already final
+x = 0:10:(p.shoal_length + 25e3);
+hc = shoal_bathymetry(x, y0, pc);
+% Anchor on the SHOAL, not on the shallowest point: an attached shoal deeper
+% than the coast has the coast as its shallowest point. Find where the shoal
+% stands highest above the background shelf; the bottom there is the crest,
+% and the crest extends either way while the bottom stays within tol of it.
+eta = hc - background_(x, p);
+[eta_max, imax] = max(eta);
+if eta_max < 0.5                                 % Zs at or below the shelf: nothing built
+    g = struct('crest_depth', NaN, 'crest_start', NaN, 'crest_end', NaN, 'crest_length', 0, ...
+               'height', 0, 'width_y', 0, 'trench', 0, 'declared_depth', p.Zs, ...
+               'declared_length', p.shoal_length, 'depth_ok', true, 'length_ok', true, ...
+               'trench_ok', true, 'note', '(no shoal: Zs is at or below the shelf)');
+    return;
+end
+g.crest_depth = hc(imax);
+on = abs(hc - g.crest_depth) <= tol;
+i0 = imax;  while i0 > 1 && on(i0-1), i0 = i0 - 1; end
+i1 = imax;  while i1 < numel(x) && on(i1+1), i1 = i1 + 1; end
+g.crest_start = x(i0);  g.crest_end = x(i1);
+g.crest_length = g.crest_end - g.crest_start;
+g.height = g.crest_depth - p.Zsh;
+
+% alongshore full width at half height, at the middle of the crest
+xm = 0.5 * (g.crest_start + g.crest_end);
+yy = 0:50:p.Ly;
+eta = shoal_bathymetry(xm * ones(size(yy)), yy, pc) - background_(xm, p);
+half = eta >= 0.5 * max(eta);
+g.width_y = (find(half, 1, 'last') - find(half, 1, 'first')) * 50;
+
+% trench between the coast and the end of the crest
+zt = hc(x <= g.crest_end);
+g.trench = max(min(cummax(zt), flip(cummax(flip(zt)))) - zt);
+
+% declared vs measured
+g.declared_depth = p.Zs;
+if isfield(p, 'crest_length') && ~isempty(p.crest_length)
+    g.declared_length = p.crest_length;
+else
+    g.declared_length = p.shoal_length;          % what the old parameter implies
+end
+g.depth_ok  = abs(g.crest_depth - g.declared_depth) <= tol;
+g.length_ok = abs(g.crest_length - g.declared_length) <= 500;
+g.trench_ok = g.trench <= 1;
+notes = {};
+if ~g.depth_ok
+    if p.Zs > -5
+        notes{end+1} = sprintf('Zs = %g is shallower than the -5 m floor the model clamps to', p.Zs);
+    else
+        notes{end+1} = sprintf('crest is %.2f m, declared %.2f m', g.crest_depth, g.declared_depth);
+    end
+end
+if ~g.length_ok
+    notes{end+1} = sprintf('crest is %.1f km long, declared %.1f km (crest starts at %.1f km)', ...
+                           g.crest_length / 1e3, g.declared_length / 1e3, g.crest_start / 1e3);
+end
+if ~g.trench_ok, notes{end+1} = sprintf('%.1f m trench between coast and shoal', g.trench); end
+g.note = strjoin(notes, '; ');
+end
+
+function p = rmfield_(p, f)
+if isfield(p, f), p = rmfield(p, f); end
 end
 
 function p = defaults_(p)
