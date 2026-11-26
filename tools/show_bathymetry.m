@@ -130,3 +130,35 @@ for c = 1:2
 end
 title(tl, sprintf('Shelf depth sweep: crest\\_length = 40 km%s  (o = taper end, \\nabla = shelf break start)', ...
       repmat(', shelf\_gap = 10 km', 1, use_gap)), 'FontWeight', 'bold');
+
+%% PROPOSAL, part 2 in 3-D: the shelf-depth sweep
+% Same runs as part 2 (crest_length = 40 km, shelf_gap = 10 km, 100 m basin):
+% top row same crest DEPTH (Zs = -5 m), bottom row same HEIGHT above the shelf
+% (Hs = 10 m). Rotate any panel. Set use_gap = false to see it without
+% shelf_gap.
+use_gap = true;
+close all
+shelf = struct('Zsh', {-15, -25, -40, -50}, 'shelf_break_end', {8100, 12000, 17800, 21700}, ...
+               'rise_width', {17000, 15000, 12000, 10000});
+[X, Y] = ndgrid(0:1000:150e3, 0:1000:200e3);
+fig = figure('Color', 'w', 'Name', 'Proposal: shelf depth (3-D)', 'NumberTitle', 'off', 'Position', [40 40 1700 820]);
+tl = tiledlayout(fig, 2, numel(shelf), 'TileSpacing', 'compact', 'Padding', 'compact');
+for c = 1:2
+    for k = 1:numel(shelf)
+        p = shelf(k);  p.h_deep = -100;  p.rise_mid = 90e3;  p.crest_length = 40e3;
+        if use_gap, p.shelf_gap = 10e3; end
+        if c == 1, p.Zs = -5; else, p.Zs = p.Zsh + 10; end
+        [H, ~] = shoal_bathymetry(X, Y, p);
+        [~, g] = shoal_bathymetry(0, 0, p);
+        ax = nexttile(tl);
+        surf(ax, X/1e3, Y/1e3, H, 'EdgeColor', 'none');
+        colormap(ax, flipud(parula));  clim(ax, [-100 0]);  zlim(ax, [-100 0]);
+        view(ax, -35, 35);  axis(ax, 'tight');  daspect(ax, [1 1 2.5]);
+        lighting(ax, 'gouraud');  camlight(ax, 'headlight');  material(ax, 'dull');
+        xlabel(ax, 'x (km)');  ylabel(ax, 'y (km)');  zlabel(ax, 'z (m)');
+        title(ax, sprintf('shelf %d m, crest %g m: %.1f km long, gap %.1f km', p.Zsh, p.Zs, ...
+              g.crest_length/1e3, g.shelf_gap/1e3), 'FontSize', 9);
+    end
+end
+title(tl, sprintf('Shelf-depth sweep, proposed geometry (crest\\_length = 40 km%s). Top: same crest depth (-5 m). Bottom: same height above the shelf (10 m).', ...
+      repmat(', shelf\_gap = 10 km', 1, use_gap)), 'FontWeight', 'bold');
