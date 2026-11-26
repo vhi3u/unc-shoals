@@ -121,9 +121,9 @@ sweep_front_depth = Float64(get(this_run, "front_depth", 0.0))
 sweep_open_y = Bool(get(this_run, "open_y", false))
 # Alongshore domain length, the shoal's alongshore centre, and the crest length
 # (0 = not declared: shoal_length is used as given, as in every earlier run).
-sweep_Ly = Float64(get(this_run, "Ly", 200000.0))
-sweep_shoal_y0 = Float64(get(this_run, "shoal_y0", sweep_Ly / 2))
-sweep_crest_length = Float64(get(this_run, "crest_length", 0.0))
+run_Ly = Float64(get(this_run, "Ly", 200000.0))
+run_shoal_y0 = Float64(get(this_run, "shoal_y0", run_Ly / 2))
+run_crest_length = Float64(get(this_run, "crest_length", 0.0))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -144,8 +144,8 @@ sweep_crest_length = Float64(get(this_run, "crest_length", 0.0))
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2  ($sweep_wind_mode, period $sweep_wind_period d, duty $sweep_wind_duty)
  y boundaries:    $(sweep_open_y ? "open (inflow south, outflow north)" : "periodic")
- Ly / shoal_y0:   $(sweep_Ly / 1e3) km / $(sweep_shoal_y0 / 1e3) km
- crest_length:    $(sweep_crest_length > 0 ? "$(sweep_crest_length / 1e3) km" : "not declared (shoal_length used)")
+ Ly / shoal_y0:   $(run_Ly / 1e3) km / $(run_shoal_y0 / 1e3) km
+ crest_length:    $(run_crest_length > 0 ? "$(run_crest_length / 1e3) km" : "not declared (shoal_length used)")
  Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
@@ -205,9 +205,9 @@ ENV["SWEEP_FRONT_X"] = string(sweep_front_x)
 ENV["SWEEP_FRONT_WIDTH"] = string(sweep_front_width)
 ENV["SWEEP_FRONT_DEPTH"] = string(sweep_front_depth)
 ENV["SWEEP_OPEN_Y"] = string(sweep_open_y)
-ENV["SWEEP_LY"] = string(sweep_Ly)
-ENV["SWEEP_SHOAL_Y0"] = string(sweep_shoal_y0)
-ENV["SWEEP_CREST_LENGTH"] = string(sweep_crest_length)
+ENV["SWEEP_LY"] = string(run_Ly)
+ENV["SWEEP_SHOAL_Y0"] = string(run_shoal_y0)
+ENV["SWEEP_CREST_LENGTH"] = string(run_crest_length)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
