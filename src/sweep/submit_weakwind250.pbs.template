@@ -40,7 +40,10 @@
 module purge
 module load ncarenv-basic/24.12
 module load ncarenv/24.12
-module load julia/1.11.2 cuda
+# No `cuda` module: CUDA.jl ships its own CUDA libraries, and the module puts
+# a second copy on LD_LIBRARY_PATH ("loaded from a system path ... may cause
+# errors"). The GPU driver comes from the system, not that module.
+module load julia/1.11.2
 module load peak-memusage
 module li
 
