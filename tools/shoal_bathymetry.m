@@ -42,6 +42,15 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 %                    sits over the topography. Pick that one rise_mid with
 %                    tools/fixed_break_rise_mid.m.
 %
+%   p.tip_depth      (new, optional) a crest that DEEPENS SEAWARD instead of a
+%                    flat plateau: Zs at the start of the crest, sloping
+%                    linearly to tip_depth at its end (shoal_length), then
+%                    the usual 15 km taper to the shelf. Closer to a real
+%                    cape shoal (shallow near the cape, a deeper platform
+%                    further out) than a long flat top, which ends in one
+%                    abrupt corner. Attached shoals only. Omit for a flat
+%                    crest (as before).
+%
 % Second output, `geom`, MEASURES the shoal from the bottom itself and checks
 % it against what was declared (computed only when asked for):
 %   crest_depth      shallowest depth on the shoal centreline, y = Ly/2   [m]
@@ -101,7 +110,7 @@ end
 % 4. alongshore Gaussian; 5. fill up to Zs, never shallower than -5 m
 gauss_y = exp(-((y - y0).^2) / (2 * p.sigma^2));
 factor = taper_in .* taper_off .* gauss_y .* window;
-potential_height = max(0, p.Zs - hw);
+potential_height = max(0, target_(x, p) - hw);
 h = min(-5.0, hw + potential_height .* factor);
 
 if nargout > 1
@@ -120,6 +129,22 @@ sb_mid = 5.0e3 + (p.shelf_break_end - 5.0e3) / 2;
 sb_width = (p.shelf_break_end - 5.0e3) / 2.8;
 hw = hw + (p.Zsh - h1) * ss(x, sb_mid, sb_width);
 hw = hw + (p.h_deep - p.Zsh) * ss(x, p.rise_mid, p.rise_width);
+end
+
+function z = target_(x, p)
+% The depth the shoal fills up to: Zs everywhere (flat crest), or, with
+% tip_depth, Zs at the crest start sloping linearly to tip_depth at
+% shoal_length and held there under the taper.
+if ~isfield(p, 'tip_depth') || isempty(p.tip_depth)
+    z = p.Zs;
+    return;
+end
+if p.shoal_start > 0
+    error('shoal_bathymetry:tipDepth', 'tip_depth is for shoals attached to the coast (shoal_start = 0).');
+end
+x0 = crest_start_(p);
+s = min(max((x - x0) / max(p.shoal_length - x0, 1), 0), 1);
+z = p.Zs + (p.tip_depth - p.Zs) * s;
 end
 
 function xs = crest_start_(p)
@@ -150,10 +175,23 @@ if eta_max < 0.5                                 % Zs at or below the shelf: not
                'trench_ok', true, 'note', '(no shoal: Zs is at or below the shelf)');
     return;
 end
-g.crest_depth = hc(imax);
-on = abs(hc - g.crest_depth) <= tol;
-i0 = imax;  while i0 > 1 && on(i0-1), i0 = i0 - 1; end
-i1 = imax;  while i1 < numel(x) && on(i1+1), i1 = i1 + 1; end
+if isfield(p, 'tip_depth') && ~isempty(p.tip_depth)
+    % Sloping crest: the crest is where the bottom is at or ABOVE the sloping
+    % line from Zs (crest start) to tip_depth (shoal_length). Near the coast
+    % the coastal ramp can be shallower than that line, and the bottom follows
+    % the ramp there (shallower, so no trench); that still counts as crest.
+    on = hc >= target_(x, p) - tol & x <= p.shoal_length;
+    i0 = find(on & x >= crest_start_(p) - 10, 1);
+    i1 = i0;  while i1 < numel(x) && on(i1+1), i1 = i1 + 1; end
+    g.crest_depth = hc(i0);
+    g.tip_depth = hc(i1);
+else
+    g.crest_depth = hc(imax);
+    on = abs(hc - g.crest_depth) <= tol;
+    i0 = imax;  while i0 > 1 && on(i0-1), i0 = i0 - 1; end
+    i1 = imax;  while i1 < numel(x) && on(i1+1), i1 = i1 + 1; end
+    g.tip_depth = g.crest_depth;
+end
 g.crest_start = x(i0);  g.crest_end = x(i1);
 g.crest_length = g.crest_end - g.crest_start;
 g.height = g.crest_depth - p.Zsh;

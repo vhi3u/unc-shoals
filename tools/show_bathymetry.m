@@ -217,3 +217,67 @@ for c = 1:2
     xlabel(ax, 'x (km)');  ylabel(ax, 'y (km)');  zlabel(ax, 'z (m)');  title(ax, names{c});
 end
 title(tl, 'Reference run, Zs = -5 m, Ls = 40 km: profile through the shoal centre (top) and 3-D (bottom)', 'FontWeight', 'bold');
+
+%% CANDIDATES for a new reference shoal: width, length and crest shape
+% Four shoals on the reference shelf (25 m, break at 63.5 km), crest at -5 m:
+%   A  current reference      sigma 8 km,   40 km flat crest
+%   B  narrow                 sigma 2.5 km, 40 km flat crest
+%   C  narrow + short         sigma 2.5 km, 20 km flat crest
+%   D  narrow + short + slope sigma 2.5 km, 20 km crest deepening -5 -> -15 m
+% Rows: 3-D view, plan view (depth contours), profile through the shoal
+% centre. Each title gives the regime numbers for the inflow jet
+% (v0 = 0.2 m/s, f = 8.42e-5 1/s, Ld = 4.2 km), W = alongshore width at half
+% height:
+%   Ro    = v0/(f W)          shoal Rossby number: steered (small) vs separating
+%   d/Ro  = blocking / Ro     Taylor-column parameter: > ~1 flow goes around
+%   Ld/W                      how much stratification matters around it
+close all
+cand = { struct('Zs', -5, 'crest_length', 40e3, 'sigma', 8e3), ...
+         struct('Zs', -5, 'crest_length', 40e3, 'sigma', 2.5e3), ...
+         struct('Zs', -5, 'crest_length', 20e3, 'sigma', 2.5e3), ...
+         struct('Zs', -5, 'crest_length', 20e3, 'sigma', 2.5e3, 'tip_depth', -15) };
+names = {'A: current reference', 'B: narrow', 'C: narrow + short', 'D: narrow + short + sloping crest'};
+v0 = 0.2;  f0 = 8.42e-5;  Ld = 4.2e3;  Zsh = -25;
+nc = numel(cand);
+[X, Y] = ndgrid(0:500:100e3, 50e3:500:150e3);
+xs = 0:50:100e3;
+fig = figure('Color', 'w', 'Name', 'Candidate reference shoals', 'NumberTitle', 'off', 'Position', [30 30 1750 1000]);
+tl = tiledlayout(fig, 3, nc, 'TileSpacing', 'compact', 'Padding', 'compact');
+fprintf('\n%-36s %7s %7s %7s %8s %8s %7s %7s %7s %7s  %s\n', 'candidate', 'crest m', 'tip m', 'len km', ...
+        'W km', 'gap km', 'delta', 'Ro', 'd/Ro', 'Ld/W', 'problems');
+for c = 1:nc
+    p = cand{c};
+    H = shoal_bathymetry(X, Y, p);
+    [h, g] = shoal_bathymetry(xs, 100e3, p);
+    delta = (g.crest_depth - Zsh) / abs(Zsh);
+    Ro = v0 / (f0 * g.width_y);
+    lbl = sprintf('%s\nRo = %.2f, \\delta/Ro = %.1f, L_d/W = %.2f', names{c}, Ro, delta / Ro, Ld / g.width_y);
+
+    ax = nexttile(tl, c);                                  % 3-D
+    surf(ax, X/1e3, Y/1e3, H, 'EdgeColor', 'none');
+    colormap(ax, flipud(parula));  clim(ax, [-50 0]);  zlim(ax, [-50 0]);
+    view(ax, -35, 35);  axis(ax, 'tight');  daspect(ax, [1 1 1.5]);
+    lighting(ax, 'gouraud');  camlight(ax, 'headlight');  material(ax, 'dull');
+    xlabel(ax, 'x (km)');  ylabel(ax, 'y (km)');  zlabel(ax, 'z (m)');  title(ax, lbl, 'FontSize', 9);
+
+    ax = nexttile(tl, nc + c);                             % plan view
+    contourf(ax, X/1e3, Y/1e3, H, -50:2.5:-5, 'LineColor', 'none');
+    hold(ax, 'on');  contour(ax, X/1e3, Y/1e3, H, [-24 -20 -15 -10 -6], 'k', 'LineWidth', 0.5);
+    colormap(ax, flipud(parula));  clim(ax, [-50 0]);  axis(ax, 'equal', 'tight');
+    xlabel(ax, 'x (km)');  ylabel(ax, 'y (km)');
+    title(ax, sprintf('plan view: width %.1f km at half height', g.width_y/1e3), 'FontSize', 9);
+
+    ax = nexttile(tl, 2*nc + c);                           % profile
+    hold(ax, 'on');  grid(ax, 'on');
+    plot(ax, xs/1e3, h, 'k', 'LineWidth', 2);
+    plot(ax, [g.crest_start g.crest_end]/1e3, [g.crest_depth g.tip_depth] + 1.5, '|-', 'Color', [0 0.45 0.75], ...
+         'LineWidth', 1.5, 'MarkerSize', 8);
+    plot(ax, g.taper_end/1e3, Zsh, 'o', 'Color', [0.85 0.33 0.1], 'LineWidth', 1.5);
+    plot(ax, g.break_start/1e3, Zsh - 1, 'v', 'Color', [0.47 0.67 0.19], 'MarkerFaceColor', [0.47 0.67 0.19]);
+    xlim(ax, [0 100]);  ylim(ax, [-52 2]);  xlabel(ax, 'x (km from coast)');  ylabel(ax, 'depth (m)');
+    title(ax, sprintf('crest %.1f km, %.0f -> %.0f m; flat shelf %.1f km', g.crest_length/1e3, ...
+          g.crest_depth, g.tip_depth, g.shelf_gap/1e3), 'FontSize', 9);
+    fprintf('%-36s %7.2f %7.2f %7.1f %8.1f %8.1f %7.2f %7.2f %7.1f %7.2f  %s\n', names{c}, g.crest_depth, g.tip_depth, ...
+            g.crest_length/1e3, g.width_y/1e3, g.shelf_gap/1e3, delta, Ro, delta/Ro, Ld/g.width_y, g.note);
+end
+title(tl, 'Candidate reference shoals on the reference shelf (25 m, break at 63.5 km, crest -5 m)', 'FontWeight', 'bold');
