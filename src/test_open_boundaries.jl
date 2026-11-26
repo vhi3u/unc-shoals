@@ -301,22 +301,30 @@ simulation.callbacks[:progress] = Callback(progress, TimeInterval(max(sim_days /
 @info @sprintf("profile ranges: T %.3f..%.3f, S %.3f..%.3f -- a boundary overshoot shows up as values outside these", T_lo, T_hi, S_lo, S_hi)
 
 if write_output
-    outdir = joinpath(@__DIR__, "..", "out", "open_boundaries")
+    # The sweep's slice format, so tools/run_vishoals.sh can animate this run:
+    # top_<tag>.nc (surface XY) and midy_<tag>.nc (mid-y XZ), with the same
+    # fields and 6-hour interval as flow_over_shoals_sweep.jl. run_vishoals.sh
+    # finds them under sweep_output/ by tag:  ./tools/run_vishoals.sh ob_dx500
+    outdir = joinpath(@__DIR__, "..", "sweep_output", "test_open_boundaries")
     mkpath(outdir)
     tag = @sprintf("ob_dx%d%s", round(Int, Δh), periodic_control ? "_periodic" : "")
-    snap = TimeInterval(max(sim_days / 40, 0.25) * days)
-    simulation.output_writers[:surface] = NetCDFWriter(model, (u=model.velocities.u, v=model.velocities.v,
-                                                               T=model.tracers.T, S=model.tracers.S);
-        filename=joinpath(outdir, "$(tag)_surface.nc"), indices=(:, :, Nz),
-        schedule=snap, overwrite_files=true)
-    # η lives on the top face (k = Nz + 1), so it cannot share the k = Nz slice.
+    u, v, w = model.velocities
+    b_op = Oceananigans.Models.buoyancy_operation(model)
+    slice_fields = (; u_c=(@at (Center, Center, Center) u), v_c=(@at (Center, Center, Center) v),
+                      w_c=(@at (Center, Center, Center) w), T=model.tracers.T, S=model.tracers.S,
+                      Ro=(@at (Center, Center, Center) (∂x(v) - ∂y(u)) / f_cor),
+                      KE=(@at (Center, Center, Center) (u^2 + v^2 + w^2) / 2),
+                      PV=(@at (Center, Center, Center) ((∂y(w) - ∂z(v)) * ∂x(b_op) + (∂z(u) - ∂x(w)) * ∂y(b_op) +
+                                                       (f_cor + ∂x(v) - ∂y(u)) * ∂z(b_op))))
+    snap = TimeInterval(6hours)
+    simulation.output_writers[:top] = NetCDFWriter(model, slice_fields;
+        filename=joinpath(outdir, "top_$(tag).nc"), indices=(:, :, Nz), schedule=snap, overwrite_files=true)
+    simulation.output_writers[:midy] = NetCDFWriter(model, slice_fields;
+        filename=joinpath(outdir, "midy_$(tag).nc"), indices=(:, round(Int, Ny / 2), :), schedule=snap, overwrite_files=true)
+    # η lives on the top face (k = Nz + 1), so it gets its own file.
     simulation.output_writers[:eta] = NetCDFWriter(model, (; η=model.free_surface.displacement);
-        filename=joinpath(outdir, "$(tag)_eta.nc"), schedule=snap, overwrite_files=true)
-    # A mid-depth section across the channel near each open end, for reflections.
-    simulation.output_writers[:sections] = NetCDFWriter(model, (v=model.velocities.v, S=model.tracers.S);
-        filename=joinpath(outdir, "$(tag)_xz_north.nc"), indices=(:, Ny - 1, :),
-        schedule=snap, overwrite_files=true)
-    @info "surface snapshots -> $(joinpath(outdir, "$(tag)_surface.nc"))"
+        filename=joinpath(outdir, "eta_$(tag).nc"), schedule=snap, overwrite_files=true)
+    @info "snapshots -> $outdir (animate with: ./tools/run_vishoals.sh $tag)"
 end
 
 run!(simulation)
