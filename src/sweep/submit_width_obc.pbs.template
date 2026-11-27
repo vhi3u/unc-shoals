@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #═══════════════════════════════════════════════════════════════════════════
-# Shoal width and length on open boundaries, plus seeded inflow; 500 m, Ly = 200 km
+# Shoal width and length on open boundaries, seeded inflow, offshore free slip; 500 m, Ly = 200 km
 #═══════════════════════════════════════════════════════════════════════════
 # Submit:  qsub src/sweep/submit_width_obc.pbs.template
 #
@@ -14,9 +14,10 @@
 # src/sweep/submit_width_obc.pbs only if you want to make local edits.
 #
 # Runs params_width_obc.toml: the wide, narrow and narrow+short shoals on open
-# boundaries, one periodic control, and the narrow shoal with a seeded inflow
-# (1% and 5%); 500 m, Ly = 200 km with the shoal at y = 100 km, 120 days. See
-# that file for the design.
+# boundaries, one periodic control, the narrow shoal with a seeded inflow
+# (1% and 5%), and the narrow shoal with free slip offshore (unseeded and 1%);
+# 500 m, Ly = 200 km with the shoal at y = 100 km, 120 days. See that file for
+# the design.
 #
 # Cost: a 250 m / 200 km / 120-day run took ~3.2 h; 500 m is ~8x cheaper
 # (4x fewer cells, 2x the time step), so 02:00:00 leaves margin.
@@ -31,7 +32,7 @@
 #PBS -q casper
 #PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
 #PBS -m abe
-#PBS -J 1-6
+#PBS -J 1-8
 
 module purge
 module load ncarenv-basic/24.12

@@ -16,6 +16,7 @@ using Oceananigans.Fields: interior
 using Oceananigans.TurbulenceClosures
 using Oceananigans.OutputWriters
 using Oceananigans.Forcings
+using Oceananigans.Models.BulkDragBoundaryConditions: speed²ᶠᶜᶜ, speed²ᶜᶠᶜ
 using Statistics: mean
 # No Oceanostics: every release that supports Oceananigans 0.118 requires
 # Julia 1.12, and Casper's module is 1.11. Its three diagnostics (Rossby
@@ -74,6 +75,10 @@ const sweep_crest_length = parse(Float64, get(ENV, "SWEEP_CREST_LENGTH", "0.0"))
 # Disturbance in the inflow nudging targets, as a fraction of v0 (0 = none,
 # every run before 2026-11-26). See the inflow-noise block by the sponges.
 const INFLOW_NOISE = parse(Float64, get(ENV, "SWEEP_INFLOW_NOISE", "0.0"))
+# Bottom drag only where the bottom is shelf-deep; free slip over the slope and
+# the deep region (false = drag everywhere, every run before 2026-11-26). See
+# the drag block.
+const OFFSHORE_FREE_SLIP = get(ENV, "SWEEP_OFFSHORE_FREE_SLIP", "false") == "true"
 
 # ── Time-varying wind ─────────────────────────────────────────────────────
 # A constant wind and a constant jet settle into STEADY meanders around the
@@ -388,6 +393,38 @@ drag = BulkDrag(coefficient=c_dz)
 # side faces of the steps is unphysical and is itself a grid-scale vorticity
 # source. `immersed=drag` (the old form) does apply it to all faces.
 immersed_drag = ImmersedBoundaryCondition(bottom=drag)
+domain_bottom_drag = drag
+
+# ── Offshore free slip (OFFSHORE_FREE_SLIP) ────────────────────────────────
+# Our offshore floor is 50 m deep; a real one past the shelf break is
+# hundreds to thousands of metres. With drag there, a 50 m column spins down
+# in ~1 day (H / (Cd v)), so eddies and wake water that leave the shelf are
+# damped where real ones would run on over a deep, frictionless interior. On
+# the shelf (20-40 m) the bottom boundary layer really does fill the column,
+# so the drag stays there. The coefficient is tapered with the depth of the
+# facet: full drag shallower than |Zsh| + 5 m, none deeper than |Zsh| + 15 m,
+# linear between (on the slope). The flat domain floor at -Lz is always
+# deeper than that, so it is free slip. Same quadratic law as BulkDrag
+# (τ = -Cᴰ |U| u, speed from all three components), as a discrete flux.
+const DRAG_FULL_DEPTH = abs(sweep_Zsh) + 5.0
+const DRAG_ZERO_DEPTH = abs(sweep_Zsh) + 15.0
+# weight from the depth of the facet under fluid cell k (its bottom face)
+@inline function drag_weight(k, grid)
+    d = -znode(k, grid, Face())
+    return clamp((DRAG_ZERO_DEPTH - d) / (DRAG_ZERO_DEPTH - DRAG_FULL_DEPTH), 0.0, 1.0)
+end
+@inline shelf_drag_u(i, j, k, grid, clock, fields, Cd) =
+    @inbounds -Cd * drag_weight(k, grid) * sqrt(speed²ᶠᶜᶜ(i, j, k, grid, fields, 0, 0, 0)) * fields.u[i, j, k]
+@inline shelf_drag_v(i, j, k, grid, clock, fields, Cd) =
+    @inbounds -Cd * drag_weight(k, grid) * sqrt(speed²ᶜᶠᶜ(i, j, k, grid, fields, 0, 0, 0)) * fields.v[i, j, k]
+if OFFSHORE_FREE_SLIP
+    immersed_drag_u = ImmersedBoundaryCondition(bottom=FluxBoundaryCondition(shelf_drag_u, discrete_form=true, parameters=c_dz))
+    immersed_drag_v = ImmersedBoundaryCondition(bottom=FluxBoundaryCondition(shelf_drag_v, discrete_form=true, parameters=c_dz))
+    domain_bottom_drag = FluxBoundaryCondition(0.0)
+    @info "Offshore free slip: bottom drag full shallower than $(DRAG_FULL_DEPTH) m, zero deeper than $(DRAG_ZERO_DEPTH) m; domain floor free slip"
+else
+    immersed_drag_u = immersed_drag_v = immersed_drag
+end
 #---
 if LES
     @inline tsbc(x, z, t) = T_south_pwl(z, T_south_v1)
@@ -686,11 +723,11 @@ if open_east
 
     T_bcs = FieldBoundaryConditions(; east=ValueBoundaryCondition(T_east_bc; scheme=east_radiation, discrete_form=true), Ty...)
     S_bcs = FieldBoundaryConditions(; east=ValueBoundaryCondition(S_east_bc; scheme=east_radiation, discrete_form=true), Sy...)
-    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_u,
+    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag_u, bottom=domain_bottom_drag, top=wind_bc_u,
         east=NormalFlowBoundaryCondition(0; scheme=east_radiation), uy...)
     # v is tangential at the east boundary; with open_y it also carries the
     # south/north conditions.
-    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_v, vy...)
+    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag_v, bottom=domain_bottom_drag, top=wind_bc_v, vy...)
 
     # Barotropic transport: exterior (U, η) = (0, 0). This is what holds the net
     # mass flux at zero. Omit it and the baroclinic mode radiates while the
@@ -700,8 +737,8 @@ if open_east
 else
     T_bcs = FieldBoundaryConditions(; Ty...)
     S_bcs = FieldBoundaryConditions(; Sy...)
-    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_u, uy...)
-    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag, bottom=drag, top=wind_bc_v, vy...)
+    u_bcs = FieldBoundaryConditions(; immersed=immersed_drag_u, bottom=domain_bottom_drag, top=wind_bc_u, uy...)
+    v_bcs = FieldBoundaryConditions(; immersed=immersed_drag_v, bottom=domain_bottom_drag, top=wind_bc_v, vy...)
     U_bcs = nothing
 end
 
@@ -1003,6 +1040,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["v0"] = sweep_v0
     ds.attrib["open_y"] = Int(open_y)
     ds.attrib["inflow_noise"] = INFLOW_NOISE
+    ds.attrib["offshore_free_slip"] = Int(OFFSHORE_FREE_SLIP)
     # ape_wedge.m rebuilds the initial T/S profile (T_south_pwl/S_south_pwl)
     # as a fixed reference for g'_h, and the tail below the last breakpoint
     # depends on this. Absent in older files, which all ran with 0.

@@ -18,6 +18,8 @@
 #   4  B_narrow_periodic_500      as B, periodic y              open vs periodic: vs B
 #   5  B_narrow_open_seed1_500    as B, inflow_noise = 0.01   } does a disturbed inflow
 #   6  B_narrow_open_seed5_500    as B, inflow_noise = 0.05   } make the eddies?
+#   7  B_narrow_open_fs_500       as B, offshore_free_slip      } does offshore bottom
+#   8  B_narrow_open_seed1_fs_500 as 5, offshore_free_slip      } drag damp the eddies?
 #
 # THE SEEDED RUNS. The first pass's periodic run filled with lee eddies and
 # its open twin did not. In a periodic run the wake re-enters through the
@@ -31,6 +33,15 @@
 # which also measures the disturbance the periodic run actually delivers, and
 # the transport reaching the shoal (open runs pin it at Q_in; periodic runs
 # only nudge toward it).
+#
+# THE FREE-SLIP RUNS. Our offshore floor is 50 m deep; a real one past the
+# shelf break is hundreds of metres or more, where the bottom boundary layer
+# is a thin skin under a frictionless interior. With drag on a 50 m floor,
+# eddies and wake water that leave the shelf spin down in ~1 day.
+# offshore_free_slip keeps the drag on the shelf and shoal (where the BBL
+# really does fill a 20-40 m column), tapers it to zero between |Zsh| + 5 and
+# |Zsh| + 15 m, and makes the slope and deep floor free slip. Run 7 vs 2 and
+# run 8 vs 5 measure how much offshore drag suppresses the eddies.
 # crest_length declares the crest's length directly (tools/shoal_bathymetry.m).
 #
 # DOMAIN. The standard one: Ly = 200 km, shoal centred at y = 100 km, so the
@@ -105,5 +116,26 @@ crest_length = 40000.0
 sigma        = 2500.0
 open_y       = true
 inflow_noise = 0.05
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_open_fs_500"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = true
+offshore_free_slip = true
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_open_seed1_fs_500"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = true
+inflow_noise = 0.01
+offshore_free_slip = true
 dx           = 500.0
 sim_days     = 120.0

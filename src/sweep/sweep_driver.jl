@@ -127,6 +127,8 @@ run_crest_length = Float64(get(this_run, "crest_length", 0.0))
 # Disturbance added to the inflow nudging targets, as a fraction of v0
 # (0 = none, every earlier run). See INFLOW_NOISE in flow_over_shoals_sweep.jl.
 run_inflow_noise = Float64(get(this_run, "inflow_noise", 0.0))
+# Bottom drag only where the bottom is shelf-deep (default false: everywhere).
+run_offshore_free_slip = Bool(get(this_run, "offshore_free_slip", false))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -150,6 +152,7 @@ run_inflow_noise = Float64(get(this_run, "inflow_noise", 0.0))
  Ly / shoal_y0:   $(run_Ly / 1e3) km / $(run_shoal_y0 / 1e3) km
  crest_length:    $(run_crest_length > 0 ? "$(run_crest_length / 1e3) km" : "not declared (shoal_length used)")
  inflow_noise:    $(run_inflow_noise) x v0
+ bottom drag:     $(run_offshore_free_slip ? "shelf only (free slip offshore)" : "everywhere")
  Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
@@ -217,6 +220,7 @@ ENV["SWEEP_LY"] = string(run_Ly)
 ENV["SWEEP_SHOAL_Y0"] = string(run_shoal_y0)
 ENV["SWEEP_CREST_LENGTH"] = string(run_crest_length)
 ENV["SWEEP_INFLOW_NOISE"] = string(run_inflow_noise)
+ENV["SWEEP_OFFSHORE_FREE_SLIP"] = string(run_offshore_free_slip)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
