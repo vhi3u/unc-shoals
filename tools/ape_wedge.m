@@ -117,6 +117,7 @@ fprintf('  box x = 0 to the shelf break, y = %g km to the end of the domain.\n\n
 mixed   = repmat({''}, 1, n);
 nobreak = repmat({''}, 1, n);
 BP = cell(1, n); BPP = cell(1, n); XK = cell(1, n); ZK = cell(1, n);
+any_open = cluster_any_open_(cluster_dir);
 
 for k = 1:n
     fn = find_tavg_(cluster_dir, labels{k}, tags{k});
@@ -137,9 +138,10 @@ for k = 1:n
     dz = cell_width_(fn, zc,    {'zF','z_aaf','zf'});
     dxv(k) = median(dx);
 
-    % Open-y runs carry a 20 km tracer sponge at the north (outflow) end.
+    % Open-y runs carry a 20 km tracer sponge at the north (outflow) end;
+    % in a cluster with any open-y run, every run uses that shorter window.
     yb = o.y_box;
-    if meta_att_(cluster_dir, labels{k}, tags{k}, 'open_y', 0)
+    if any_open
         yb(2) = min(yb(2), max(y_km) - 20);
     end
     iy = find(y_km >= yb(1) & y_km <= yb(2));
@@ -827,4 +829,21 @@ r = [linspace(0.13,1,h)'; linspace(1,0.70,n-h)'];
 g = [linspace(0.33,1,h)'; linspace(1,0.09,n-h)'];
 b = [linspace(0.60,1,h)'; linspace(1,0.17,n-h)'];
 cm = [r g b];
+end
+
+function tf = cluster_any_open_(cluster_dir)
+% True if any run in the cluster has open alongshore boundaries (open_y = 1).
+% Such a cluster uses one y window for all its runs, stopping 20 km short of
+% the north end (the open runs' outflow tracer sponge), so open and periodic
+% runs are averaged over the same stretch of coast.
+tf = false;
+f = dir(fullfile(cluster_dir, 'sweep_*', 'sweep_metadata_*.nc'));
+for k = 1:numel(f)
+    try
+        if double(ncreadatt(fullfile(f(k).folder, f(k).name), '/', 'open_y')) ~= 0
+            tf = true; return;
+        end
+    catch
+    end
+end
 end

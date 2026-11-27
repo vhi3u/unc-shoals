@@ -95,6 +95,7 @@ end
 
 sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
+any_open          = cluster_any_open_(cluster_dir);  % one y window for the whole cluster
 outdir            = '/glade/work/nguyen/unc-shoals/animations';
 if ~exist(outdir, 'dir'), outdir = pwd; end
 
@@ -229,9 +230,10 @@ for idx = 1:num_sw
         %   b = g (alpha T - beta S)   (consistent with the simulations)
         buoy = @(T, S) g * (eos_alpha * T - eos_beta * S);
         % Open-y runs (SWEEP_OPEN_Y) carry a 20 km tracer sponge at the
-        % outflow (north) end, so stop the window short of it.
+        % outflow (north) end, so stop the window short of it -- for every
+        % run in a cluster that has any open-y run, so windows match.
         yr = y_range_Q;
-        if ~isempty(meta_fname) && read_att(meta_fname, 'open_y', 0)
+        if any_open
             yr(2) = min(yr(2), max(yc_km) - 20);
         end
         iyP  = find(yc_km >= yr(1) & yc_km <= yr(2));
@@ -954,4 +956,19 @@ end
 error('Coordinate variable not found.');
 end
 
-
+function tf = cluster_any_open_(cluster_dir)
+% True if any run in the cluster has open alongshore boundaries (open_y = 1).
+% Such a cluster uses one y window for all its runs, stopping 20 km short of
+% the north end (the open runs' outflow tracer sponge), so open and periodic
+% runs are averaged over the same stretch of coast.
+tf = false;
+f = dir(fullfile(cluster_dir, 'sweep_*', 'sweep_metadata_*.nc'));
+for k = 1:numel(f)
+    try
+        if double(ncreadatt(fullfile(f(k).folder, f(k).name), '/', 'open_y')) ~= 0
+            tf = true; return;
+        end
+    catch
+    end
+end
+end
