@@ -18,7 +18,7 @@ addParameter(p, 'datadir',     '',    @ischar);
 addParameter(p, 'outdir',      '',    @ischar);
 addParameter(p, 'fps',         5,     @(x)isnumeric(x)&&isscalar(x)&&x>0);
 addParameter(p, 'frame_skip',  1,     @(x)isnumeric(x)&&isscalar(x)&&x>=1);
-addParameter(p, 'mp4',         false, @(x)islogical(x)&&isscalar(x));
+addParameter(p, 'mp4',         true,  @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'last_days',   50,    @(x)isnumeric(x)&&isscalar(x)&&x>0);
 % Isopycnal options (kept for optional overlay)
 addParameter(p, 'isopycnals',   false, @(x)islogical(x)&&isscalar(x));
@@ -292,6 +292,10 @@ if ~exist(outdir,'dir'), mkdir(outdir); end
 
 giffile = fullfile(outdir, [run_tag '_2panel_xy.gif']);
 giffile2 = fullfile(outdir, [run_tag '_2panel_xz.gif']);
+if ~want_mp4                       % stale GIFs break GIF89a appends
+    if exist(giffile, 'file'), delete(giffile); end
+    if exist(giffile2, 'file'), delete(giffile2); end
+end
 
 if want_mp4
     % Both were bare VideoWriter(..., 'MPEG-4') calls, which THROW on Linux
@@ -328,32 +332,32 @@ for ti = anim_idx
 
     % Write frame XY
     fr   = getframe(fig);
-    [A, map] = rgb2ind(fr.cdata, 256);
-    
     % Write frame XZ
     fr2  = getframe(fig2);
-    [A2, map2] = rgb2ind(fr2.cdata, 256);
 
-    if is_first
-        imwrite(A, map, giffile, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
-        imwrite(A2, map2, giffile2, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
-        is_first = false;
-    else
-        imwrite(A, map, giffile, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
-        imwrite(A2, map2, giffile2, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
-    end
     if want_mp4
         writeVideo(vwriter, fr);
         writeVideo(vwriter2, fr2);
+    else                                   % GIF only when MP4 is off
+        [A, map]   = rgb2ind(fr.cdata, 256);
+        [A2, map2] = rgb2ind(fr2.cdata, 256);
+        if is_first
+            imwrite(A, map, giffile, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
+            imwrite(A2, map2, giffile2, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
+            is_first = false;
+        else
+            imwrite(A, map, giffile, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
+            imwrite(A2, map2, giffile2, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
+        end
     end
 end
 
-
-fprintf('Wrote XY GIF: %s\n', giffile);
-fprintf('Wrote XZ GIF: %s\n', giffile2);
 if want_mp4
     video_writer_finish(vwriter,  mp4_path_xy, avi_path_xy, fps);
     video_writer_finish(vwriter2, mp4_path_xz, avi_path_xz, fps);
+else
+    fprintf('Wrote XY GIF: %s\n', giffile);
+    fprintf('Wrote XZ GIF: %s\n', giffile2);
 end
 close all;
 end

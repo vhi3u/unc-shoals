@@ -21,7 +21,7 @@ addParameter(p, 'datadir', '', @ischar);
 addParameter(p, 'outdir', '', @ischar);
 addParameter(p, 'fps', 5, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 addParameter(p, 'frame_skip', 1, @(x)isnumeric(x)&&isscalar(x)&&x>=1);
-addParameter(p, 'mp4', false, @(x)islogical(x)&&isscalar(x));
+addParameter(p, 'mp4', true,  @(x)islogical(x)&&isscalar(x));
 % Isopycnal options
 addParameter(p, 'isopycnals', true, @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'rho_levels', [23:0.4:24.0, 24.1:0.4:26.4, 26.6:0.8:28], @(v)isnumeric(v)&&isvector(v));
@@ -455,8 +455,8 @@ end
 if ~exist(outdir,'dir'), mkdir(outdir); end
 
 giffile = fullfile(outdir, [run_tag '_clipped.gif']);
-% Delete stale GIF to avoid GIF89a append errors
-if exist(giffile, 'file')
+% Delete stale GIF to avoid GIF89a append errors (GIF only written when mp4 is off)
+if ~want_mp4 && exist(giffile, 'file')
     delete(giffile);
     fprintf('Deleted stale GIF: %s\n', giffile);
 end
@@ -596,19 +596,20 @@ for t = anim_start:frame_skip:Nt
 
     % Write frame
     fr   = getframe(fig);
-    [A, map] = rgb2ind(fr.cdata, 256);
-    if is_first
-        imwrite(A, map, giffile, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
-        is_first = false;
-    else
-        imwrite(A, map, giffile, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
-    end
     if want_mp4
         writeVideo(vwriter, fr);
+    else                                   % GIF only when MP4 is off
+        [A, map] = rgb2ind(fr.cdata, 256);
+        if is_first
+            imwrite(A, map, giffile, 'gif', 'LoopCount', Inf, 'DelayTime', delay);
+            is_first = false;
+        else
+            imwrite(A, map, giffile, 'gif', 'WriteMode', 'append', 'DelayTime', delay);
+        end
     end
 end
 
-fprintf('Wrote GIF: %s\n', giffile);
+if ~want_mp4, fprintf('Wrote GIF: %s\n', giffile); end
 if want_mp4
     % Reports the file it actually wrote. The old line announced an MP4
     % unconditionally, so a fallback would have been reported as an MP4.

@@ -33,7 +33,7 @@ sweeps = sweep_tags;
 last_days  = 50;
 fps        = 5;
 frame_skip = 1;
-want_mp4   = false;
+want_mp4   = true;     % true -> MP4 only, false -> GIF only
 
 % Fixed clims for cross-sweep comparison (presentation)
 % climu  = [-0.06, 0.06];   % (m/s)

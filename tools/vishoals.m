@@ -32,7 +32,7 @@ addParameter(p, 'outdir', '', @ischar);
 addParameter(p, 'fps', 5, @(x)isnumeric(x)&&isscalar(x)&&x>0);
 addParameter(p, 'frame_skip', 1, @(x)isnumeric(x)&&isscalar(x)&&x>=1);
 addParameter(p, 'sample_hours', [], @(x)isempty(x) || (isnumeric(x)&&isscalar(x)&&x>0));
-addParameter(p, 'mp4', false, @(x)islogical(x)&&isscalar(x));
+addParameter(p, 'mp4', true,  @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'full_panel', false, @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'clipped', false, @(x)islogical(x)&&isscalar(x));
 % Isopycnal options
