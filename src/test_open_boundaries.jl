@@ -305,11 +305,11 @@ if write_output
     # The sweep's slice format, so tools/run_vishoals.sh can animate this run:
     # top_<tag>.nc (surface XY) and midy_<tag>.nc (mid-y XZ), with the same
     # fields and 6-hour interval as flow_over_shoals_sweep.jl. run_vishoals.sh
-    # finds them under sweep_output/ by tag:  ./tools/run_vishoals.sh ob_dx500
-    # On Casper the run output lives on scratch (see sweep_driver.jl); locally in <root>/sweep_output.
-    output_root = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals/sweep_output" :
-                  joinpath(@__DIR__, "..", "sweep_output")
-    outdir = joinpath(output_root, "test_open_boundaries")
+    # finds them by tag:  ./tools/run_vishoals.sh ob_dx500
+    # Not a sweep run, so on Casper it goes straight into the scratch folder;
+    # locally into <root>/sweep_output/test_open_boundaries.
+    outdir = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals" :
+             joinpath(@__DIR__, "..", "sweep_output", "test_open_boundaries")
     mkpath(outdir)
     tag = @sprintf("ob_dx%d%s", round(Int, Δh), periodic_control ? "_periodic" : "")
     u, v, w = model.velocities

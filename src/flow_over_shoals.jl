@@ -55,6 +55,12 @@ run_number = 43
 callback_interval = 86400seconds
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)"
 
+# Output (.nc, .jld2) goes to scratch on Casper -- /glade/work is quota-limited.
+# Off Casper (a local test) it goes to the folder the script is run from.
+const OUTPUT_DIR = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals" : pwd()
+mkpath(OUTPUT_DIR)
+@info "Output directory: $OUTPUT_DIR"
+
 # # Automatic 2-Stage Run Checkpoint Detection:
 # checkpoint_prefix = "checkpoint_$(run_tag)"
 # checkpoint_files = filter(f -> startswith(f, checkpoint_prefix) && endswith(f, ".jld2") && !endswith(f, "iteration0.jld2"), readdir("."))
@@ -431,34 +437,34 @@ tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, uT, uS, vT, vS, wT, wS)
 # (1) 2D snapshots (every 1 day)
 # Surface XY slice (top layer)
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
-    filename="top_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "top_$(run_tag).nc"),
     schedule=TimeInterval(callback_interval),
     indices=(:, :, params.Nz),
     overwrite_files=overwrite_files)
 
 # Mid-y XZ slice (cross-shore transect at domain center)
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
-    filename="midy_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "midy_$(run_tag).nc"),
     schedule=TimeInterval(callback_interval),
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_files=overwrite_files)
 
 # Mid-x YZ slice (along-shore transect at domain center)
 # simulation.output_writers[:midx_slice] = NetCDFWriter(model, slice_fields,
-#     filename="midx_$(run_tag).nc",
+#     filename=joinpath(OUTPUT_DIR, "midx_$(run_tag).nc"),
 #     schedule=TimeInterval(callback_interval),
 #     indices=(round(Int, params.Nx / 5), :, :),
 #     overwrite_files=overwrite_files)
 
 # # (2) 3D snapshots (every 20 days)
 # simulation.output_writers[:snapshots_3d] = NetCDFWriter(model, slice_fields,
-#     filename="snapshots_3d_$(run_tag).nc",
+#     filename=joinpath(OUTPUT_DIR, "snapshots_3d_$(run_tag).nc"),
 #     schedule=TimeInterval(20days),
 #     overwrite_files=overwrite_files)
 
 # (3) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "time_avg_3d_$(run_tag).nc"),
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_files=overwrite_files)
 
@@ -466,14 +472,14 @@ simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
 # ∫KE = Integral(KE)
 # simulation.output_writers[:ke] = NetCDFWriter(model, (; ∫KE),
 #     schedule=TimeInterval(callback_interval),
-#     filename="KE_$(run_tag).nc",
+#     filename=joinpath(OUTPUT_DIR, "KE_$(run_tag).nc"),
 #     overwrite_files=overwrite_files)
 
 
 
 if checkpointing
     checkpoint_prefix = periodic_y ? "checkpoint_$(run_tag)" : "checkpoint_$(run_tag)"
-    simulation.output_writers[:checkpointer] = Checkpointer(model,
+    simulation.output_writers[:checkpointer] = Checkpointer(model, dir=OUTPUT_DIR,
         schedule=TimeInterval(5days),
         prefix=checkpoint_prefix,
         overwrite_files=true,

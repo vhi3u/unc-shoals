@@ -6,7 +6,7 @@
 #   ./run_calc_Q_EKE.sh sweep_Hs20_Ls40k
 
 RUN_TAG="${1:?Usage: $0 <run_tag>  (e.g. periodic_hpc_shoals1)}"
-DATADIR="/glade/work/nguyen/unc-shoals/nc/"
+DATADIR="/glade/derecho/scratch/nguyen/unc-shoals/"
 OUTDIR="/glade/work/nguyen/unc-shoals/animations/"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools/"
 

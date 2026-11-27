@@ -16,7 +16,7 @@ fi
 RUN_TAG="$1"
 CLUSTER_NAME="${2:-cluster13_111_117}"
 
-SWEEP_OUTPUT="/glade/work/nguyen/unc-shoals/nc/"
+SWEEP_OUTPUT="/glade/derecho/scratch/nguyen/unc-shoals/"
 DATADIR="${SWEEP_OUTPUT}"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools/"
 

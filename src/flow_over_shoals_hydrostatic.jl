@@ -87,6 +87,12 @@ snapshot_interval = 6hours          # sub-inertial: inertial period is 20.74 h,
 # daily output aliases it into fake bands
 run_tag = (periodic_y ? "periodic" : "bounded") * "_shoals$(run_number)_hydro"
 
+# Output (.nc, .jld2) goes to scratch on Casper -- /glade/work is quota-limited.
+# Off Casper (a local test) it goes to the folder the script is run from.
+const OUTPUT_DIR = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals" : pwd()
+mkpath(OUTPUT_DIR)
+@info "Output directory: $OUTPUT_DIR"
+
 pickup = false
 wind_stress = 0.05                  # N m⁻²
 sim_runtime = 25days
@@ -674,26 +680,26 @@ tavg_fields = (; u_c, v_c, w_c, uu, vv, ww, T, S, sigma, uT, uS, vT, vS, wT, wS)
 # (1) 2D snapshots — every 6 h, i.e. below the 20.74 h inertial period, so a
 # radiating wave can be told apart from a daily aliasing artifact.
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
-    filename="top_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "top_$(run_tag).nc"),
     schedule=TimeInterval(snapshot_interval),
     indices=(:, :, params.Nz),
     overwrite_files=overwrite_files)
 
 # Mid-y XZ slice (cross-shore transect at domain center)
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
-    filename="midy_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "midy_$(run_tag).nc"),
     schedule=TimeInterval(snapshot_interval),
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_files=overwrite_files)
 
 # (2) 3D Time Averages (10 day window)
 simulation.output_writers[:time_avg_3d] = NetCDFWriter(model, tavg_fields,
-    filename="time_avg_3d_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "time_avg_3d_$(run_tag).nc"),
     schedule=AveragedTimeInterval(10days, window=10days),
     overwrite_files=overwrite_files)
 
 if checkpointing
-    simulation.output_writers[:checkpointer] = Checkpointer(model,
+    simulation.output_writers[:checkpointer] = Checkpointer(model, dir=OUTPUT_DIR,
         schedule=TimeInterval(5days),
         prefix="checkpoint_$(run_tag)",
         overwrite_files=true,

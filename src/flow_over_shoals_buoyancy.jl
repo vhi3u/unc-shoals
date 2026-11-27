@@ -103,6 +103,12 @@ snapshot_interval = 6hours   # sub-inertial: the inertial period is 20.74 h, so
 # DAILY output would alias it to a fake 6.35-day band
 run_tag = "periodic_buoy$(run_number)_hydro"
 
+# Output (.nc, .jld2) goes to scratch on Casper -- /glade/work is quota-limited.
+# Off Casper (a local test) it goes to the folder the script is run from.
+const OUTPUT_DIR = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals" : pwd()
+mkpath(OUTPUT_DIR)
+@info "Output directory: $OUTPUT_DIR"
+
 pickup = false
 wind_stress = 0.15           # N m⁻², northward (upwelling-favourable here)
 sim_runtime = 25days
@@ -525,13 +531,13 @@ if closure_choice === :catke
 end
 
 simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
-    filename="top_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "top_$(run_tag).nc"),
     schedule=TimeInterval(snapshot_interval),
     indices=(:, :, params.Nz),
     overwrite_files=overwrite_files)
 
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
-    filename="midy_$(run_tag).nc",
+    filename=joinpath(OUTPUT_DIR, "midy_$(run_tag).nc"),
     schedule=TimeInterval(snapshot_interval),
     indices=(:, round(Int, params.Ny / 2), :),
     overwrite_files=overwrite_files)

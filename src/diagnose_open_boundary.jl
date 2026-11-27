@@ -19,7 +19,7 @@
 
 using NCDatasets, Printf, Statistics
 
-const DIR = length(ARGS) ≥ 2 ? ARGS[2] : get(ENV, "NC_DIR", "/glade/work/nguyen/unc-shoals/nc")
+const DIR = length(ARGS) ≥ 2 ? ARGS[2] : get(ENV, "NC_DIR", "/glade/derecho/scratch/nguyen/unc-shoals")
 const TAG = length(ARGS) ≥ 1 ? ARGS[1] : "periodic_shoals59_hydro"
 const f₀ = 8.4168e-5     # FPlane(latitude=35.2480)
 const ρ₀ = 1024.0

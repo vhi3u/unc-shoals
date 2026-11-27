@@ -1,5 +1,5 @@
 function [Q_diag_mSv, Q_Ek_mSv, EKE] = calc_Q_EKE(run_name, varargin)
-% [Q_diag_mSv, Q_Ek_mSv, EKE] = calc_Q_EKE(run_name, 'datadir', '/glade/work/nguyen/unc-shoals/nc')
+% [Q_diag_mSv, Q_Ek_mSv, EKE] = calc_Q_EKE(run_name, 'datadir', '/glade/derecho/scratch/nguyen/unc-shoals')
 %
 % Calculates and prints:
 %   1. Diagnosed Offshore Volume Transport (Q_diag in mSv) at x = 40 km, y = [80, 200] km (u > 0, z >= -25m)
@@ -8,7 +8,7 @@ function [Q_diag_mSv, Q_Ek_mSv, EKE] = calc_Q_EKE(run_name, varargin)
 
 % ---------- Options ----------
 p = inputParser;
-addParameter(p, 'datadir', '/glade/work/nguyen/unc-shoals/nc', @ischar);
+addParameter(p, 'datadir', '/glade/derecho/scratch/nguyen/unc-shoals', @ischar);
 addParameter(p, 'x_target', 40, @(x)isnumeric(x)&&isscalar(x));
 addParameter(p, 'y_range', [80, 200], @(v)isnumeric(v)&&numel(v)==2);
 addParameter(p, 'tau', [], @(x)isempty(x)||(isnumeric(x)&&isscalar(x)));

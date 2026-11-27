@@ -45,7 +45,10 @@ CLIMRO="${CLIMRO:-[-1.0, 1.0]}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Run output is on scratch on Casper; locally it is the repo's sweep_output/.
 SWEEP_ROOT="/glade/derecho/scratch/nguyen/unc-shoals/sweep_output"
-[ -d "/glade/derecho/scratch/nguyen" ] || SWEEP_ROOT="${ROOT}/sweep_output"
+# Non-sweep runs (standalone scripts, the open-boundary test) sit directly in
+# /glade/derecho/scratch/nguyen/unc-shoals; locally they are in the repo's nc/.
+DATA_ROOT="/glade/derecho/scratch/nguyen/unc-shoals"
+if [ ! -d "/glade/derecho/scratch/nguyen" ]; then SWEEP_ROOT="${ROOT}/sweep_output"; DATA_ROOT="${ROOT}/nc"; fi
 OUTDIR="${ROOT}/animations/"
 TOOLDIR="${ROOT}/tools"
 
@@ -92,8 +95,8 @@ if [ -n "${CLUSTER}" ]; then
         fi
         exit 1
     fi
-elif has_run "${ROOT}/nc"; then
-    DATADIR="${ROOT}/nc"
+elif has_run "${DATA_ROOT}"; then
+    DATADIR="${DATA_ROOT}"
 else
     # Both layouts: collected into a cluster, and straight out of the driver.
     MATCHES=()
@@ -102,7 +105,7 @@ else
     done
     if [ ${#MATCHES[@]} -eq 0 ]; then
         echo "ERROR: no top_${RUN_TAG}.nc + midy_${RUN_TAG}.nc anywhere under" >&2
-        echo "    ${ROOT}/nc" >&2
+        echo "    ${DATA_ROOT}" >&2
         echo "    ${SWEEP_ROOT}" >&2
         report_partial "${SWEEP_ROOT}"
         for c in "${SWEEP_ROOT}"/*/; do report_partial "${c%/}"; done

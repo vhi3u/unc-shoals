@@ -7,7 +7,7 @@
 #   ./run_matlab_vis.sh bounded_hpc_shoals2
 
 RUN_TAG="${1:?Usage: $0 <run_tag>  (e.g. periodic_hpc_shoals1)}"
-DATADIR="/glade/work/nguyen/unc-shoals/nc/"
+DATADIR="/glade/derecho/scratch/nguyen/unc-shoals/"
 OUTDIR="/glade/work/nguyen/unc-shoals/animations/"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools/"
 
