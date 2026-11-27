@@ -10,10 +10,10 @@
 #   ./run_inflow_diagnostics.sh RUN [RUN ...]
 #
 # A RUN is a label (B_narrow_open_500), a folder (sweep_002_B_narrow_open_500),
-# cluster/folder, or a full path; labels are searched for under
+# cluster/folder, cluster/label, or a full path; labels are searched for under
 # /glade/derecho/scratch/nguyen/unc-shoals/sweep_output at any depth.
 #
-#   ./run_inflow_diagnostics.sh B_narrow_open B_narrow_periodic
+#   ./run_inflow_diagnostics.sh B_narrow_open B_narrow_periodic cluster_Fnnie_1_19/Zs5_Ls40k
 #   ./run_inflow_diagnostics.sh B_narrow_open_500 B_narrow_periodic_500 B_narrow_open_seed1_500 B_narrow_open_seed5_500
 #
 # Reads top_*.nc and time_avg_3d_*.nc; needs no rerun. Prints a table and

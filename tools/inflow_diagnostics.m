@@ -131,6 +131,13 @@ function d = find_run_(name, root)
 % any depth under root (sweep_NNN_<label>, or any folder name containing it).
 if isfolder(name), d = name; return; end
 if isfolder(fullfile(root, name)), d = fullfile(root, name); return; end
+% cluster/label: the run folder sweep_NNN_<label> inside that cluster
+[cl, lab] = fileparts(name);
+if ~isempty(cl) && isfolder(fullfile(root, cl))
+    c = dir(fullfile(root, cl, ['sweep_*_' lab]));
+    c = c([c.isdir]);
+    if numel(c) == 1, d = fullfile(c.folder, c.name); return; end
+end
 c = dir(fullfile(root, '**', ['*' name]));
 c = c([c.isdir]);
 c = c(~ismember({c.name}, {'.', '..'}));
