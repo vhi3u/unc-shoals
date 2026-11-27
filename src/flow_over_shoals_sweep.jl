@@ -71,6 +71,9 @@ const sweep_shoal_y0 = parse(Float64, get(ENV, "SWEEP_SHOAL_Y0", string(sweep_Ly
 # slope reaches Zs; shoal_length is then derived (see dshoal_param_bottom).
 # 0 (the default) keeps shoal_length as given, as in every earlier run.
 const sweep_crest_length = parse(Float64, get(ENV, "SWEEP_CREST_LENGTH", "0.0"))
+# Disturbance in the inflow nudging targets, as a fraction of v0 (0 = none,
+# every run before 2026-11-26). See the inflow-noise block by the sponges.
+const INFLOW_NOISE = parse(Float64, get(ENV, "SWEEP_INFLOW_NOISE", "0.0"))
 
 # ── Time-varying wind ─────────────────────────────────────────────────────
 # A constant wind and a constant jet settle into STEADY meanders around the
@@ -493,6 +496,35 @@ const T_target = T_target_south
 const S_target = S_target_south
 const inflow_mask = south_mask
 
+# ── Inflow noise (INFLOW_NOISE > 0) ────────────────────────────────────────
+# A controlled disturbance in the incoming flow. In a periodic run the shoal's
+# wake re-enters through the south strip, which damps it to a few percent but
+# not to zero, so the shoal always sees slightly disturbed water and its shear
+# layer breaks into eddies within ~20 km. With open y boundaries the inflow is
+# exactly v∞ and the shear layer has only round-off to grow from. This puts a
+# disturbance of known size back in: the u and v targets of the south strip
+# get a sum of NOISE_N cross-shore modes (wavelengths 6-40 km) oscillating at
+# periods 0.5-5 days, with fixed phases (reproducible, GPU-safe, no callback).
+# Shaped by the jet profile (zero at the coast and offshore), depth-uniform,
+# scaled so its RMS is INFLOW_NOISE * v0 where the jet is full strength. The
+# strip relaxes over τ = 6 h, so the fastest modes arrive somewhat weaker:
+# measure the delivered amplitude with tools/inflow_diagnostics.m.
+const NOISE_K = (2π / 40e3, 2π / 27e3, 2π / 18e3, 2π / 13e3, 2π / 9e3, 2π / 6e3)
+const NOISE_Ω = (2π / 5days, 2π / 3.1days, 2π / 2.2days, 2π / 1.4days, 2π / 0.9days, 2π / 0.5days)
+const NOISE_PHI_U = (0.31, 2.87, 4.12, 1.05, 5.66, 3.49)
+const NOISE_PSI_U = (1.73, 0.48, 3.91, 5.20, 2.36, 4.77)
+const NOISE_PHI_V = (4.40, 1.92, 0.67, 5.83, 3.15, 2.58)
+const NOISE_PSI_V = (2.95, 5.41, 1.27, 0.12, 4.63, 3.80)
+# each sin*cos term has RMS 1/2; NOISE_N of them with independent phases has
+# RMS sqrt(N)/2, so scale by 2/sqrt(N) for an RMS of 1
+const NOISE_AMP = INFLOW_NOISE * 2 / sqrt(length(NOISE_K))
+
+@inline noise_sum(x, t, Φ, Ψ) = sum(map((k, ω, φ, ψ) -> sin(k * x + φ) * cos(ω * t + ψ), NOISE_K, NOISE_Ω, Φ, Ψ))
+# v∞(x)/v0 * v0 = v∞(x): the noise follows the jet profile
+@inline u_target_noisy(x, y, z, t) = NOISE_AMP * v∞(x, z, t, global_params) * noise_sum(x, t, NOISE_PHI_U, NOISE_PSI_U)
+@inline v_target_noisy(x, y, z, t) = v∞(x, z, t, global_params) * (1 + NOISE_AMP * noise_sum(x, t, NOISE_PHI_V, NOISE_PSI_V))
+INFLOW_NOISE > 0 && @info "Inflow noise: RMS $(INFLOW_NOISE) x v0 in the south strip's u and v targets"
+
 # forcing functions — note there is no w sponge: w is diagnosed from continuity
 # in the hydrostatic model and cannot (and should not) be relaxed.
 # The south strip is kept with open y boundaries too. An open boundary passes
@@ -501,10 +533,12 @@ const inflow_mask = south_mask
 # km): without the strip, test_open_boundaries.jl grew a 0.34 m/s
 # recirculation along the inflow boundary. The analysis excludes the strip.
 if true
-    u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=0.0)
+    u_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask,
+                                 target=INFLOW_NOISE > 0 ? u_target_noisy : 0.0)
     u_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
-    v_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=v_target_inflow)
+    v_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask,
+                                 target=INFLOW_NOISE > 0 ? v_target_noisy : v_target_inflow)
     v_sponge_e = Relaxation(; rate=1 / global_params.τ, mask=east_mask, target=0.0)
 
     T_sponge_inflow = Relaxation(; rate=1 / global_params.τ, mask=inflow_mask, target=T_target)
@@ -968,6 +1002,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["front_depth"] = FRONT_H
     ds.attrib["v0"] = sweep_v0
     ds.attrib["open_y"] = Int(open_y)
+    ds.attrib["inflow_noise"] = INFLOW_NOISE
     # ape_wedge.m rebuilds the initial T/S profile (T_south_pwl/S_south_pwl)
     # as a fixed reference for g'_h, and the tail below the last breakpoint
     # depends on this. Absent in older files, which all ran with 0.

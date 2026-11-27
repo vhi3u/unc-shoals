@@ -12,21 +12,38 @@
 # near the transition where flow separates and sheds eddies.
 #
 # THE RUNS (all attached to the coast, crest at -5 m, no wind)
-#   1  A_wide_open_Ly200          sigma 8 km,   crest 40 km   } width: only sigma differs
-#   2  B_narrow_open_Ly200        sigma 2.5 km, crest 40 km   }
-#   3  C_narrow_short_open_Ly200  sigma 2.5 km, crest 20 km     length: vs B, only the crest differs
-#   4  B_narrow_periodic_Ly200    as B, periodic y              open vs periodic: vs B
+#   1  A_wide_open_500            sigma 8 km,   crest 40 km   } width: only sigma differs
+#   2  B_narrow_open_500          sigma 2.5 km, crest 40 km   }
+#   3  C_narrow_short_open_500    sigma 2.5 km, crest 20 km     length: vs B, only the crest differs
+#   4  B_narrow_periodic_500      as B, periodic y              open vs periodic: vs B
+#   5  B_narrow_open_seed1_500    as B, inflow_noise = 0.01   } does a disturbed inflow
+#   6  B_narrow_open_seed5_500    as B, inflow_noise = 0.05   } make the eddies?
+#
+# THE SEEDED RUNS. The first pass's periodic run filled with lee eddies and
+# its open twin did not. In a periodic run the wake re-enters through the
+# south strip, damped to a few percent but not to zero, so the shoal always
+# sees slightly disturbed water; an open run's inflow is exactly v∞. Runs 5
+# and 6 add a disturbance of known size (RMS 1% and 5% of v0) to the south
+# strip's u and v targets. If they fill with eddies and run 2 does not, the
+# periodic eddies come from the recirculated wake. Compare with
+#   tools/run_inflow_diagnostics.sh B_narrow_open_500 B_narrow_periodic_500 \
+#       B_narrow_open_seed1_500 B_narrow_open_seed5_500
+# which also measures the disturbance the periodic run actually delivers, and
+# the transport reaching the shoal (open runs pin it at Q_in; periodic runs
+# only nudge toward it).
 # crest_length declares the crest's length directly (tools/shoal_bathymetry.m).
 #
 # DOMAIN. The standard one: Ly = 200 km, shoal centred at y = 100 km, so the
 # mid-y XZ slice goes through the shoal and the runs line up with every
 # earlier cluster. (A first pass used Ly = 120 km with the shoal at y = 45 km;
-# its four runs, labelled without _Ly200, are kept for reference.) The
+# its four runs, labelled A_wide_open etc. with no suffix, are kept.) The
 # analysis window is y = 20-180 km for all four runs (open runs stop short of
 # their 20 km outflow sponge; the periodic run uses the same window).
 #
-# RESOLUTION. 250 m: the narrow shoal is 23 cells wide, and EKE at Zs = -5 is
-# not converged at 500 m (x3.46 from 500 to 250 m).
+# RESOLUTION. 500 m for now: cheap (~0.5 h a run), enough to see whether the
+# eddies appear. The narrow shoal is ~12 cells wide, and EKE at Zs = -5 is
+# not converged at 500 m (x3.46 from 500 to 250 m), so compare these runs with
+# each other, not with 250 m runs; rerun the interesting ones at 250 m.
 #
 # Shelf break at 63.5 km as in the reference; A and B leave 0.6 km of flat
 # shelf before it (accepted, a warning is logged); C leaves 20.6 km.
@@ -36,37 +53,57 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 [[runs]]
-run_label    = "A_wide_open_Ly200"
+run_label    = "A_wide_open_500"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 8000.0
 open_y       = true
-dx           = 250.0
+dx           = 500.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "B_narrow_open_Ly200"
+run_label    = "B_narrow_open_500"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 2500.0
 open_y       = true
-dx           = 250.0
+dx           = 500.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "C_narrow_short_open_Ly200"
+run_label    = "C_narrow_short_open_500"
 Zs           = -5.0
 crest_length = 20000.0
 sigma        = 2500.0
 open_y       = true
-dx           = 250.0
+dx           = 500.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "B_narrow_periodic_Ly200"
+run_label    = "B_narrow_periodic_500"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 2500.0
 open_y       = false
-dx           = 250.0
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_open_seed1_500"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = true
+inflow_noise = 0.01
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "B_narrow_open_seed5_500"
+Zs           = -5.0
+crest_length = 40000.0
+sigma        = 2500.0
+open_y       = true
+inflow_noise = 0.05
+dx           = 500.0
 sim_days     = 120.0

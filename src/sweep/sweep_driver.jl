@@ -124,6 +124,9 @@ sweep_open_y = Bool(get(this_run, "open_y", false))
 run_Ly = Float64(get(this_run, "Ly", 200000.0))
 run_shoal_y0 = Float64(get(this_run, "shoal_y0", run_Ly / 2))
 run_crest_length = Float64(get(this_run, "crest_length", 0.0))
+# Disturbance added to the inflow nudging targets, as a fraction of v0
+# (0 = none, every earlier run). See INFLOW_NOISE in flow_over_shoals_sweep.jl.
+run_inflow_noise = Float64(get(this_run, "inflow_noise", 0.0))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -146,6 +149,7 @@ run_crest_length = Float64(get(this_run, "crest_length", 0.0))
  y boundaries:    $(sweep_open_y ? "open (inflow south, outflow north)" : "periodic")
  Ly / shoal_y0:   $(run_Ly / 1e3) km / $(run_shoal_y0 / 1e3) km
  crest_length:    $(run_crest_length > 0 ? "$(run_crest_length / 1e3) km" : "not declared (shoal_length used)")
+ inflow_noise:    $(run_inflow_noise) x v0
  Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
@@ -212,6 +216,7 @@ ENV["SWEEP_OPEN_Y"] = string(sweep_open_y)
 ENV["SWEEP_LY"] = string(run_Ly)
 ENV["SWEEP_SHOAL_Y0"] = string(run_shoal_y0)
 ENV["SWEEP_CREST_LENGTH"] = string(run_crest_length)
+ENV["SWEEP_INFLOW_NOISE"] = string(run_inflow_noise)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label
