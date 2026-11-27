@@ -16,7 +16,7 @@ function [vw, avi_path] = video_writer_open(mp4_path, fps)
 % otherwise. Pass it, unchanged, to VIDEO_WRITER_FINISH, which does the
 % transcode and the reporting.
 %
-% Callers: vishoals.m, vishoals_clipped.m, vishoals_2panel.m. The fallback
+% Callers: vishoals.m, vishoals_clipped.m, vishoals_2panel.m, bench_animation.m. The fallback
 % used to exist in vishoals.m only, so the other two threw on Casper rather
 % than degrading.
 

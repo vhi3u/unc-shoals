@@ -166,9 +166,11 @@ print(fig, '-RGBImage', '-r100');
 % ══ PHASE 2: per-frame stages at the production dpi ═══════════════════════
 dpi0 = o.dpi_list(1);
 acc = struct('read',0,'cdata',0,'drawnow',0,'print',0,'crop',0,'write',0);
-vid = fullfile(outdir, sprintf('bench_%s.avi', run_tag));
-vw  = VideoWriter(vid, 'Motion JPEG AVI'); vw.Quality = 95; vw.FrameRate = 15;
-open(vw);
+% The same writer the animations use (MP4; on Linux a Motion-JPEG AVI that
+% video_writer_finish would transcode), so the write cost timed here is the
+% production one. The file is a throwaway and is deleted after timing.
+vid = fullfile(outdir, sprintf('bench_%s.mp4', run_tag));
+[vw, vid_avi] = video_writer_open(vid, 15);
 crop = []; fsz = [];
 for t = frames
     t1 = tic;
@@ -208,6 +210,7 @@ for t = frames
 end
 close(vw);
 if isfile(vid), delete(vid); end
+if ~isempty(vid_avi) && isfile(vid_avi), delete(vid_avi); end
 
 st = fieldnames(acc);
 for k = 1:numel(st), acc.(st{k}) = acc.(st{k}) / nf; end
