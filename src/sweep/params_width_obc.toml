@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# SHOAL WIDTH AND LENGTH, on open boundaries, in a shorter domain
+# SHOAL WIDTH AND LENGTH, on open boundaries, in the standard 200 km domain
 # ═══════════════════════════════════════════════════════════════════════════
 #
 # WHY. The reference shoal is a broad bank (alongshore Gaussian sigma = 8 km,
@@ -12,20 +12,18 @@
 # near the transition where flow separates and sheds eddies.
 #
 # THE RUNS (all attached to the coast, crest at -5 m, no wind)
-#   1  A_wide_open          sigma 8 km,   crest 40 km   } width: only sigma differs
-#   2  B_narrow_open        sigma 2.5 km, crest 40 km   }
-#   3  C_narrow_short_open  sigma 2.5 km, crest 20 km     length: vs B, only the crest differs
-#   4  B_narrow_periodic    as B, periodic y              open vs periodic: vs B
+#   1  A_wide_open_Ly200          sigma 8 km,   crest 40 km   } width: only sigma differs
+#   2  B_narrow_open_Ly200        sigma 2.5 km, crest 40 km   }
+#   3  C_narrow_short_open_Ly200  sigma 2.5 km, crest 20 km     length: vs B, only the crest differs
+#   4  B_narrow_periodic_Ly200    as B, periodic y              open vs periodic: vs B
 # crest_length declares the crest's length directly (tools/shoal_bathymetry.m).
 #
-# DOMAIN. Open y boundaries, so the domain does not have to let the wake
-# recirculate: Ly = 120 km (was 200) with the shoal at y = 45 km. That leaves
-# 25 km between the 20 km inflow sponge and the shoal (the wide shoal's
-# Gaussian is 0.7% of its height at the sponge edge) and 55 km of wake before
-# the 20 km outflow sponge, about two eddy-shedding wavelengths for the narrow
-# shoal (eddies ~30 km apart at v0 = 0.2 m/s). The analysis window is
-# y = 20-100 km: transports integrated alongshore are over 80 km, against
-# ~160 km in the 200 km clusters, so compare them per unit length.
+# DOMAIN. The standard one: Ly = 200 km, shoal centred at y = 100 km, so the
+# mid-y XZ slice goes through the shoal and the runs line up with every
+# earlier cluster. (A first pass used Ly = 120 km with the shoal at y = 45 km;
+# its four runs, labelled without _Ly200, are kept for reference.) The
+# analysis window is y = 20-180 km for all four runs (open runs stop short of
+# their 20 km outflow sponge; the periodic run uses the same window).
 #
 # RESOLUTION. 250 m: the narrow shoal is 23 cells wide, and EKE at Zs = -5 is
 # not converged at 500 m (x3.46 from 500 to 250 m).
@@ -38,45 +36,37 @@
 # ═══════════════════════════════════════════════════════════════════════════
 
 [[runs]]
-run_label    = "A_wide_open"
+run_label    = "A_wide_open_Ly200"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 8000.0
 open_y       = true
-Ly           = 120000.0
-shoal_y0     = 45000.0
 dx           = 250.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "B_narrow_open"
+run_label    = "B_narrow_open_Ly200"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 2500.0
 open_y       = true
-Ly           = 120000.0
-shoal_y0     = 45000.0
 dx           = 250.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "C_narrow_short_open"
+run_label    = "C_narrow_short_open_Ly200"
 Zs           = -5.0
 crest_length = 20000.0
 sigma        = 2500.0
 open_y       = true
-Ly           = 120000.0
-shoal_y0     = 45000.0
 dx           = 250.0
 sim_days     = 120.0
 
 [[runs]]
-run_label    = "B_narrow_periodic"
+run_label    = "B_narrow_periodic_Ly200"
 Zs           = -5.0
 crest_length = 40000.0
 sigma        = 2500.0
 open_y       = false
-Ly           = 120000.0
-shoal_y0     = 45000.0
 dx           = 250.0
 sim_days     = 120.0

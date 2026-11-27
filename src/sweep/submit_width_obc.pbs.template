@@ -17,8 +17,7 @@
 # boundaries plus one periodic control, 250 m, Ly = 120 km, 120 days. See that
 # file for the design.
 #
-# Cost: not measured yet. A 250 m / 200 km / 120-day run took ~3.2 h; this
-# domain is 60% of that, so ~2 h expected; 06:00:00 is generous.
+# Cost: a 250 m / 200 km / 120-day run took ~3.2 h, so 06:00:00 leaves margin.
 #═══════════════════════════════════════════════════════════════════════════
 
 #PBS -A UOSC0035
