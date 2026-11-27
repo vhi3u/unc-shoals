@@ -1,0 +1,73 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Diamond Shoals with a cape: resolution ladder, run 5 (100 m) on an A100
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/sweep/submit_diamond_res100.pbs.template
+#
+# Everything is set. Nothing in this file needs editing before submission.
+#
+# WHY THE .template SUFFIX: .gitignore ignores *.pbs on purpose, because the
+# live job scripts carry machine-local edits that a git pull would clobber.
+# That also means a new .pbs cannot reach Casper through git at all. This is
+# the escape hatch .gitignore itself names -- a tracked template that travels.
+# qsub does not care about the extension, so submit it directly. Copy it to
+# src/sweep/submit_diamond_res100.pbs only if you want to make local edits.
+#
+# Run 5 of params_diamond_res.toml: 100 m, 800 x 1600 x 50 = 64 M cells.
+# Not an array job, so it is a separate script; it asks for an A100 (more
+# memory than a 32 GB V100 and ~2x faster). ~11 h on a V100 by the estimate in
+# the table; 18:00:00 leaves margin. If the a100 request is refused, change
+# gpu_type to v100 and walltime to 24:00:00, and check peak memory in the log.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N dsres100
+#PBS -k eod
+#PBS -o logs/dsres100.out
+#PBS -e logs/dsres100.err
+#PBS -l walltime=18:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=a100:mem=64gb
+#PBS -m abe
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+# No `cuda` module: CUDA.jl ships its own CUDA libraries, and the module puts
+# a second copy on LD_LIBRARY_PATH ("loaded from a system path ... may cause
+# errors"). The GPU driver comes from the system, not that module.
+module load julia/1.11.2
+module load peak-memusage
+module li
+
+export SWEEP_PARAMS="params_diamond_res.toml"
+PBS_ARRAY_INDEX=5        # not an array job: always run 5 (100 m)
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+
+mkdir -p logs out/sweep /glade/derecho/scratch/nguyen/unc-shoals/sweep_output
+
+# Guard against the array range and the table disagreeing. Submitting a copied
+# script whose -J still matched the sweep it was copied FROM is how two
+# finished sweeps got re-run; the driver errors on an out-of-range index, but
+# only after paying for a GPU allocation and a Julia startup.
+NRUNS=$(grep -c '^\[\[runs\]\]' "src/sweep/${SWEEP_PARAMS}")
+if [ "${PBS_ARRAY_INDEX}" -gt "${NRUNS}" ]; then
+    echo "ERROR: array index ${PBS_ARRAY_INDEX} exceeds the ${NRUNS} runs in ${SWEEP_PARAMS}."
+    echo "       Fix '#PBS -J' in this script to 1-${NRUNS}."
+    exit 1
+fi
+
+echo "════════════════════════════════════════════════════════"
+echo " table:            ${SWEEP_PARAMS}  (${NRUNS} runs)"
+echo " PBS_ARRAY_INDEX = ${PBS_ARRAY_INDEX}"
+echo " Host:             $(hostname)"
+echo " GPU:              $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:             $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/sweep/sweep_driver.jl ${PBS_ARRAY_INDEX} \
+    2>&1 | tee out/sweep/dsres_${PBS_ARRAY_INDEX}.log
+
+echo "Job ${PBS_ARRAY_INDEX} finished at $(date)"

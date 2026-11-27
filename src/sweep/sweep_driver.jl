@@ -122,6 +122,7 @@ sweep_open_y = Bool(get(this_run, "open_y", false))
 # Alongshore domain length, the shoal's alongshore centre, and the crest length
 # (0 = not declared: shoal_length is used as given, as in every earlier run).
 run_Ly = Float64(get(this_run, "Ly", 200000.0))
+run_Lx = Float64(get(this_run, "Lx", 150000.0))
 run_shoal_y0 = Float64(get(this_run, "shoal_y0", run_Ly / 2))
 run_crest_length = Float64(get(this_run, "crest_length", 0.0))
 # Disturbance added to the inflow nudging targets, as a fraction of v0
@@ -157,7 +158,7 @@ run_cape_length = Float64(get(this_run, "cape_length", 0.0))
  Stratification:  $sweep_strat
  Wind Stress:     $sweep_wind_stress N/m^2  ($sweep_wind_mode, period $sweep_wind_period d, duty $sweep_wind_duty)
  y boundaries:    $(sweep_open_y ? "open (inflow south, outflow north)" : "periodic")
- Ly / shoal_y0:   $(run_Ly / 1e3) km / $(run_shoal_y0 / 1e3) km
+ Lx x Ly:         $(run_Lx / 1e3) x $(run_Ly / 1e3) km, shoal at y = $(run_shoal_y0 / 1e3) km
  crest_length:    $(run_crest_length > 0 ? "$(run_crest_length / 1e3) km" : "not declared (shoal_length used)")
  inflow_noise:    $(run_inflow_noise) x v0
  bottom drag:     $(run_offshore_free_slip ? "shelf only (free slip offshore)" : "everywhere")
@@ -226,6 +227,7 @@ ENV["SWEEP_FRONT_WIDTH"] = string(sweep_front_width)
 ENV["SWEEP_FRONT_DEPTH"] = string(sweep_front_depth)
 ENV["SWEEP_OPEN_Y"] = string(sweep_open_y)
 ENV["SWEEP_LY"] = string(run_Ly)
+ENV["SWEEP_LX"] = string(run_Lx)
 ENV["SWEEP_SHOAL_Y0"] = string(run_shoal_y0)
 ENV["SWEEP_CREST_LENGTH"] = string(run_crest_length)
 ENV["SWEEP_INFLOW_NOISE"] = string(run_inflow_noise)

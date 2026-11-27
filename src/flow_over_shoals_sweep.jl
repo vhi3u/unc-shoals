@@ -67,6 +67,9 @@ sweep_sim_days = parse(Float64, get(ENV, "SWEEP_SIM_DAYS", "50.0"))
 # domain no longer has to be long enough for the wake to recirculate, so it can
 # be shorter, with the shoal placed upstream to leave room for its wake.
 const sweep_Ly = parse(Float64, get(ENV, "SWEEP_LY", "200000.0"))
+# Cross-shore domain width. 150 km (every run before 2026-11-28) leaves ~87 km
+# offshore of the 63.5 km break; a high-resolution run can afford much less.
+const sweep_Lx = parse(Float64, get(ENV, "SWEEP_LX", "150000.0"))
 const sweep_shoal_y0 = parse(Float64, get(ENV, "SWEEP_SHOAL_Y0", string(sweep_Ly / 2)))
 # crest_length > 0: the flat crest is this long, starting where the coastal
 # slope reaches Zs; shoal_length is then derived (see dshoal_param_bottom).
@@ -216,9 +219,9 @@ run_tag = "sweep_$(sweep_run_label)"
 # parameter moves it, so 150 km leaves 87 km of offshore room — more than the
 # 37 km the sponged 250 km domain actually left usable.
 if LES
-    params = (; Lx=150e3, Ly=sweep_Ly, Lz=sweep_Lz)
+    params = (; Lx=sweep_Lx, Ly=sweep_Ly, Lz=sweep_Lz)
 else
-    params = (; Lx=150000, Ly=sweep_Ly, Lz=sweep_Lz)
+    params = (; Lx=sweep_Lx, Ly=sweep_Ly, Lz=sweep_Lz)
 end
 
 # Horizontal grid spacing is the knob, not Nx/Ny, so changing Lx can never
