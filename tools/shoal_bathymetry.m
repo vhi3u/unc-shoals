@@ -51,6 +51,14 @@ function [h, geom] = shoal_bathymetry(x, y, p)
 %                    abrupt corner. Attached shoals only. Omit for a flat
 %                    crest (as before).
 %
+%   p.taper_length   (new, optional, default 15e3) length of the cosine ramp
+%                    from the end of the crest down to the shelf [m]. 15 km
+%                    is what the Julia model hard-codes. Diamond Shoals ends
+%                    within ~3 km, right at the shelf break (see
+%                    MATLAB/shoal_stuff/diamond_shoals_geometry.m), which a
+%                    15 km ramp cannot represent. MATLAB only, like
+%                    tip_depth: approve before it is ported.
+%
 % Second output, `geom`, MEASURES the shoal from the bottom itself and checks
 % it against what was declared (computed only when asked for):
 %   crest_depth      shallowest depth on the shoal centreline, y = Ly/2   [m]
@@ -96,7 +104,7 @@ else
 end
 
 % 3a. offshore taper: crest out to shoal_length, then 15 km cosine ramp
-xt0 = p.shoal_length;  xt1 = p.shoal_length + 15e3;
+xt0 = p.shoal_length;  xt1 = p.shoal_length + p.taper_length;
 taper_off = (x <= xt0) + (x > xt0 & x < xt1) .* 0.5 .* (1 + cos(pi * (x - xt0) / (xt1 - xt0)));
 
 % 3b. shoreward edge (shoal_start = 0: attached to the coast)
@@ -208,7 +216,7 @@ zt = hc(x <= g.crest_end);
 g.trench = max(min(cummax(zt), flip(cummax(flip(zt)))) - zt);
 
 % room between the shoal and the shelf break
-g.taper_end = p.shoal_length + 15e3;
+g.taper_end = p.shoal_length + p.taper_length;
 xb = g.crest_end:50:(p.rise_mid + 4 * p.rise_width);
 ib = find(background_(xb, p) < p.Zsh - 1, 1);
 if isempty(ib), g.break_start = NaN; else, g.break_start = xb(ib); end
@@ -256,7 +264,7 @@ end
 function p = defaults_(p)
 d = struct('Zs', NaN, 'shoal_length', 40e3, 'sigma', 8e3, 'Zsh', -25, 'shelf_break_end', 12e3, ...
            'rise_mid', 63.5e3, 'rise_width', 5e3, 'shoal_start', 0, 'shoal_inner_width', 0, ...
-           'h_deep', -50, 'Ly', 200e3, 'min_shelf_gap', 10e3);
+           'h_deep', -50, 'Ly', 200e3, 'min_shelf_gap', 10e3, 'taper_length', 15e3);
 if isfield(p, 'shelf_depth') && ~isfield(p, 'Zsh'), p.Zsh = p.shelf_depth; end
 for f = fieldnames(d)'
     if ~isfield(p, f{1}), p.(f{1}) = d.(f{1}); end
