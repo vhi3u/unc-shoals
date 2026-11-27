@@ -64,7 +64,7 @@ for k = 1:nr
 end
 fprintf(['\nQ/Q_in   transport through y = %g km (10-day means, last %g days) over the pinned target\n' ...
          'v_up     surface v averaged over x = %g-%g km at y = %g km (m/s), last %g days\n' ...
-         'shelf%%   share of that transport inshore of x = 60 km (v_inf profile: %.0f%%)\n' ...
+         'shelf%%   share of that transport inshore of the jet edge - 5 km (60 km for param bathymetry; v_inf profile: %.0f%%)\n' ...
          'u''_up    RMS over the shelf of fluctuating surface u at y = %g km (m/s): the disturbance reaching the shoal\n' ...
          'u''(y0+d) the same, d km downstream of the shoal centre: how far it has grown\n\n'], ...
         o.y_up, o.last, o.shelf, o.y_up, o.last, 100 * R{1}.shelf_frac_inf, o.y_up);
@@ -186,12 +186,13 @@ favg = fullfile(d, favg(1).name);
 fmeta = dir(fullfile(d, 'sweep_metadata_*.nc'));
 
 r.label = regexprep(folder, '^sweep_\d+_', '');
-r.v0 = 0.2; r.open = 0; r.noise = 0; Ly = NaN; y0 = NaN;
+r.v0 = 0.2; r.open = 0; r.noise = 0; Ly = NaN; y0 = NaN; r.jet_xs = 65e3;
 if ~isempty(fmeta)
     fm = fullfile(d, fmeta(1).name);
     r.v0    = gatt_(fm, 'v0', r.v0);
     r.open  = gatt_(fm, 'open_y', 0);
     r.noise = gatt_(fm, 'inflow_noise', 0);
+    r.jet_xs = gatt_(fm, 'jet_xs', 65e3);          % the jet's offshore edge (65 km before bathy = diamond)
     Ly      = gatt_(fm, 'Ly', NaN);
     y0      = gatt_(fm, 'shoal_y0', NaN);
 end
@@ -202,7 +203,8 @@ t = double(ncread(ftop, 'time'));
 if isnan(Ly), Ly = max(y) + (y(2) - y(1)) / 2; end
 if isnan(y0), y0 = Ly / 2; end
 [~, jup] = min(abs(y - o.y_up * 1e3));
-shelf = x >= o.shelf(1) * 1e3 & x <= o.shelf(2) * 1e3;
+% shelf: the requested range, but never past 5 km inshore of the jet's edge
+shelf = x >= o.shelf(1) * 1e3 & x <= min(o.shelf(2) * 1e3, r.jet_xs - 5e3);
 nx = numel(x); ny = numel(y); nt = numel(t);
 
 % ── daily surface: speed and disturbance on the upstream row ─────────────
@@ -257,7 +259,7 @@ if isempty(wet)
     Ta = squeeze(double(ncread(favg, Tn, [1 jup 1 nta], [numel(xa) 1 nza 1])));
     wet = Ta > 1;
 end
-vinf = v_inf_(xa, r.v0);
+vinf = v_inf_(xa, r.v0, r.jet_xs);
 Q_in = sum(sum(vinf(:) .* wet .* dz)) * dx;
 Q = zeros(1, nta);
 for n = 1:nta
@@ -276,20 +278,22 @@ r.vbar = r.qx ./ max(H * dx, eps);  r.vbar(H == 0) = NaN;
 r.qx_inf = vinf(:) .* H * dx;
 r.vinf = vinf(:);  r.vinf(H == 0) = NaN;
 r.Q_in = Q_in;
-% share of the transport over the shelf (x < 60 km) and offshore of it
-sh = r.xprof < 60e3;
+% share of the transport over the shelf (inshore of 5 km short of the jet's
+% edge: 60 km for the param bathymetry) and offshore of it
+sh = r.xprof < r.jet_xs - 5e3;
 r.shelf_frac = sum(r.qx(sh)) / sum(r.qx);
 r.shelf_frac_inf = sum(r.qx_inf(sh)) / sum(r.qx_inf);
 lasta = r.tavg_days >= r.tavg_days(end) - o.last;
 r.Qratio_last = mean(r.Qratio(lasta));
 end
 
-function v = v_inf_(x, v0)
+function v = v_inf_(x, v0, xs)
 % The model's inflow profile v∞(x) (flow_over_shoals_sweep.jl, sigmoid_v_bc):
-% coastal sigmoid at 3 km, offshore sigmoid at 65 km, k pinned to 150 km.
+% coastal sigmoid at 3 km, offshore sigmoid at xs (JET_XS: 65 km, or the
+% shelf break for the diamond bathymetry), k pinned to 150 km.
 k1 = 80 / 150e3; k2 = 40 / 150e3;
 s1 = 1 ./ (1 + exp(-k1 * (x - 3e3)));
-s2 = 1 ./ (1 + exp(k2 * (x - 65e3)));
+s2 = 1 ./ (1 + exp(k2 * (x - xs)));
 v = v0 * min(max((s1 - 1) + s2, 0), 1);
 end
 

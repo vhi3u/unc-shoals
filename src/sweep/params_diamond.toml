@@ -1,0 +1,108 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# DIAMOND SHOALS: the measured shoal, with and without a land cape
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# WHY. The width/OBC sweep used idealized shoals (40 km crest, sigma 2.5 or
+# 8 km, shelf break at 63.5 km). Diamond Shoals measured from GEBCO 2026
+# (MATLAB/shoal_stuff/diamond_shoals_geometry.m) is a 17 km ridge, sigma
+# 4.6 km, its crest deepening from -1..-3 m at the cape to -13 m at the end,
+# stopping right at a steep shelf break ~22 km from the cape. And it sits at a
+# 90-degree corner of the coast: the water beside the cape is already
+# 20-25 m deep, which a straight coast cannot give.
+#
+# THE BATHYMETRY: bathy = "diamond" (src/dshoal_diamond.jl). The shoal is
+# measured from the cape tip; depth follows distance to the nearest coast
+# (a 10 km shoreface to Zsh), then the shelf break at break_distance past the
+# tip. The inflow jet's offshore edge moves to the break (JET_XS).
+#   cape_length = 0       straight coast at x = 0 (the shoal sticks out of it)
+#   cape_length = 25 km   a land cape: the coast comes out at 45 degrees on
+#                         both sides to a point at x = 25 km, y0. The shelf is
+#                         then 22 km wide at the cape and 47 km far from it
+#                         (Hatteras: ~22 km along the shoal, ~45 km north).
+#
+# THE RUNS (open y, no wind, 500 m, 120 days)
+#   1  DS_straight_v020    straight coast, v0 = 0.20 m/s   } cape vs no cape
+#   2  DS_cape_v020        land cape,      v0 = 0.20 m/s   }
+#   3  DS_straight_v0065   straight coast, v0 = 0.065 m/s  } the same at the slow
+#   4  DS_cape_v0065       land cape,      v0 = 0.065 m/s  } speed that made eddies
+# The slow pair is there because the width/OBC sweep showed the eddy field
+# switches on between v0 = 0.065 and 0.10 (shelf speed ~0.04-0.06 m/s).
+#
+# Model limits kept: crest no shallower than -5 m (real -1..-3 near the cape),
+# a 50 m floor (the real slope drops to hundreds of metres), a symmetric
+# shoal and cape (the real SW flank deepens faster than the NE).
+#
+# Submit:  qsub src/sweep/submit_diamond.pbs.template
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label    = "DS_straight_v020"
+bathy        = "diamond"
+cape_length  = 0.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+v0           = 0.2
+open_y       = true
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "DS_cape_v020"
+bathy        = "diamond"
+cape_length  = 25000.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+v0           = 0.2
+open_y       = true
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "DS_straight_v0065"
+bathy        = "diamond"
+cape_length  = 0.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+v0           = 0.065
+open_y       = true
+dx           = 500.0
+sim_days     = 120.0
+
+[[runs]]
+run_label    = "DS_cape_v0065"
+bathy        = "diamond"
+cape_length  = 25000.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+v0           = 0.065
+open_y       = true
+dx           = 500.0
+sim_days     = 120.0

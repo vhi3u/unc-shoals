@@ -129,6 +129,14 @@ run_crest_length = Float64(get(this_run, "crest_length", 0.0))
 run_inflow_noise = Float64(get(this_run, "inflow_noise", 0.0))
 # Bottom drag only where the bottom is shelf-deep (default false: everywhere).
 run_offshore_free_slip = Bool(get(this_run, "offshore_free_slip", false))
+# Bathymetry: "param" (default, every earlier run) or "diamond" (src/dshoal_diamond.jl)
+# and the diamond-only keys; defaults are the GEBCO 2026 Diamond Shoals values.
+run_bathy = String(get(this_run, "bathy", "param"))
+run_tip_depth = Float64(get(this_run, "tip_depth", -13.0))
+run_taper_length = Float64(get(this_run, "taper_length", 3000.0))
+run_shoreface_width = Float64(get(this_run, "shoreface_width", 10000.0))
+run_break_distance = Float64(get(this_run, "break_distance", 22000.0))
+run_cape_length = Float64(get(this_run, "cape_length", 0.0))
 
 @info """
 ════════════════════════════════════════════════════════
@@ -153,6 +161,7 @@ run_offshore_free_slip = Bool(get(this_run, "offshore_free_slip", false))
  crest_length:    $(run_crest_length > 0 ? "$(run_crest_length / 1e3) km" : "not declared (shoal_length used)")
  inflow_noise:    $(run_inflow_noise) x v0
  bottom drag:     $(run_offshore_free_slip ? "shelf only (free slip offshore)" : "everywhere")
+ bathymetry:      $(run_bathy)$(run_bathy == "diamond" ? " (cape $(run_cape_length / 1e3) km, tip depth $(run_tip_depth) m, taper $(run_taper_length / 1e3) km, break $(run_break_distance / 1e3) km past the tip)" : "")
  Front:           dS = $sweep_front_ds psu at x = $sweep_front_x m, width $sweep_front_width m, depth scale $sweep_front_depth m
  v0:              $sweep_v0 m/s
  dx:              $sweep_dx m
@@ -221,6 +230,12 @@ ENV["SWEEP_SHOAL_Y0"] = string(run_shoal_y0)
 ENV["SWEEP_CREST_LENGTH"] = string(run_crest_length)
 ENV["SWEEP_INFLOW_NOISE"] = string(run_inflow_noise)
 ENV["SWEEP_OFFSHORE_FREE_SLIP"] = string(run_offshore_free_slip)
+ENV["SWEEP_BATHY"] = run_bathy
+ENV["SWEEP_TIP_DEPTH"] = string(run_tip_depth)
+ENV["SWEEP_TAPER_LENGTH"] = string(run_taper_length)
+ENV["SWEEP_SHOREFACE_WIDTH"] = string(run_shoreface_width)
+ENV["SWEEP_BREAK_DISTANCE"] = string(run_break_distance)
+ENV["SWEEP_CAPE_LENGTH"] = string(run_cape_length)
 ENV["SWEEP_DX"] = string(sweep_dx)
 ENV["SWEEP_SIM_DAYS"] = string(sweep_sim_days)
 ENV["SWEEP_RUN_LABEL"] = sweep_run_label

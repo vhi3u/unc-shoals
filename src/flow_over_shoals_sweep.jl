@@ -79,6 +79,21 @@ const INFLOW_NOISE = parse(Float64, get(ENV, "SWEEP_INFLOW_NOISE", "0.0"))
 # the deep region (false = drag everywhere, every run before 2026-11-26). See
 # the drag block.
 const OFFSHORE_FREE_SLIP = get(ENV, "SWEEP_OFFSHORE_FREE_SLIP", "false") == "true"
+# Which bathymetry: "param" (dshoal_vn_param.jl, every run before 2026-11-27)
+# or "diamond" (dshoal_diamond.jl: Diamond Shoals' measured shape, optionally
+# with a land cape). The diamond keys below are read only for "diamond"; it
+# also uses Zs, sigma, Zsh, crest_length, rise_width and h_deep from above.
+const BATHY = get(ENV, "SWEEP_BATHY", "param")
+BATHY in ("param", "diamond") || error("SWEEP_BATHY must be param or diamond, got $BATHY")
+const DS_TIP_DEPTH = parse(Float64, get(ENV, "SWEEP_TIP_DEPTH", "-13.0"))
+const DS_TAPER_LENGTH = parse(Float64, get(ENV, "SWEEP_TAPER_LENGTH", "3000.0"))
+const DS_SHOREFACE_WIDTH = parse(Float64, get(ENV, "SWEEP_SHOREFACE_WIDTH", "10000.0"))
+const DS_BREAK_DISTANCE = parse(Float64, get(ENV, "SWEEP_BREAK_DISTANCE", "22000.0"))
+const DS_CAPE_LENGTH = parse(Float64, get(ENV, "SWEEP_CAPE_LENGTH", "0.0"))
+# Offshore edge of the inflow jet. It sits on the shelf break: 65 km for the
+# param bathymetry (break at 63.5 km, as in every earlier run); for diamond,
+# at the break, cape_length + break_distance.
+const JET_XS = BATHY == "diamond" ? DS_CAPE_LENGTH + DS_BREAK_DISTANCE : 65e3
 
 # ── Time-varying wind ─────────────────────────────────────────────────────
 # A constant wind and a constant jet settle into STEADY meanders around the
@@ -179,6 +194,7 @@ end
 # Bathymetry (shared with flow_over_shoals.jl)
 # ═══════════════════════════════════════════════════════════════════════════
 include(joinpath(@__DIR__, "dshoal_vn_param.jl"))
+include(joinpath(@__DIR__, "dshoal_diamond.jl"))
 # Oceanostics' progress messengers, copied into the repo (see the file header)
 include(joinpath(@__DIR__, "ProgressMessengers.jl"))
 using .ProgressMessengers: TimedMessenger
@@ -231,7 +247,18 @@ grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4,
                        topology=(x_topology, y_topology, Bounded))
 
 # model parameters
-if shoal_bath
+if shoal_bath && BATHY == "diamond"
+    slope_bottom = dshoal_diamond_bottom(params.Ly;
+        Zs=sweep_Zs, tip_depth=DS_TIP_DEPTH,
+        crest_length=(sweep_crest_length > 0 ? sweep_crest_length : 17e3),
+        taper_length=DS_TAPER_LENGTH, sigma=sweep_sigma, Zsh=sweep_Zsh,
+        shoreface_width=DS_SHOREFACE_WIDTH, break_distance=DS_BREAK_DISTANCE,
+        rise_width=sweep_rise_width, h_deep=sweep_h_deep,
+        cape_length=DS_CAPE_LENGTH, shoal_y0=sweep_shoal_y0)
+    @info "Bathymetry: diamond (cape_length $(DS_CAPE_LENGTH / 1e3) km, break at x = $(JET_XS / 1e3) km)"
+    GFB = GridFittedBottom(slope_bottom)
+    ib_grid = ImmersedBoundaryGrid(grid, GFB)
+elseif shoal_bath
     slope_bottom = dshoal_param_bottom(params.Ly;
         Zs=sweep_Zs,
         shoal_length=sweep_shoal_length,
@@ -490,7 +517,7 @@ const k1_fixed = 80 / 150e3     # coastal sigmoid, e-folding width 1875 m
 const k2_fixed = 40 / 150e3     # offshore sigmoid, e-folding width 3750 m
 
 @inline function sigmoidal_s2(x)
-    xS = 65e3
+    xS = JET_XS
     return 1 / (1 + exp(k2_fixed * (x - xS)))
 end
 
@@ -646,9 +673,9 @@ if open_y
     # Discrete form (i, k, grid, clock, fields), as Flather's (U, η) tuple
     # requires; column depth from the immersed grid, which is GPU-safe.
     @inline V_ext_bc(i, k, grid, clock, fields) = v_in(xnode(i, grid, Center())) * static_column_depthᶜᶜᵃ(i, 1, grid)
-    # ∫ of the sigmoid jet (k1_fixed, k2_fixed, xC = 3 km, xS = 65 km); its clamp
+    # ∫ of the sigmoid jet (k1_fixed, k2_fixed, xC = 3 km, xS = JET_XS); its clamp
     # is never active, so the integral is exact.
-    @inline Fjet(x) = log1p(exp(k1_fixed * (x - 3e3))) / k1_fixed - x - log1p(exp(-k2_fixed * (x - 65e3))) / k2_fixed
+    @inline Fjet(x) = log1p(exp(k1_fixed * (x - 3e3))) / k1_fixed - x - log1p(exp(-k2_fixed * (x - JET_XS))) / k2_fixed
     @inline η_geo(x) = f₀ / 9.80665 * global_params.v₀ * (Fjet(x) - Fjet(0.0))
     @inline η_ext_bc(i, k, grid, clock, fields) = η_geo(xnode(i, grid, Center()))
 
@@ -1011,11 +1038,23 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["run_label"] = sweep_run_label
     ds.attrib["run_index"] = sweep_run_index
     ds.attrib["Zs"] = sweep_Zs
-    ds.attrib["shoal_length"] = sweep_crest_length > 0 ?
+    ds.attrib["bathy"] = BATHY
+    ds.attrib["jet_xs"] = JET_XS
+    if BATHY == "diamond"
+        ds.attrib["tip_depth"] = DS_TIP_DEPTH
+        ds.attrib["taper_length"] = DS_TAPER_LENGTH
+        ds.attrib["shoreface_width"] = DS_SHOREFACE_WIDTH
+        ds.attrib["break_distance"] = DS_BREAK_DISTANCE
+        ds.attrib["cape_length"] = DS_CAPE_LENGTH
+    end
+    ds.attrib["shoal_length"] = BATHY == "diamond" ?
+        DS_CAPE_LENGTH + (sweep_crest_length > 0 ? sweep_crest_length : 17e3) :
+        sweep_crest_length > 0 ?
         shoal_crest_start(sweep_Zs, sweep_Zsh, sweep_shelf_break_end, sweep_rise_mid, sweep_rise_width, sweep_h_deep) + sweep_crest_length :
         sweep_shoal_length                                # where the crest ENDS (derived if crest_length set)
     ds.attrib["crest_length"] = sweep_crest_length        # 0 = not declared; length = shoal_length - crest_start
-    ds.attrib["crest_start"] = shoal_crest_start(sweep_Zs, sweep_Zsh, sweep_shelf_break_end, sweep_rise_mid, sweep_rise_width, sweep_h_deep)
+    ds.attrib["crest_start"] = BATHY == "diamond" ? DS_CAPE_LENGTH :
+        shoal_crest_start(sweep_Zs, sweep_Zsh, sweep_shelf_break_end, sweep_rise_mid, sweep_rise_width, sweep_h_deep)
     ds.attrib["Ly"] = sweep_Ly
     ds.attrib["shoal_y0"] = sweep_shoal_y0
     ds.attrib["sigma"] = sweep_sigma
@@ -1023,7 +1062,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["shoal_inner_width"] = sweep_shoal_inner_width
     ds.attrib["Zsh"] = sweep_Zsh
     ds.attrib["shelf_break_end"] = sweep_shelf_break_end
-    ds.attrib["rise_mid"] = sweep_rise_mid
+    ds.attrib["rise_mid"] = BATHY == "diamond" ? JET_XS : sweep_rise_mid   # the shelf break
     ds.attrib["rise_width"] = sweep_rise_width
     ds.attrib["h_deep"] = sweep_h_deep
     ds.attrib["Lz"] = sweep_Lz
