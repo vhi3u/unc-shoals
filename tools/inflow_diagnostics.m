@@ -55,22 +55,23 @@ for k = 1:nr
 end
 
 % ── table ────────────────────────────────────────────────────────────────
-fprintf('\n%-36s %5s %6s %7s %9s %9s %11s %11s %11s\n', 'run', 'open', 'noise', 'v0', 'Q/Q_in', 'v_up', 'u''_up', 'u''(y0+20)', 'u''(y0+50)');
-fprintf('%s\n', repmat('-', 1, 112));
+fprintf('\n%-36s %5s %6s %7s %9s %9s %8s %11s %11s %11s\n', 'run', 'open', 'noise', 'v0', 'Q/Q_in', 'v_up', 'shelf%', 'u''_up', 'u''(y0+20)', 'u''(y0+50)');
+fprintf('%s\n', repmat('-', 1, 121));
 for k = 1:nr
     r = R{k};
-    fprintf('%-36s %5d %6.3f %7.3f %9.2f %9.3f %11.2e %11.2e %11.2e\n', r.label, r.open, r.noise, r.v0, ...
-            r.Qratio_last, r.vup_last, r.seed_last, r.prof_at(20), r.prof_at(50));
+    fprintf('%-36s %5d %6.3f %7.3f %9.2f %9.3f %7.0f%% %11.2e %11.2e %11.2e\n', r.label, r.open, r.noise, r.v0, ...
+            r.Qratio_last, r.vup_last, 100 * r.shelf_frac, r.seed_last, r.prof_at(20), r.prof_at(50));
 end
 fprintf(['\nQ/Q_in   transport through y = %g km (10-day means, last %g days) over the pinned target\n' ...
          'v_up     surface v averaged over x = %g-%g km at y = %g km (m/s), last %g days\n' ...
+         'shelf%%   share of that transport inshore of x = 60 km (v_inf profile: %.0f%%)\n' ...
          'u''_up    RMS over the shelf of fluctuating surface u at y = %g km (m/s): the disturbance reaching the shoal\n' ...
          'u''(y0+d) the same, d km downstream of the shoal centre: how far it has grown\n\n'], ...
-        o.y_up, o.last, o.shelf, o.y_up, o.last, o.y_up);
+        o.y_up, o.last, o.shelf, o.y_up, o.last, 100 * R{1}.shelf_frac_inf, o.y_up);
 
 % ── figure ───────────────────────────────────────────────────────────────
-f = figure('Color', 'w', 'Position', [50 50 1500 900], 'Visible', 'off');
-tl = tiledlayout(f, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+f = figure('Color', 'w', 'Position', [50 50 2100 900], 'Visible', 'off');
+tl = tiledlayout(f, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 cc = lines(nr);
 
 ax = nexttile(tl); hold(ax, 'on'); grid(ax, 'on');
@@ -110,6 +111,25 @@ set(ax, 'YScale', 'log');
 xline(ax, 0, 'k-', 'shoal centre', 'HandleVisibility', 'off');
 xlabel(ax, 'y - y_{shoal} (km)'); ylabel(ax, 'RMS u (m s^{-1})');
 title(ax, sprintf('fluctuating surface u along y: temporal std, RMS over the shelf, last %g days', o.last));
+
+ax = nexttile(tl); hold(ax, 'on'); grid(ax, 'on');
+for k = 1:nr
+    r = R{k};
+    plot(ax, r.xprof / 1e3, r.vbar, '-', 'Color', cc(k,:), 'LineWidth', 1.5, 'DisplayName', [r.label ' (depth mean)']);
+    plot(ax, r.xprof / 1e3, r.vinf, ':', 'Color', cc(k,:), 'LineWidth', 1.2, 'HandleVisibility', 'off');
+end
+xlabel(ax, 'x (km from coast)'); ylabel(ax, 'v (m s^{-1})');
+title(ax, sprintf('depth-mean v across the shelf at y = %g km, last %g days (dotted: v_\\infty)', o.y_up, o.last));
+
+ax = nexttile(tl); hold(ax, 'on'); grid(ax, 'on');
+for k = 1:nr
+    r = R{k};
+    plot(ax, r.xprof / 1e3, cumsum(r.qx) / r.Q_in, '-', 'Color', cc(k,:), 'LineWidth', 1.5);
+    plot(ax, r.xprof / 1e3, cumsum(r.qx_inf) / r.Q_in, ':', 'Color', cc(k,:), 'LineWidth', 1.2);
+end
+yline(ax, 1, 'k--');
+xlabel(ax, 'x (km from coast)'); ylabel(ax, 'cumulative transport / Q_{in}');
+title(ax, 'where the transport goes: cumulative from the coast (dotted: v_\infty)');
 
 if isempty(o.name)
     labs = cellfun(@(r) r.label, R, 'UniformOutput', false);
@@ -245,6 +265,21 @@ for n = 1:nta
 end
 r.tavg_days = ta(keep) / 86400;
 r.Qratio = Q(keep) / Q_in;
+% cross-shore structure, averaged over the 10-day means in the last o.last days
+la = find(keep(:)' & (ta(:)' / 86400 >= ta(end) / 86400 - o.last));
+if isempty(la), la = nta; end
+vm = mean(va(:, :, la), 3);                                       % nx x nz
+H = sum(wet .* dz, 2);                                            % column depth
+r.xprof = xa(:);
+r.qx = sum(vm .* wet .* dz, 2) * dx;                              % transport per column
+r.vbar = r.qx ./ max(H * dx, eps);  r.vbar(H == 0) = NaN;
+r.qx_inf = vinf(:) .* H * dx;
+r.vinf = vinf(:);  r.vinf(H == 0) = NaN;
+r.Q_in = Q_in;
+% share of the transport over the shelf (x < 60 km) and offshore of it
+sh = r.xprof < 60e3;
+r.shelf_frac = sum(r.qx(sh)) / sum(r.qx);
+r.shelf_frac_inf = sum(r.qx_inf(sh)) / sum(r.qx_inf);
 lasta = r.tavg_days >= r.tavg_days(end) - o.last;
 r.Qratio_last = mean(r.Qratio(lasta));
 end
