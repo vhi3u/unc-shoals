@@ -916,7 +916,9 @@ simulation.output_writers[:surface_slice] = NetCDFWriter(model, slice_fields,
 simulation.output_writers[:midy_slice] = NetCDFWriter(model, slice_fields,
     filename="midy_$(run_tag).nc",
     schedule=TimeInterval(snapshot_interval),
-    indices=(:, round(Int, params.Ny / 2), :),
+    # Through the shoal's centre line (shoal_y0), not the domain centre: they
+    # differ once shoal_y0 != Ly/2. Same index as before when they coincide.
+    indices=(:, clamp(round(Int, params.Ny * sweep_shoal_y0 / params.Ly), 1, params.Ny), :),
     overwrite_files=overwrite_files)
 
 # Mid-x YZ slice (along-shore transect at domain center)
