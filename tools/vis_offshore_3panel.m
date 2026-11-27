@@ -12,7 +12,7 @@ end
 
 %% ---------- Options ----------
 p = inputParser;
-addParameter(p, 'dataroot', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'dataroot', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'outdir',   '/glade/work/nguyen/unc-shoals/animations/', @ischar);
 addParameter(p, 'var_type', 'uT', @ischar); % 'uT' or 'uS'
 addParameter(p, 'clim',     [], @(v)isempty(v) || (isnumeric(v) && numel(v)==2));

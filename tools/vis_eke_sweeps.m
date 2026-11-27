@@ -43,7 +43,7 @@ end
 
 % ---------- options ----------
 p = inputParser;
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'outdir', '/glade/work/nguyen/unc-shoals/animations', @ischar);
 addParameter(p, 'scale', 'log', @(x)ischar(x) && ismember(x, {'log','linear'}));
 addParameter(p, 'level', 'surface', @(x)ischar(x) && ismember(x, {'surface','depth_avg','depth_int'}));

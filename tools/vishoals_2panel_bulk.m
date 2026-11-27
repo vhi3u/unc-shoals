@@ -2,7 +2,7 @@ function vishoals_2panel_bulk(cluster_name)
 % vishoals_2panel_bulk(cluster_name)
 %
 % Runs vishoals_2panel for every sweep under:
-%   /glade/work/nguyen/unc-shoals/sweep_output/<cluster_name>/
+%   /glade/derecho/scratch/nguyen/unc-shoals/sweep_output/<cluster_name>/
 %
 % Each sweep lives in its own subdirectory:
 %   <cluster_dir>/<sweep_name>/top_<sweep_name>.nc
@@ -17,7 +17,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster_Cnnie_1_15';
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 % =====================================================================

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 RUN_TAG="${1:?Usage: $0 <run_tag>  (e.g. sweep_001_Hs05_Ls20k)}"
-DATADIR="/glade/work/nguyen/unc-shoals/sweep_output/${RUN_TAG}"
+DATADIR="/glade/derecho/scratch/nguyen/unc-shoals/sweep_output/${RUN_TAG}"
 OUTDIR="/glade/work/nguyen/unc-shoals/animations"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools"
 

@@ -17,7 +17,7 @@ if nargin < 2 || isempty(z_target)
 end
 
 % Set up paths
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 % Use a subfolder for the specific depth to keep things organized

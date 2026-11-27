@@ -6,7 +6,7 @@
 
 CLUSTER_NAME="${1:-cluster13_111_117}"
 
-SWEEP_OUTPUT="/glade/work/nguyen/unc-shoals/sweep_output"
+SWEEP_OUTPUT="/glade/derecho/scratch/nguyen/unc-shoals/sweep_output"
 DATADIR="${SWEEP_OUTPUT}/${CLUSTER_NAME}"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools/"
 # NOTE: a VISDIR/addpath pointing at /glade/work/nguyen/vnmain/matlabvis

@@ -50,7 +50,7 @@ end
 
 % ---------- options ----------
 p = inputParser;
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'outdir', '/glade/work/nguyen/unc-shoals/animations', @ischar);
 addParameter(p, 'wind_sign', 'positive', @(x)ischar(x) && ismember(x, {'positive','negative','both'}));
 addParameter(p, 'runs', {}, @(c)iscellstr(c) || ischar(c));

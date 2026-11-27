@@ -3,7 +3,7 @@ function vis_density_gradients_bulk(cluster_name, outdir)
 %
 % Runs vis_density_gradients for all sweeps in a cluster.
 
-SWEEP_OUTPUT = '/glade/work/nguyen/unc-shoals/sweep_output';
+SWEEP_OUTPUT = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 datadir_base = fullfile(SWEEP_OUTPUT, cluster_name);
 
 % Sweeps are discovered from the cluster directory, not hardcoded. The old

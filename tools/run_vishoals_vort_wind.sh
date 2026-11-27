@@ -44,7 +44,7 @@ cd "$(dirname "$0")"
 # A cluster with no unforced run would warn on every call; pass ref_run ''
 # there so the warning is opted out of rather than repeated per figure.
 REF="'Zs5_Ls40k'"
-if ! compgen -G "/glade/work/nguyen/unc-shoals/sweep_output/${CLUSTER_NAME}/*Zs5_Ls40k" > /dev/null; then
+if ! compgen -G "/glade/derecho/scratch/nguyen/unc-shoals/sweep_output/${CLUSTER_NAME}/*Zs5_Ls40k" > /dev/null; then
     echo "    No Zs5_Ls40k in this cluster -- plotting forced runs only."
     REF="''"
 fi

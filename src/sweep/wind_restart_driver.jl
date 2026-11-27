@@ -56,10 +56,12 @@ sweep_v0 = Float64(get(this_run, "v0", 0.2))
 
 # ── Locate Reference Spin-Up Checkpoint ──────────────────────────────
 project_root = dirname(dirname(@__DIR__))
+# Run output lives on scratch on Casper (see sweep_driver.jl); locally in <root>/sweep_output.
+output_root = isdir("/glade/derecho/scratch/nguyen") ? "/glade/derecho/scratch/nguyen/unc-shoals/sweep_output" : joinpath(project_root, "sweep_output")
 search_dirs = [
     project_root,
-    joinpath(project_root, "sweep_output", "sweep_001_Hs20_Ls40k"),
-    joinpath(@__DIR__, "..", "sweep_output"),
+    joinpath(output_root, "sweep_001_Hs20_Ls40k"),
+    output_root,
     pwd()
 ]
 
@@ -75,7 +77,7 @@ for d in search_dirs
 end
 
 # ── Create output directory for this run ───────────────────────────────
-output_dir = joinpath(project_root, "sweep_output", "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
+output_dir = joinpath(output_root, "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
 mkpath(output_dir)
 
 target_checkpoint = ""

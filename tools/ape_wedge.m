@@ -76,7 +76,7 @@ function R = ape_wedge(cluster_name, varargin)
 %               as the shelf-mean EKE in plot_theory_vs_model.m.
 %
 % Options:
-%   'sweep_root'      default /glade/work/nguyen/unc-shoals/sweep_output
+%   'sweep_root'      default /glade/derecho/scratch/nguyen/unc-shoals/sweep_output
 %   'window'          which 10-day average; [] = last (default)
 %   'y_box'           km, alongshore range                 default [20 Inf]
 %   'x_ambient_width' km, offshore strip taken as ambient  default 10
@@ -85,7 +85,7 @@ function R = ape_wedge(cluster_name, varargin)
 %   'outdir'          where the PNGs go
 
 p = inputParser;
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'window', [], @(x)isempty(x) || (isnumeric(x)&&isscalar(x)));
 addParameter(p, 'y_box', [20 Inf], @(v)isnumeric(v)&&numel(v)==2);
 addParameter(p, 'x_ambient_width', 10, @isnumeric);

@@ -34,7 +34,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster_Fnnie_1_19';
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 runs = { 'wind_m0p15', 'wind_m0p10', 'wind_m0p08', 'wind_m0p05', 'wind_m0p03', ...

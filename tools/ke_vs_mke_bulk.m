@@ -25,7 +25,7 @@ else
     outdir = outdir_user;
 end
 
-dataroot = '/glade/work/nguyen/unc-shoals/sweep_output';
+dataroot = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir = fullfile(dataroot, cluster_name);
 
 if ~exist(outdir, 'dir'), mkdir(outdir); end

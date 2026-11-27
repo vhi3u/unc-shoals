@@ -9,7 +9,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster_Cnnie_1_15';
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 % =====================================================================

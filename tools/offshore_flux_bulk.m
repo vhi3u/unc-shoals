@@ -2,7 +2,7 @@ function offshore_flux_bulk(cluster_name)
 % offshore_flux_bulk(cluster_name)
 %
 % Runs offshore_flux_clipped for every sweep under:
-%   /glade/work/nguyen/unc-shoals/sweep_output/<cluster_name>/
+%   /glade/derecho/scratch/nguyen/unc-shoals/sweep_output/<cluster_name>/
 %
 % GIFs/PNGs are written to: /glade/work/nguyen/unc-shoals/animations/
 %
@@ -13,7 +13,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster10_81_89';
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 % =====================================================================

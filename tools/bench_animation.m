@@ -32,7 +32,7 @@ function results = bench_animation(run_tag, varargin)
 % Options:
 %   'cluster'    cluster name under sweep_root               default ''
 %   'datadir'    explicit directory holding top_/midy_ .nc    default ''
-%   'sweep_root' default /glade/work/nguyen/unc-shoals/sweep_output
+%   'sweep_root' default /glade/derecho/scratch/nguyen/unc-shoals/sweep_output
 %   'n_frames'   frames to time, taken from the END           default 12
 %   'dpi_list'   print resolutions to compare                 default [100 72 50]
 %   'clipped'    match the bulk script's clipping             default true
@@ -44,7 +44,7 @@ function results = bench_animation(run_tag, varargin)
 p = inputParser;
 addParameter(p, 'cluster',    '', @ischar);
 addParameter(p, 'datadir',    '', @ischar);
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'n_frames',   12, @(x)isnumeric(x)&&isscalar(x)&&x>=2);
 addParameter(p, 'dpi_list',   [100 72 50], @(v)isnumeric(v)&&isvector(v));
 addParameter(p, 'clipped',    true, @(x)islogical(x)&&isscalar(x));

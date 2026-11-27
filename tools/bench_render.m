@@ -35,7 +35,7 @@ function results = bench_render(run_tag, varargin)
 p = inputParser;
 addParameter(p, 'cluster',    '', @ischar);
 addParameter(p, 'datadir',    '', @ischar);
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'reps',       5, @(x)isnumeric(x)&&isscalar(x)&&x>=1);
 addParameter(p, 'clipped',    true, @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'save_png',   '', @ischar);

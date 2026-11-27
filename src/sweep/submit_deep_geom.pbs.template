@@ -52,7 +52,7 @@ export SWEEP_PARAMS="params_deep_geom.toml"
 PROJECT_DIR="/glade/work/nguyen/unc-shoals"
 cd "${PROJECT_DIR}"
 
-mkdir -p logs out/sweep sweep_output
+mkdir -p logs out/sweep /glade/derecho/scratch/nguyen/unc-shoals/sweep_output
 
 # Guard against the array range and the table disagreeing. Submitting a copied
 # script whose -J still matched the sweep it was copied FROM is how two

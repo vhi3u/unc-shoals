@@ -32,14 +32,14 @@ function R = eke_geometry_controls(cluster_name, varargin)
 % x = 0-100 km, y = 20-200 km (the 20 km southern nudging zone is excluded).
 %
 % Options:
-%   'sweep_root'  default /glade/work/nguyen/unc-shoals/sweep_output
+%   'sweep_root'  default /glade/derecho/scratch/nguyen/unc-shoals/sweep_output
 %   'window'      which 10-day average to use; [] = last (default)
 %   'x_box'       km, cross-shelf averaging range   default [0 100]
 %   'y_box'       km, alongshore range              default [20 200]
 %   'outdir'      where the PNG goes
 
 p = inputParser;
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'window', [], @(x)isempty(x) || (isnumeric(x)&&isscalar(x)));
 addParameter(p, 'x_box', [0 100], @(v)isnumeric(v)&&numel(v)==2);
 addParameter(p, 'y_box', [20 200], @(v)isnumeric(v)&&numel(v)==2);

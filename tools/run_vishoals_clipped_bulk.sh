@@ -11,7 +11,7 @@
 
 CLUSTER_NAME="${1:-cluster10_81_89}"
 
-SWEEP_OUTPUT="/glade/work/nguyen/unc-shoals/sweep_output"
+SWEEP_OUTPUT="/glade/derecho/scratch/nguyen/unc-shoals/sweep_output"
 DATADIR="${SWEEP_OUTPUT}/${CLUSTER_NAME}"
 TOOLDIR="/glade/work/nguyen/unc-shoals/tools/"
 

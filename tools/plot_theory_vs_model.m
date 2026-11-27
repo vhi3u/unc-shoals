@@ -93,7 +93,7 @@ if nargin < 4 || isempty(include_wind)
     include_wind = false;
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 outdir            = '/glade/work/nguyen/unc-shoals/animations';
 if ~exist(outdir, 'dir'), outdir = pwd; end

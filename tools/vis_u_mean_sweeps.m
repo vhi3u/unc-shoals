@@ -32,7 +32,7 @@ end
 
 % ---------- options ----------
 p = inputParser;
-addParameter(p, 'sweep_root', '/glade/work/nguyen/unc-shoals/sweep_output', @ischar);
+addParameter(p, 'sweep_root', '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output', @ischar);
 addParameter(p, 'outdir', '/glade/work/nguyen/unc-shoals/animations', @ischar);
 addParameter(p, 'clipped', true, @(x)islogical(x)&&isscalar(x));
 addParameter(p, 'x_line', 40, @(x)isnumeric(x)&&isscalar(x));   % km, same as plot_full_scatter_sweeps x_target_km

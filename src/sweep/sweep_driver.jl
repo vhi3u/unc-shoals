@@ -174,7 +174,11 @@ const ROOT = project_root(@__DIR__)
 @info "Project root: $ROOT"
 
 # ── Create output directory for this run ───────────────────────────────
-output_dir = joinpath(ROOT, "sweep_output", "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
+# Run output goes to scratch on Casper: /glade/work is quota-limited and
+# sweep_output outgrew it. Off Casper (a local test) it goes to <root>/sweep_output.
+const SCRATCH_OUTPUT = "/glade/derecho/scratch/nguyen/unc-shoals/sweep_output"
+const OUTPUT_ROOT = isdir("/glade/derecho/scratch/nguyen") ? SCRATCH_OUTPUT : joinpath(ROOT, "sweep_output")
+output_dir = joinpath(OUTPUT_ROOT, "sweep_$(lpad(run_index, 3, '0'))_$(sweep_run_label)")
 mkpath(output_dir)
 cd(output_dir)
 @info "Output directory: $output_dir"

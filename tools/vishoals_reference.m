@@ -5,7 +5,7 @@ function vishoals_reference(cluster_name, varargin)
 % REFERENCE case only: no wind, Zs = -5 m, Ls = 40 km (run Zs5_Ls40k).
 %
 % Finds the run folder sweep_NNN_Zs5_Ls40k in
-%   /glade/work/nguyen/unc-shoals/sweep_output/<cluster_name>/
+%   /glade/derecho/scratch/nguyen/unc-shoals/sweep_output/<cluster_name>/
 % and calls vishoals('sweep_Zs5_Ls40k', 'datadir', <that folder>, ...).
 %
 % Defaults (override any of them, or pass any other vishoals option):
@@ -20,7 +20,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster_Fnnie_1_19';
 end
 
-sweep_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 ref_core   = 'Zs5_Ls40k';                 % no wind, Zs = -5 m, Ls = 40 km
 run_tag    = ['sweep_' ref_core];         % files: top_sweep_Zs5_Ls40k.nc, midy_sweep_Zs5_Ls40k.nc
 

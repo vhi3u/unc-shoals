@@ -43,7 +43,9 @@ CLUSTER="${2:-}"
 CLIMRO="${CLIMRO:-[-1.0, 1.0]}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SWEEP_ROOT="${ROOT}/sweep_output"
+# Run output is on scratch on Casper; locally it is the repo's sweep_output/.
+SWEEP_ROOT="/glade/derecho/scratch/nguyen/unc-shoals/sweep_output"
+[ -d "/glade/derecho/scratch/nguyen" ] || SWEEP_ROOT="${ROOT}/sweep_output"
 OUTDIR="${ROOT}/animations/"
 TOOLDIR="${ROOT}/tools"
 

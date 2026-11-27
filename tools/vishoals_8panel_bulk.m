@@ -2,7 +2,7 @@ function vishoals_8panel_bulk(cluster_name)
 % vishoals_8panel_bulk(cluster_name)
 %
 % Animates every sweep in a cluster with vishoals, in the full_panel layout:
-%   /glade/work/nguyen/unc-shoals/sweep_output/<cluster_name>/
+%   /glade/derecho/scratch/nguyen/unc-shoals/sweep_output/<cluster_name>/
 %
 % MP4s (or GIFs if want_mp4 = false) are written to:
 %   /glade/work/nguyen/unc-shoals/animations/
@@ -26,7 +26,7 @@ if nargin < 1 || isempty(cluster_name)
     cluster_name = 'cluster_Cnnie_1_15';
 end
 
-sweep_output_root = '/glade/work/nguyen/unc-shoals/sweep_output';
+sweep_output_root = '/glade/derecho/scratch/nguyen/unc-shoals/sweep_output';
 cluster_dir       = fullfile(sweep_output_root, cluster_name);
 
 % =====================================================================
