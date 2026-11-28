@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Real Diamond Shoals LES, version 2 (src/les_diamond_real.jl), half resolution (f2), V100
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/submit_les2_f2.pbs.template
+#
+# Three runs at f2 (8 m x 2 m, ~12 M cells), 30 advective periods each:
+#   1  DS_summer, GEBCO as is            the main run (B1 summer stratification)
+#   2  DS_summer, smoothed 2 km          vs 1: how much the real roughness matters
+#   3  DS_base,   GEBCO as is            vs 1: the model's weaker stratification
+# Time: les_shoal.jl f2 measured ~0.9 s/step at 80 periods' worth of the
+# default CG tolerance; with 30 periods and tolerance 1e-4 expect a few hours.
+#
+# Each array index runs one configuration of src/les_diamond_real.jl (listed in
+# the case statement below) at resolution f2. A run that hits the 23 h wall-
+# time limit writes a checkpoint and stops; submitting this script again picks
+# every unfinished run up from its last checkpoint (finished runs stop at once).
+#
+# .template: see the note in src/sweep/submit_diamond.pbs.template.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N les2_f2
+#PBS -k eod
+#PBS -o logs/les2_f2.out
+#PBS -e logs/les2_f2.err
+#PBS -l walltime=12:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-3
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2
+module load peak-memusage
+module li
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+mkdir -p logs out/les /glade/derecho/scratch/nguyen/unc-shoals/les
+
+case "${PBS_ARRAY_INDEX}" in
+    1) CONFIG=DS_summer; SMOOTH=0 ;;
+    2) CONFIG=DS_summer; SMOOTH=2 ;;
+    3) CONFIG=DS_base;   SMOOTH=0 ;;
+    *) echo "ERROR: no configuration for array index ${PBS_ARRAY_INDEX}"; exit 1 ;;
+esac
+
+echo "════════════════════════════════════════════════════════"
+echo " LES v2: ${CONFIG}, smoothing ${SMOOTH} km, f2  (array index ${PBS_ARRAY_INDEX})"
+echo " Host:  $(hostname)"
+echo " GPU:   $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:  $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/les_diamond_real.jl ${CONFIG} f2 ${SMOOTH} \
+    2>&1 | tee -a out/les/LES2_${CONFIG}_S${SMOOTH}_f2.log
+
+echo "LES v2 ${CONFIG} S${SMOOTH} f2 stopped at $(date)"

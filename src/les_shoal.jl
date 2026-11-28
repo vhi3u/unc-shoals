@@ -60,7 +60,9 @@
 #     sponge: the first 10% of y relaxes u -> 0, v -> V_inf, w -> 0,
 #        b -> N^2 z at 40 V_inf / L_sponge (~20 e-folds per crossing), so the
 #        wake does not come back round.
-#   Run: 20 advective periods (T = L_m / V) of spin-up, 60 of statistics.
+#   Run: 10 advective periods (T = L_m / V) of spin-up, 20 of statistics (30 in
+#   all; Chor's rough-seamounts runs use 8 + 10). Was 20 + 60 = 80: the f2 runs
+#   measured ~0.9 s per step on a V100, which made 80 periods ~16 h.
 #
 # Output: /glade/derecho/scratch/nguyen/unc-shoals/les/<simname>/ on Casper
 # (les_output/<simname>/ elsewhere). Checkpoints let a run continue in a
@@ -204,7 +206,9 @@ closure = DynamicSmagorinsky(schedule = IterationInterval(5))
 # underlying grid. The FFT solver alone ignores the immersed boundary and
 # leaves the velocity divergent next to it (Oceananigans warns); with a land
 # cape that spans the full depth, that would let flow leak through the land.
-pressure_solver = ConjugateGradientPoissonSolver(grid; maxiter = 20)
+# Tolerance 1e-4 and at most 50 iterations, as in Zhao's fjord LES (stable at
+# dt ~ 15 s on A100s); the default, sqrt(eps) ~ 1.5e-8, was most of the cost.
+pressure_solver = ConjugateGradientPoissonSolver(grid; reltol = 1e-4, maxiter = 50)
 model = NonhydrostaticModel(grid;
                             pressure_solver,
                             advection = WENO(order = 5),
@@ -234,7 +238,8 @@ end
 # Stop a little before the job's walltime (submit_les_f1: 24 h, submit_les_f2:
 # 12 h) so the final checkpoint below is written before PBS kills the job.
 wall_limit = factor == 1 ? 23hours : 11.5hours
-simulation = Simulation(model; Δt = 0.2 * Δz0 / V_m, stop_time = 80 * T_adv, wall_time_limit = wall_limit)
+const T_RUN = 30                    # advective periods: 10 spin-up + 20 statistics
+simulation = Simulation(model; Δt = 0.2 * Δz0 / V_m, stop_time = T_RUN * T_adv, wall_time_limit = wall_limit)
 wizard = TimeStepWizard(cfl = 0.8, max_change = 1.05, min_change = 0.2, max_Δt = 1 / N_m)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(4))
 simulation.callbacks[:progress] = Callback(TimedMessenger(), IterationInterval(100))
@@ -265,9 +270,9 @@ simulation.output_writers[:crest] = NetCDFWriter(model, fields2d; filename = joi
 averages = (; u, v, w, b, uu = Field(u * u), vv = Field(v * v), ww = Field(w * w),
             uv = Field(u * v), ub = Field(u * b), vb = Field(v * b), wb = Field(w * b))
 simulation.output_writers[:avg] = NetCDFWriter(model, averages; filename = joinpath(outdir, "time_avg_3d.nc"),
-    schedule = AveragedTimeInterval(20T_adv, window = 20T_adv), overwrite_files = ow)
+    schedule = AveragedTimeInterval(10T_adv, window = 10T_adv), overwrite_files = ow)   # windows 2-3 are the statistics
 simulation.output_writers[:checkpointer] = Checkpointer(model; dir = outdir, prefix = "checkpoint",
-    schedule = TimeInterval(10T_adv), cleanup = true)
+    schedule = TimeInterval(5T_adv), cleanup = true)
 
 # metadata: the scaling, so the analysis can map the model back to the shoal
 NCDataset(joinpath(outdir, "metadata.nc"), "c") do ds
@@ -282,9 +287,9 @@ NCDataset(joinpath(outdir, "metadata.nc"), "c") do ds
     end
 end
 
-@info "Starting: $(80) advective periods ($(round(80T_adv / 86400, digits = 2)) days), pickup = $pickup"
+@info "Starting: $(T_RUN) advective periods ($(round(T_RUN * T_adv / 86400, digits = 2)) days), pickup = $pickup"
 run!(simulation; pickup)
-if simulation.model.clock.time < 80 * T_adv
+if simulation.model.clock.time < T_RUN * T_adv
     Oceananigans.OutputWriters.checkpoint(simulation)      # resume from here next job
     @info "Stopped at the walltime limit after $(round(simulation.model.clock.time / T_adv, digits = 2)) advective periods; checkpoint written. Resubmit to continue."
 else
