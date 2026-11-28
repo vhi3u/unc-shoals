@@ -29,9 +29,10 @@
 #   4  DSR_cape_v0065_125    125 m, v0 = 0.065 (vs DS_cape_v0065 at 500 m)
 #   5  DSR_cape_v020_100     100 m   (separate job: A100, see below)
 #
-# COST, scaled from a 250 m / 150 x 200 km / 120-day run (3.2 h on a V100):
-# cost ~ area x days / dx^3. Here 0.43 x the area, half the days:
-#   500 m ~ 5 min, 250 m ~ 0.7 h, 125 m ~ 5.5 h, 100 m ~ 11 h (V100).
+# COST, measured on this domain (params_diamond_strat.toml, 250 m, 60 days):
+# 1.2-1.7 h on a V100. Cost ~ 1/dx^3, so
+#   500 m ~ 0.2 h, 250 m ~ 1.5 h, 125 m ~ 10-14 h, 100 m ~ 20-27 h (V100;
+#   an A100 is ~2x faster).
 # Cells: 125 m is 640 x 1280 x 50 = 41 M; 100 m is 800 x 1600 x 50 = 64 M,
 # which is why run 5 asks for an A100.
 #

@@ -15,8 +15,8 @@
 #
 # Run 5 of params_diamond_res.toml: 100 m, 800 x 1600 x 50 = 64 M cells.
 # Not an array job, so it is a separate script; it asks for an A100 (more
-# memory than a 32 GB V100 and ~2x faster). ~11 h on a V100 by the estimate in
-# the table; 18:00:00 leaves margin. If the a100 request is refused, change
+# memory than a 32 GB V100 and ~2x faster). ~20-27 h on a V100 at the
+# measured 250 m pace, so ~10-14 h on an A100; 24:00:00 is the limit. If the a100 request is refused, change
 # gpu_type to v100 and walltime to 24:00:00, and check peak memory in the log.
 #═══════════════════════════════════════════════════════════════════════════
 
@@ -25,7 +25,7 @@
 #PBS -k eod
 #PBS -o logs/dsres100.out
 #PBS -e logs/dsres100.err
-#PBS -l walltime=18:00:00
+#PBS -l walltime=24:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=4:ngpus=1:gpu_type=a100:mem=64gb
 #PBS -m abe

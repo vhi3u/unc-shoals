@@ -16,8 +16,9 @@
 # Runs 1-4 of params_diamond_res.toml (run 5, 100 m, has its own job:
 # submit_diamond_res100.pbs.template). See that file for the design.
 #
-# Cost: the 125 m runs are the longest, ~5.5 h estimated; 12:00:00 leaves
-# margin for the estimate being off by 2x.
+# Cost: measured, not estimated -- the 250 m / 60-day strat runs
+# (params_diamond_strat.toml, same domain) took 1.2-1.7 h on a V100, so 125 m
+# (8x the work) is ~10-14 h. 24:00:00 is Casper's limit and leaves margin.
 #═══════════════════════════════════════════════════════════════════════════
 
 #PBS -A UOSC0035
@@ -25,7 +26,7 @@
 #PBS -k eod
 #PBS -o logs/dsres.out
 #PBS -e logs/dsres.err
-#PBS -l walltime=12:00:00
+#PBS -l walltime=24:00:00
 #PBS -q casper
 #PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
 #PBS -m abe
