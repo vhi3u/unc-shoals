@@ -21,16 +21,24 @@
 #         4.7 C at -30 m is colder than this shelf gets; a threshold test.
 #
 # THE RUNS (cape, 250 m, the 80 x 160 km domain of params_diamond_res.toml)
-#   1  DSN_cape_v020_N2x38   v0 = 0.20, N^2 x 3.8 (B1 summer)  } vs DSR_cape_v020_250
-#   2  DSN_cape_v020_N2x6    v0 = 0.20, N^2 x 6 (idealized)   } (N^2 x 1)
-#   3  DSN_cape_v010_N2x38   v0 = 0.10, N^2 x 3.8
+#   1  DSN_cape_v020_N2x38_bt   v0 = 0.20, N^2 x 3.8 (B1 summer)  } vs DSR_cape_v020_250
+#   2  DSN_cape_v020_N2x6_bt    v0 = 0.20, N^2 x 6 (idealized)   } (N^2 x 1)
+#   3  DSN_cape_v010_N2x38_bt   v0 = 0.10, N^2 x 3.8
 #
-# Cost ~0.7 h each (250 m, 60 days). Submit:
+# BOUNDED TRACERS (labels _bt). The first pass (no _bt, in cluster_dsstrat)
+# reached 40-70 C at the shoal tip's separation line and in the outflow
+# boundary row (tools/locate_extremes.m): WENO over/undershoot, scaled up by
+# the 8.6-17.6x temperature contrast. With no surface fluxes T and S cannot
+# physically leave the initial profile's range, so bounded_tracers = true
+# switches on WENO's maximum-principle limiter with that range. In a coarse
+# 3-day test it took the out-of-range surface cells from 1760 to 0.
+#
+# Cost ~1.2-1.7 h each on a V100 (measured, first pass). Submit:
 #   qsub src/sweep/submit_diamond_strat.pbs.template
 # ═══════════════════════════════════════════════════════════════════════════
 
 [[runs]]
-run_label    = "DSN_cape_v020_N2x38"
+run_label    = "DSN_cape_v020_N2x38_bt"
 bathy        = "diamond"
 cape_length  = 25000.0
 Zs           = -5.0
@@ -50,9 +58,10 @@ sim_days     = 60.0
 v0           = 0.2
 strat_scale_T = 8.59
 dx           = 250.0
+bounded_tracers = true
 
 [[runs]]
-run_label    = "DSN_cape_v020_N2x6"
+run_label    = "DSN_cape_v020_N2x6_bt"
 bathy        = "diamond"
 cape_length  = 25000.0
 Zs           = -5.0
@@ -72,9 +81,10 @@ sim_days     = 60.0
 v0           = 0.2
 strat_scale_T = 17.6
 dx           = 250.0
+bounded_tracers = true
 
 [[runs]]
-run_label    = "DSN_cape_v010_N2x38"
+run_label    = "DSN_cape_v010_N2x38_bt"
 bathy        = "diamond"
 cape_length  = 25000.0
 Zs           = -5.0
@@ -94,3 +104,4 @@ sim_days     = 60.0
 v0           = 0.1
 strat_scale_T = 8.59
 dx           = 250.0
+bounded_tracers = true

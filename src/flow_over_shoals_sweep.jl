@@ -65,6 +65,15 @@ const DEEP_STRAT_FRAC = parse(Float64, get(ENV, "SWEEP_DEEP_STRAT_FRAC", "0.0"))
 # (TEOS-10), 9.7 C top to bottom, like B1.
 const STRAT_SCALE_T = parse(Float64, get(ENV, "SWEEP_STRAT_SCALE_T", "1.0"))
 const STRAT_SCALE_S = parse(Float64, get(ENV, "SWEEP_STRAT_SCALE_S", "1.0"))
+# Bounds-preserving tracer advection (false = every run before 2026-11-28).
+# With no surface heat or freshwater flux, T and S can only be mixtures of the
+# water in the domain and what the boundaries bring in -- all inside the range
+# of the initial (south) profile -- so any value outside it is numerical.
+# The summer-stratification runs (strat_scale_T 8.6-17.6) produced 40-70 C at
+# the shoal tip's separation line and in the outflow boundary row
+# (tools/locate_extremes.m). This switches on WENO's maximum-principle limiter
+# (Zhang & Shu 2010, experimental in Oceananigans) with that range as bounds.
+const BOUNDED_TRACERS = get(ENV, "SWEEP_BOUNDED_TRACERS", "false") == "true"
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
@@ -255,7 +264,8 @@ x, y, z = (0, params.Lx), (0, params.Ly), (-params.Lz, 0)
 # open_east, open at x = Lx. y is Periodic or Open at both ends.
 x_topology = open_east ? (Closed, Open) : Bounded
 y_topology = open_y ? Open : Periodic
-grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(4, 4, 4), x, y, z,
+# The bounds-preserving WENO limiter needs one more halo cell horizontally.
+grid = RectilinearGrid(arch; size=(params.Nx, params.Ny, params.Nz), halo=(BOUNDED_TRACERS ? (5, 5, 4) : (4, 4, 4)), x, y, z,
                        topology=(x_topology, y_topology, Bounded))
 
 # model parameters
@@ -840,9 +850,24 @@ else
 end
 @info "Equation of state ($(eos_choice)):" seawater_buoyancy
 
+# Tracer advection: plain WENO, or bounded by the initial profile's range.
+if BOUNDED_TRACERS
+    zs_ = range(-params.Lz, 0, length=2001)
+    T_range = extrema(T_south_pwl.(zs_, T_south_v1))
+    S_lo, S_hi = extrema(S_south_pwl.(zs_, S_south_v1))
+    S_range = (S_lo - abs(FRONT_DS), S_hi)                # the optional front only freshens
+    # maximum_courant_number 0.45 (< 1/2): the limiter's guarantee holds for a
+    # summed Courant number below it; above, it still limits, more weakly.
+    tracer_advection = (T=WENO(order=5, bounds=T_range, maximum_courant_number=0.45),
+                        S=WENO(order=5, bounds=S_range, maximum_courant_number=0.45))
+    @info "Bounded tracer advection: T in $(round.(T_range, digits=3)) C, S in $(round.(S_range, digits=3)) psu"
+else
+    tracer_advection = WENO(order=5)
+end
+
 model = HydrostaticFreeSurfaceModel(ib_grid;
     momentum_advection=WENO(order=5),
-    tracer_advection=WENO(order=5),
+    tracer_advection=tracer_advection,
     free_surface=SplitExplicitFreeSurface(ib_grid; cfl=0.7),
     tracers=tracers,
     buoyancy=seawater_buoyancy,
@@ -1104,6 +1129,7 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     ds.attrib["deep_strat_frac"] = DEEP_STRAT_FRAC
     ds.attrib["strat_scale_T"] = STRAT_SCALE_T
     ds.attrib["strat_scale_S"] = STRAT_SCALE_S
+    ds.attrib["bounded_tracers"] = Int(BOUNDED_TRACERS)
 end
 
 # initial conditions
