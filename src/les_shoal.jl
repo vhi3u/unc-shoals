@@ -240,7 +240,10 @@ end
 wall_limit = factor == 1 ? 23hours : 11.5hours
 const T_RUN = 30                    # advective periods: 10 spin-up + 20 statistics
 simulation = Simulation(model; Δt = 0.2 * Δz0 / V_m, stop_time = T_RUN * T_adv, wall_time_limit = wall_limit)
-wizard = TimeStepWizard(cfl = 0.8, max_change = 1.05, min_change = 0.2, max_Δt = 1 / N_m)
+# diffusive_cfl: DynamicSmagorinsky is explicit, so a spike in eddy viscosity
+# can outrun an advective-only step (the first f2 runs reached a diffusive
+# CFL of 0.69 uncapped). Zhao's fjord LES caps it at 0.5; 0.8 here.
+wizard = TimeStepWizard(cfl = 0.8, diffusive_cfl = 0.8, max_change = 1.05, min_change = 0.2, max_Δt = 1 / N_m)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(4))
 simulation.callbacks[:progress] = Callback(TimedMessenger(), IterationInterval(100))
 
