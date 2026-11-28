@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# DIAMOND SHOALS WITH A CAPE: summer stratification
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# WHY. In Chor & Wenegrat's (2025) headland LES the regime is set by the slope
+# Burger number S_h = Ro_h / Fr_h = N H / (f L): attached, bathymetry-
+# following flow at S_h ~ 0.16, eddying wakes at S_h >~ 1. Our cape shoal
+# (L ~ 10 km, H ~ 20 m relief, f = 8.4e-5, V ~ 0.1 m/s at the shoal) with the
+# model's stratification (N ~ 0.017 1/s) has Ro_h ~ 0.12, Fr_h ~ 0.29,
+# S_h ~ 0.4: in between, and the wakes have been nearly steady.
+#
+# THE DATA. JJA means at the PEACH moorings (MATLAB/shoal_stuff/ctd):
+#   B1, north of Hatteras (upstream in southward flow)   N = 0.033 1/s
+#   B2, Raleigh Bay                                       N = 0.021 1/s
+#   model T/S profiles                                    N ~ 0.017 1/s
+# Winter (DJF) is mixed at both. Summer stratification at B1 is thermal
+# (12.5 C top to bottom, 0.8 psu), so strat_scale_T multiplies the model's
+# temperature contrast (TEOS-10 values):
+#   8.59  N^2 x 3.8: N ~ 0.033 (B1 summer), 14.9 C at -30 m, S_h ~ 0.8
+#   17.6  N^2 x 6:   N ~ 0.042, S_h ~ 1.0 (the eddying threshold). IDEALIZED:
+#         4.7 C at -30 m is colder than this shelf gets; a threshold test.
+#
+# THE RUNS (cape, 250 m, the 80 x 160 km domain of params_diamond_res.toml)
+#   1  DSN_cape_v020_N2x38   v0 = 0.20, N^2 x 3.8 (B1 summer)  } vs DSR_cape_v020_250
+#   2  DSN_cape_v020_N2x6    v0 = 0.20, N^2 x 6 (idealized)   } (N^2 x 1)
+#   3  DSN_cape_v010_N2x38   v0 = 0.10, N^2 x 3.8
+#
+# Cost ~0.7 h each (250 m, 60 days). Submit:
+#   qsub src/sweep/submit_diamond_strat.pbs.template
+# ═══════════════════════════════════════════════════════════════════════════
+
+[[runs]]
+run_label    = "DSN_cape_v020_N2x38"
+bathy        = "diamond"
+cape_length  = 25000.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+Lx           = 80000.0
+Ly           = 160000.0
+shoal_y0     = 60000.0
+open_y       = true
+sim_days     = 60.0
+v0           = 0.2
+strat_scale_T = 8.59
+dx           = 250.0
+
+[[runs]]
+run_label    = "DSN_cape_v020_N2x6"
+bathy        = "diamond"
+cape_length  = 25000.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+Lx           = 80000.0
+Ly           = 160000.0
+shoal_y0     = 60000.0
+open_y       = true
+sim_days     = 60.0
+v0           = 0.2
+strat_scale_T = 17.6
+dx           = 250.0
+
+[[runs]]
+run_label    = "DSN_cape_v010_N2x38"
+bathy        = "diamond"
+cape_length  = 25000.0
+Zs           = -5.0
+tip_depth    = -13.0
+crest_length = 17000.0
+taper_length = 3000.0
+sigma        = 4600.0
+Zsh          = -24.0
+shoreface_width = 10000.0
+break_distance  = 22000.0
+rise_width   = 2000.0
+Lx           = 80000.0
+Ly           = 160000.0
+shoal_y0     = 60000.0
+open_y       = true
+sim_days     = 60.0
+v0           = 0.1
+strat_scale_T = 8.59
+dx           = 250.0

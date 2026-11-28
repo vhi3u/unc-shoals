@@ -84,6 +84,9 @@ sweep_h_deep = Float64(get(this_run, "h_deep", -50.0))
 sweep_Lz = Float64(get(this_run, "Lz", 50.0))
 sweep_dz = Float64(get(this_run, "dz", 1.0))
 sweep_deep_strat = Float64(get(this_run, "deep_strat_frac", 0.0))
+# Scale the T and S profiles' departures from their surface values.
+sweep_strat_scale_T = Float64(get(this_run, "strat_scale_T", 1.0))
+sweep_strat_scale_S = Float64(get(this_run, "strat_scale_S", 1.0))
 
 if sweep_h_deep >= sweep_Zsh
     error("h_deep ($(sweep_h_deep)) must be deeper than Zsh ($(sweep_Zsh)); " *
@@ -151,6 +154,7 @@ run_cape_length = Float64(get(this_run, "cape_length", 0.0))
  h_deep:          $sweep_h_deep m  (break slope $(round((abs(sweep_h_deep) - abs(sweep_Zsh))/(2*sweep_rise_width), sigdigits=3)))
  Lz x dz:         $sweep_Lz m / $sweep_dz m  ($(round(Int, sweep_Lz/sweep_dz)) levels)
  deep_strat_frac: $sweep_deep_strat
+ strat_scale T/S: $sweep_strat_scale_T / $sweep_strat_scale_S
  sigma:           $sweep_sigma m
  Zsh (shelf_depth):$sweep_Zsh m
  shelf_break_end: $sweep_shelf_break_end m
@@ -215,6 +219,8 @@ ENV["SWEEP_H_DEEP"] = string(sweep_h_deep)
 ENV["SWEEP_LZ"] = string(sweep_Lz)
 ENV["SWEEP_DZ"] = string(sweep_dz)
 ENV["SWEEP_DEEP_STRAT_FRAC"] = string(sweep_deep_strat)
+ENV["SWEEP_STRAT_SCALE_T"] = string(sweep_strat_scale_T)
+ENV["SWEEP_STRAT_SCALE_S"] = string(sweep_strat_scale_S)
 ENV["SWEEP_STRAT"] = sweep_strat
 ENV["SWEEP_WIND_STRESS"] = string(sweep_wind_stress)
 ENV["SWEEP_V0"] = string(sweep_v0)

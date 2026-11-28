@@ -311,7 +311,9 @@ for k = 1:n
     % An rms and not a signed mean: the unforced section has a light upper
     % layer over a dense lower one, and a signed mean would cancel them.
     dsf    = meta_att_(cluster_dir, labels{k}, tags{k}, 'deep_strat_frac', 0);
-    [Ti, Si] = initial_profile_(zc, dsf);
+    sscT   = meta_att_(cluster_dir, labels{k}, tags{k}, 'strat_scale_T', 1);
+    sscS   = meta_att_(cluster_dir, labels{k}, tags{k}, 'strat_scale_S', 1);
+    [Ti, Si] = initial_profile_(zc, dsf, sscT, sscS);
     b_init = g * (a_T * Ti - b_S * Si);
     % The same surface-minus-bottom contrast as g', but of the INITIAL
     % profile over the shelf depth: known before the run, so it can predict.
@@ -683,14 +685,20 @@ Hcol  = sum(wet .* reshape(dzs, 1, 1, []), 3);
 n2bar = median(dbc ./ max(Hcol(okc), eps), 'omitnan');
 end
 
-function [T, S] = initial_profile_(z, dsf)
+function [T, S] = initial_profile_(z, dsf, sscT, sscS)
 % The model's initial (and nudging / east-exterior) profile: T_south_pwl and
 % S_south_pwl in flow_over_shoals_sweep.jl, smoothed piecewise linear with
 % tanh steps of width 2.5 m. Must be kept in step with that file. dsf is
 % DEEP_STRAT_FRAC: the gradient below the last breakpoint, as a fraction of
 % the segment above (0 = constant tail, as in every run before 2026-11-13).
-T = pwl_(z, [-5 -15 -30], [24.5378 24.3073 23.4116], dsf);
-S = pwl_(z, [-5 -15 -30], [35.5830 35.9986 36.1776], dsf);
+% sscT, sscS are STRAT_SCALE_T/_S: the departures from the surface value are
+% scaled by them (1 = every run before 2026-11-28).
+if nargin < 3, sscT = 1; end
+if nargin < 4, sscS = 1; end
+Tk = [24.5378 24.3073 23.4116];  Sk = [35.5830 35.9986 36.1776];
+Tk = Tk(1) + sscT * (Tk - Tk(1));  Sk = Sk(1) + sscS * (Sk - Sk(1));
+T = pwl_(z, [-5 -15 -30], Tk, dsf);
+S = pwl_(z, [-5 -15 -30], Sk, dsf);
 end
 
 function val = pwl_(z, zb, vb, dsf)

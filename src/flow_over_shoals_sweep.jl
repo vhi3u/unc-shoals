@@ -56,6 +56,15 @@ sweep_dz = parse(Float64, get(ENV, "SWEEP_DZ", "1.0"))
 # there. A deeper domain would make that worse, not better. 0.0 reproduces
 # the old constant tail exactly, so existing runs are unchanged.
 const DEEP_STRAT_FRAC = parse(Float64, get(ENV, "SWEEP_DEEP_STRAT_FRAC", "0.0"))
+# Multiply the T (and S) profiles' departures from their surface values
+# (1 = every run before 2026-11-28). The profiles give N ~ 0.017 1/s, close to
+# mooring B2 (Raleigh Bay) in summer, 0.021; B1, north of Hatteras and
+# upstream of the shoal in southward flow, has 0.033 in summer (JJA means,
+# MATLAB/shoal_stuff/ctd). Summer stratification there is thermal (B1: 12.5 C
+# top to bottom, 0.8 psu), so scale T: strat_scale_T = 8.59 gives N^2 x 3.8
+# (TEOS-10), 9.7 C top to bottom, like B1.
+const STRAT_SCALE_T = parse(Float64, get(ENV, "SWEEP_STRAT_SCALE_T", "1.0"))
+const STRAT_SCALE_S = parse(Float64, get(ENV, "SWEEP_STRAT_SCALE_S", "1.0"))
 sweep_run_label = get(ENV, "SWEEP_RUN_LABEL", "standalone")
 sweep_run_index = parse(Int, get(ENV, "SWEEP_RUN_INDEX", "0"))
 sweep_wind_stress = parse(Float64, get(ENV, "SWEEP_WIND_STRESS", "0.0"))
@@ -318,6 +327,7 @@ const δ_smooth = 2.5
 @inline function T_north_pwl(z, v1=20.5389)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v2, v3 = 17.8875, 14.3323
+    v2, v3 = v1 + STRAT_SCALE_T * (v2 - v1), v1 + STRAT_SCALE_T * (v3 - v1)   # strat_scale_T
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -333,6 +343,7 @@ end
 @inline function T_south_pwl(z, v1=24.5378)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v2, v3 = 24.3073, 23.4116
+    v2, v3 = v1 + STRAT_SCALE_T * (v2 - v1), v1 + STRAT_SCALE_T * (v3 - v1)   # strat_scale_T
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -348,6 +359,7 @@ end
 @inline function S_north_pwl(z, v1=32.6264)
     z1, z2, z3 = -5.0, -15.0, -35.0
     v2, v3 = 33.7062, 33.2648
+    v2, v3 = v1 + STRAT_SCALE_S * (v2 - v1), v1 + STRAT_SCALE_S * (v3 - v1)   # strat_scale_S
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -363,6 +375,7 @@ end
 @inline function S_south_pwl(z, v1=35.5830)
     z1, z2, z3 = -5.0, -15.0, -30.0
     v2, v3 = 35.9986, 36.1776
+    v2, v3 = v1 + STRAT_SCALE_S * (v2 - v1), v1 + STRAT_SCALE_S * (v3 - v1)   # strat_scale_S
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -379,6 +392,7 @@ end
 @inline function T_east_pwl(z)
     z1, z2, z3 = -5.0, -25.0, -45.0
     v1, v2, v3 = 25.0, 23.0, 21.0
+    v2, v3 = v1 + STRAT_SCALE_T * (v2 - v1), v1 + STRAT_SCALE_T * (v3 - v1)   # strat_scale_T
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -395,6 +409,7 @@ end
 @inline function S_east_pwl(z)
     z1, z2, z3 = -5.0, -25.0, -45.0
     v1, v2, v3 = 35.8, 36.0, 36.2      # Flipped: 35.8 at surface, 36.2 at bottom
+    v2, v3 = v1 + STRAT_SCALE_S * (v2 - v1), v1 + STRAT_SCALE_S * (v3 - v1)   # strat_scale_S
     m12 = (v2 - v1) / (z2 - z1)
     m23 = (v3 - v2) / (z3 - z2)
     val1 = v1
@@ -1087,6 +1102,8 @@ NCDatasets.Dataset("sweep_metadata_$(run_tag).nc", "c") do ds
     # as a fixed reference for g'_h, and the tail below the last breakpoint
     # depends on this. Absent in older files, which all ran with 0.
     ds.attrib["deep_strat_frac"] = DEEP_STRAT_FRAC
+    ds.attrib["strat_scale_T"] = STRAT_SCALE_T
+    ds.attrib["strat_scale_S"] = STRAT_SCALE_S
 end
 
 # initial conditions
