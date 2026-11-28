@@ -245,7 +245,10 @@ b = model.tracers.b
 fields2d = (; u, v, w, b, ωz)
 
 k_top = Nz
-k_mid = searchsortedfirst(znodes(underlying, Center()), g.Zsh / 2)       # mid-shelf depth
+# from zf (a CPU vector): on a GPU the grid's own znodes are a GPU array, and
+# searching one element by element is the scalar indexing CUDA forbids
+zc = (zf[1:end-1] .+ zf[2:end]) ./ 2
+k_mid = searchsortedfirst(zc, g.Zsh / 2)                                 # mid-shelf depth
 j_axis = round(Int, g.y0 / Δh)
 i_crest = round(Int, (g.cape_length + g.crest_length / 2) / Δh)
 Δt_slice = 0.5 * T_adv
