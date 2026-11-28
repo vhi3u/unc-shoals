@@ -456,4 +456,13 @@ function (pm::TimedMessenger)(simulation)
 end
 #---
 
+# Checkpointing: a messenger holds no state worth keeping (only wall-clock
+# timers), so it saves nothing and is left as it is on pickup. Without these,
+# picking up a checkpointed simulation that uses one fails with a MethodError
+# in restore_prognostic_state!.
+import Oceananigans
+Oceananigans.prognostic_state(::AbstractProgressMessenger) = nothing
+Oceananigans.restore_prognostic_state!(m::AbstractProgressMessenger, from) = m
+Oceananigans.restore_prognostic_state!(m::AbstractProgressMessenger, ::Nothing) = m   # resolves an ambiguity
+
 end # module

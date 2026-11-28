@@ -68,3 +68,6 @@
 # to track submit_*.pbs.template and keep the live .pbs ignored.
 # =====================================================================
 *.pbs
+
+# Local LES output (src/les_shoal.jl writes to scratch on Casper)
+/les_output

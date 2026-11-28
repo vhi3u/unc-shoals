@@ -1,0 +1,59 @@
+#!/bin/bash -l
+#═══════════════════════════════════════════════════════════════════════════
+# Diamond Shoals cape LES (src/les_shoal.jl), half resolution (f2), V100
+#═══════════════════════════════════════════════════════════════════════════
+# Submit:  qsub src/submit_les_f2.pbs.template
+#
+# Three configurations at f2: 8 m horizontally, 2 m vertically near the top,
+# 400 x 800 x ~38 = ~12 M cells. Estimated ~2-4 h each for the 80 advective
+# periods (3.7 model days); 12:00:00 leaves margin. Run these first: they
+# show whether the wake eddies appear before paying for full resolution.
+#
+# Each array index runs one configuration of src/les_shoal.jl (listed in the
+# case statement below) at resolution f2. A run that hits the 23 h wall-
+# time limit writes a checkpoint and stops; submitting this script again picks
+# every unfinished run up from its last checkpoint (finished runs stop at once).
+#
+# .template: see the note in src/sweep/submit_diamond.pbs.template.
+#═══════════════════════════════════════════════════════════════════════════
+
+#PBS -A UOSC0035
+#PBS -N les_f2
+#PBS -k eod
+#PBS -o logs/les_f2.out
+#PBS -e logs/les_f2.err
+#PBS -l walltime=12:00:00
+#PBS -q casper
+#PBS -l select=1:ncpus=4:ngpus=1:gpu_type=v100:mem=64gb
+#PBS -m abe
+#PBS -J 1-3
+
+module purge
+module load ncarenv-basic/24.12
+module load ncarenv/24.12
+module load julia/1.11.2
+module load peak-memusage
+module li
+
+PROJECT_DIR="/glade/work/nguyen/unc-shoals"
+cd "${PROJECT_DIR}"
+mkdir -p logs out/les /glade/derecho/scratch/nguyen/unc-shoals/les
+
+case "${PBS_ARRAY_INDEX}" in
+    1) CONFIG=DS_base ;;
+    2) CONFIG=DS_summer ;;
+    3) CONFIG=DS_summer_slow ;;
+    *) echo "ERROR: no configuration for array index ${PBS_ARRAY_INDEX}"; exit 1 ;;
+esac
+
+echo "════════════════════════════════════════════════════════"
+echo " LES:   ${CONFIG} f2  (array index ${PBS_ARRAY_INDEX})"
+echo " Host:  $(hostname)"
+echo " GPU:   $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'N/A')"
+echo " Date:  $(date)"
+echo "════════════════════════════════════════════════════════"
+
+peak_memusage julia --project=. src/les_shoal.jl ${CONFIG} f2 \
+    2>&1 | tee -a out/les/LES_${CONFIG}_f2.log
+
+echo "LES ${CONFIG} f2 stopped at $(date)"

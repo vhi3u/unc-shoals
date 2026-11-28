@@ -44,7 +44,9 @@ THE SHOAL, with s = x - cape_length the distance along it from the tip:
 The shoal fills the background up to the crest target, as in
 dshoal_vn_param.jl, so it never makes the bottom deeper.
 
-Every water column is at least 5 m deep (min(-5, h)), as in dshoal_vn_param.jl.
+Every water column is at least |h_coast| deep (default 5 m, as in
+dshoal_vn_param.jl); h_coast is also the depth at the shoreline. The LES
+(src/les_shoal.jl) scales it with the rest of the vertical.
 """
 
 # ── helpers (GPU-safe scalar code) ──────────────────────────────────────
@@ -72,26 +74,26 @@ end
     return min(d_left, d_right, d_wall)
 end
 
-# shoreface: -5 m at the coast, Zsh by ~shoreface_width, exactly -5 at d = 0
-@inline function ds_shoreface(d, Zsh, shoreface_width)
+# shoreface: h_coast at the coast (exactly, at d = 0), Zsh by ~shoreface_width
+@inline function ds_shoreface(d, Zsh, shoreface_width, h_coast)
     mid, w = 0.5 * shoreface_width, shoreface_width / 5.6
     s0 = ds_step(0.0, mid, w)
     s = (ds_step(d, mid, w) - s0) / (1.0 - s0)
-    return -5.0 + (Zsh + 5.0) * s
+    return h_coast + (Zsh - h_coast) * s
 end
 
 @inline function ds_background(x, y, y0, cape_length, half_base, Zsh, shoreface_width,
-                               x_break, rise_width, h_deep)
+                               x_break, rise_width, h_deep, h_coast)
     d = ds_coast_distance(x, y, y0, cape_length, half_base)
-    return ds_shoreface(d, Zsh, shoreface_width) + (h_deep - Zsh) * ds_step(x, x_break, rise_width)
+    return ds_shoreface(d, Zsh, shoreface_width, h_coast) + (h_deep - Zsh) * ds_step(x, x_break, rise_width)
 end
 
 @inline function _ds_bottom(x, y, y0, cape_length, half_base, Zs, tip_depth, crest_length,
-                            taper_length, sigma, Zsh, shoreface_width, x_break, rise_width, h_deep)
+                            taper_length, sigma, Zsh, shoreface_width, x_break, rise_width, h_deep, h_coast)
     # land
     x < ds_coast_x(y, y0, cape_length, half_base) && return 0.0
 
-    hw = ds_background(x, y, y0, cape_length, half_base, Zsh, shoreface_width, x_break, rise_width, h_deep)
+    hw = ds_background(x, y, y0, cape_length, half_base, Zsh, shoreface_width, x_break, rise_width, h_deep, h_coast)
 
     s = x - cape_length                                  # along the shoal from the tip
     # crest target: Zs at the tip, tip_depth at the end, held under the taper
@@ -117,7 +119,7 @@ end
 
     gauss_y = exp(-((y - y0)^2) / (2 * sigma^2))
     potential = max(0.0, target - hw)
-    return min(-5.0, hw + potential * taper_off * taper_in * gauss_y)
+    return min(h_coast, hw + potential * taper_off * taper_in * gauss_y)
 end
 
 """
@@ -138,12 +140,13 @@ measurements of Diamond Shoals):
   h_deep = -50.0          depth offshore of the break (the domain floor)
   cape_length = 0.0       0: straight coast. > 0: a land cape this far out
   cape_angle = 45.0       angle of the cape's coasts to the y axis (degrees)
+  h_coast = -5.0          depth at the shoreline, and the shallowest water anywhere
   shoal_y0 = Ly / 2       along-shore centre of the shoal (and the cape)
 """
 function dshoal_diamond_bottom(Ly;
     Zs=-5.0, tip_depth=-13.0, crest_length=17e3, taper_length=3e3, sigma=4.6e3,
     Zsh=-24.0, shoreface_width=10e3, break_distance=22e3, rise_width=2e3, h_deep=-50.0,
-    cape_length=0.0, cape_angle=45.0, shoal_y0=nothing)
+    cape_length=0.0, cape_angle=45.0, h_coast=-5.0, shoal_y0=nothing)
 
     y0 = isnothing(shoal_y0) ? Ly / 2 : Float64(shoal_y0)
     cape_length = Float64(cape_length)
@@ -158,7 +161,7 @@ function dshoal_diamond_bottom(Ly;
     bottom(x, y) = _ds_bottom(x, y, y0, cape_length, half_base, Float64(Zs), Float64(tip_depth),
                               Float64(crest_length), Float64(taper_length), Float64(sigma),
                               Float64(Zsh), Float64(shoreface_width), x_break, Float64(rise_width),
-                              Float64(h_deep))
+                              Float64(h_deep), Float64(h_coast))
     return bottom
 end
 
